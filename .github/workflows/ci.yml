@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      lookback:
+        description: Minutes of trades to pull
+        default: "15"
+      min_stake:
+        description: Minimum bet size in dollars
+        default: "100"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+      - name: Live check against Kalshi
+        run: python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }}
