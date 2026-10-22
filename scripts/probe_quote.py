@@ -1,80 +1,36 @@
-"""Probe: Kalshi's public OpenAPI spec for RFQ/quote endpoints, and what a combo market shows now.
-
-Prints only public data. For the signed calls it prints the HTTP status and the
-field names, never values, since this output lands on a public branch.
-"""
-import json
+"""Probe: run the QUOTE page's live check on the busiest real combos right now (public data only)."""
 import os
 import sys
+import time
 from collections import Counter
 
-import requests
-import yaml
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from combo_tracker.client import BASE_URL, KalshiAuth, KalshiClient  # noqa: E402
+from combo_tracker.client import KalshiClient  # noqa: E402
+from combo_tracker.pipeline import GameStarts  # noqa: E402
+from combo_tracker.quote import check, odds  # noqa: E402
 
-spec = None
-for url in ("https://docs.kalshi.com/openapi.yaml", "https://docs.kalshi.com/openapi.json",
-            "https://trading-api.readme.io/openapi.json"):
-    try:
-        r = requests.get(url, timeout=20)
-        print(url, r.status_code, len(r.content))
-        if r.ok:
-            text = "".join(ch for ch in r.text if ch in "\n\t" or (ord(ch) >= 32 and not 0x7f <= ord(ch) <= 0x9f))
-            spec = yaml.safe_load(text)
-            break
-    except Exception as e:
-        print(url, "ERR", e)
-
-if spec:
-    for path, ops in spec.get("paths", {}).items():
-        if "communications" in path or "multivariate" in path:
-            for m, op in ops.items():
-                if isinstance(op, dict):
-                    print(f"\n### {m.upper()} {path}: {op.get('summary')}")
-                    for p in op.get("parameters", []):
-                        print("  param", json.dumps(p)[:300])
-                    if op.get("requestBody"):
-                        print("  body", json.dumps(op["requestBody"])[:600])
-    for name, s in spec.get("components", {}).get("schemas", {}).items():
-        if any(k in name.lower() for k in ("quote", "rfq", "multivariate")):
-            print(f"\n## schema {name}\n", json.dumps(s)[:2500])
-
-c = KalshiClient(rate_per_sec=4)
+c = KalshiClient(rate_per_sec=6)
 trades, cursor = [], None
-for _ in range(15):
+for _ in range(8):
     d = c._get("/markets/trades", {"limit": 1000, **({"cursor": cursor} if cursor else {})})
     trades += [t for t in d.get("trades", []) if t["ticker"].startswith("KXMVE")]
     cursor = d.get("cursor")
-    if not cursor:
-        break
-print("\ncombo trades sampled:", len(trades))
-cnt = Counter(t["ticker"] for t in trades)
-print("repeat tickers:", cnt.most_common(5))
-if cnt:
-    tick = cnt.most_common(1)[0][0]
-    m = c._get("/markets", {"tickers": tick})["markets"][0]
-    print("combo market:", json.dumps({k: v for k, v in m.items() if k not in ("custom_strike", "mve_selected_legs") and not k.startswith("rules")})[:3000])
-    for t in [t for t, _ in cnt.most_common(8)]:
-        print(t, "orderbook:", json.dumps(c._get(f"/markets/{t}/orderbook"))[:300])
-        print("   recent fills:", [(x["created_time"][11:19], x.get("taker_outcome_side") or x["taker_side"], x["yes_price_dollars"], x["count_fp"]) for x in trades if x["ticker"] == t][:8])
+starts = GameStarts(c)
+starts.refresh()
+busy = [t for t, _ in Counter(t["ticker"] for t in trades).most_common(6)]
+lone = [t["ticker"] for t in trades if t["ticker"] not in busy][:4]
+for ticker in busy + lone:
+    t = next(x for x in trades if x["ticker"] == ticker)
+    side = t.get("taker_outcome_side") or t["taker_side"]
+    price = float(t["yes_price_dollars"] if side == "yes" else t["no_price_dollars"])
+    t0 = time.time()
     try:
-        print("combo orderbook:", json.dumps(c._get(f"/markets/{tick}/orderbook"))[:800])
+        r = check(c, ticker, side, price, float(t["count_fp"]), starts)
     except Exception as e:
-        print("combo orderbook ERR", e)
-
-auth = KalshiAuth.from_env()
-print("\nAPI key set:", auth is not None)
-if auth:
-    s = requests.Session()
-    for path, params in (("/communications/id", None), ("/communications/quotes", {"limit": 1}),
-                         ("/communications/rfqs", {"limit": 1})):
-        r = s.get(BASE_URL + path, params=params, headers=auth.headers("GET", "/trade-api/v2" + path), timeout=20)
-        try:
-            body = r.json()
-            shape = {k: (sorted(v[0].keys()) if isinstance(v, list) and v and isinstance(v[0], dict) else type(v).__name__)
-                     for k, v in body.items()}
-        except Exception:
-            shape = r.text[:200]
-        print(path, r.status_code, shape)
+        print(ticker, "ERR", repr(e)[:300])
+        continue
+    print(f"\n{ticker} {side} @ {price:.4f} ({odds(price)}) legs={len(r.scored['leg_detail'])} took {time.time() - t0:.1f}s")
+    print(f"  {r.verdict}: {r.reason}")
+    print(f"  book ask {r.book_ask} x{r.book_ask_size:.0f}, at price {r.book_at_price:.0f}; best now {r.best_now}; "
+          f"EV now {r.ev_now}; EV at price mid {r.scored['ev_pct_mid']} crx {r.scored['ev_pct_crx']}")
+    print("  fills:", [(f.ts.strftime('%H:%M:%S'), f.side, f.price, f.contracts) for f in r.fills[:6]])
