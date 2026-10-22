@@ -46,6 +46,7 @@ from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfqs  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
+from combo_tracker import quote_view  # noqa: E402
 from combo_tracker.rfq import RfqBook  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
@@ -204,6 +205,7 @@ def nav() -> None:
     with st.container(horizontal=True, key="nav"):
         st.page_link(PAGES[0], label="COMBOS")
         st.page_link(PAGES[1], label="BETTORS")
+        st.page_link(PAGES[2], label="QUOTE")
 
 
 def combo_page() -> None:
@@ -347,6 +349,43 @@ def bettors_page() -> None:
         )
 
 
+# ---------- Quote page ----------
+@st.cache_resource
+def quote_client():
+    """Its own client and rate limit, so checking a quote never waits behind the collector."""
+    return KalshiClient(rate_per_sec=8)
+
+
+def quote_page() -> None:
+    nav()
+    src = get_source()
+    view = (st.session_state.get("window", 60), st.session_state.get("min_bet", 100))
+    snap = src.board.peek(*view) or src.board.peek(60, 100)  # the worker always keeps 60 min / $100 scored
+    if snap is None:
+        with st.spinner("Loading recent bets…"):
+            snap = src.board.get(*view)
+    rows = sorted(snap.rows, key=lambda r: r["last_time"], reverse=True) if snap else []
+    client = src.scorer.client if DEMO else quote_client()  # the demo's bets only exist in its own client
+    quote_view.render(client, rows, starts=src.scorer.starts, auth=None if DEMO else _kalshi_auth(), demo=DEMO)
+    with st.expander("How to read this"):
+        st.markdown(
+            "- A fill in the feed means someone got that price, not that you still can. This page checks one combo "
+            "**now**.\n"
+            "- **LIVE**: the combo's own orderbook has resting orders at or under the price, or it filled at that "
+            "price in the last 90 seconds. **LIKELY**: its newest fill was at or under the price, but a few minutes "
+            "ago. **MOVED**: newer fills are at a worse price. **STALE**: nothing on this side in 10 minutes.\n"
+            "- **Combo book**: makers often leave orders resting on a combo after it trades. Green levels are at or "
+            "under your price, so you could take them now with a limit order.\n"
+            "- **EV** compares the price with the legs' books right now (mid, and crossing the spread). "
+            "**Best now** is the lowest price that looks available: the book's ask or a fill in the last 90 seconds.\n"
+            "- **WATCH** re-checks every 5 seconds while it's on.\n"
+            "- **GET QUOTE** sends a real request for quote with your API key, for about the dollar amount you "
+            "pick (fees included), and lists makers' quotes as they arrive with EV after your fee. It's cancelled "
+            "after 45 seconds. Nothing is ever accepted from this page."
+        )
+
+
 PAGES = [st.Page(combo_page, title="Combo EV", icon="🎯", default=True),
-         st.Page(bettors_page, title="Bettors", icon="📈", url_path="bettors")]
+         st.Page(bettors_page, title="Bettors", icon="📈", url_path="bettors"),
+         st.Page(quote_page, title="Quote", icon="⚡", url_path="quote")]
 st.navigation(PAGES, position="hidden").run()
