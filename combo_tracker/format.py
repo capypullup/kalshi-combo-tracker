@@ -28,17 +28,24 @@ def _missing(x) -> bool:
     return x is None or (isinstance(x, float) and math.isnan(x))
 
 
-def units(kelly: float | None, kelly_mult: float = 0.25, unit_pct: float = 1.0) -> int | None:
+def units(kelly: float | None, kelly_mult: float = 0.25, unit_pct: float = 1.0) -> float | None:
     """Kelly stake in units, where one unit is `unit_pct`% of bankroll."""
     if _missing(kelly):
         return None
-    return round(kelly * kelly_mult * 100 / unit_pct)
+    return kelly * kelly_mult * 100 / unit_pct
+
+
+def fmt_units(u: float | None) -> str:
+    """'20u' for big stakes, '0.88u' for small ones."""
+    if u is None:
+        return "–"
+    return f"{u:.0f}u" if u >= 10 else f"{u:.2f}u"
 
 
 def ev_line(name: str, ev_pct, fair, kelly, kelly_mult: float, unit_pct: float) -> str:
     if _missing(ev_pct) or _missing(fair):
         return f"EV {name} n/a (a leg has no quote)"
-    return f"EV {name} {ev_pct * 100:+.1f}% (fair {fmt_odds(fair)}) · {units(kelly, kelly_mult, unit_pct)}u"
+    return f"EV {name} {ev_pct * 100:+.1f}% (fair {fmt_odds(fair)}) · {fmt_units(units(kelly, kelly_mult, unit_pct))}"
 
 
 def bet_card(row: dict, kelly_mult: float = 0.25, unit_pct: float = 1.0) -> str:

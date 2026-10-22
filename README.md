@@ -16,8 +16,10 @@ EV CRX +3568.4% (fair -363) · 19u
 
 - **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number.
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
-- Flags: `SG` same-game legs (correlated), `THIN` shallow leg books, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%.
-- The page is a compact table, about 10 bets per phone screen. Tap a column header to sort, or tap a row to open its bet card with the full leg orderbooks. Toggles at the top: min bet size chips, quick filters (+EV, Clean, No SG, No thin, YES only) and ⚙️ More filters (window, custom min, max legs, Kelly settings).
+- The page is a black and cyan table, about 10 bets per phone screen. Each row shows when the bet was placed, the side, price × contracts (with American odds and dollars staked), EV at mid and EV crossing the spread (each with Kelly units), and legs / games.
+- Toggles at the top: **MIN EV**, **MIN QK** (Kelly units) and **MIN BET** chips, a **WINDOW** (15m, 1h, 3h), **INDEP. ONLY** to hide same-game combos, **MID / CROSS** to pick which EV the minimums use, **PREGAME / LIVE**, and a search box for leg names. The gear icon sets the Kelly fraction and unit size. Your choices are remembered on your phone.
+- Tap a column header to sort, or a row to open it: each leg with its odds and bid / ask (`*` marks a book thinner than the bet), fair odds, net EV after fees, flags, a book button that walks the full leg orderbooks at the bet's size, and **Copy bet card**.
+- Flags: `SG` same-game legs (correlated), `THIN` shallow leg books, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%. LIVE is a guess, since Kalshi gives no start time: a combo counts as live once a leg is within 3h of its expected settlement.
 
 All data comes from Kalshi's free public API. No API key is needed.
 
@@ -37,7 +39,7 @@ pytest -q
 2. Go to https://share.streamlit.io, sign in with GitHub, click **Create app**, pick this repo, and set the main file to `app.py`.
 3. Open the URL it gives you on your phone and use **Add to Home Screen**.
 
-The app pulls fresh data every 3 minutes while it's open, and you can tap ↻ to refresh now. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
+The app pulls fresh data every minute while it's open, and you can tap ↻ to refresh now. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
 
 ## Layout
 
@@ -46,4 +48,6 @@ The app pulls fresh data every 3 minutes while it's open, and you can tap ↻ to
 - `combo_tracker/engine.py`: groups fills into bets and computes fair prices, EV, Kelly and flags
 - `combo_tracker/format.py`: the text bet card
 - `combo_tracker/pipeline.py`: one refresh, end to end
-- `app.py`: the Streamlit UI
+- `combo_tracker/view.py`: the compact rows the table receives
+- `combo_tracker/ui/`: the table component (filters, sorting and copying run in the browser)
+- `app.py`: the Streamlit page

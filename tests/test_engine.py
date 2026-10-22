@@ -117,6 +117,7 @@ def test_leg_expiry_and_status():
     bet = build_bets([trade("1", "KXMVE-X", "yes", 0.15, 10)])[0]
     row = score_bet(bet, combo_market(), legs, BOOKS, now=NOW)
     assert row["hours_to_resolve"] == pytest.approx(24.0)
+    assert row["hours_to_first_leg"] == pytest.approx(3.0)
     assert row["inactive_legs"] == 1
 
 
@@ -126,3 +127,21 @@ def test_at_size_is_conservative_and_flags_thin_books():
     assert row["fair_at_size"] == pytest.approx(0.49 * 0.39)  # walks the leg bids
     big = build_bets([trade("2", "KXMVE-X", "yes", 0.15, 400)])[0]
     assert score_bet(big, combo_market(), {}, BOOKS, now=NOW)["min_fill_pct"] == pytest.approx(0.25)
+
+
+def test_slim_row_is_json_safe_and_flags_live_games():
+    import json
+
+    from combo_tracker.view import slim
+
+    legs = {"A": {"status": "active", "expected_expiration_time": "2026-10-21T14:00:00Z"},
+            "B": {"status": "active", "expected_expiration_time": "2026-10-22T12:00:00Z"}}
+    market = combo_market()
+    market["mve_selected_legs"][1]["event_ticker"] = "KXNFLTOTAL-26OCT21CD"  # second game
+    bet = build_bets([trade("1", "KXMVE-X", "yes", 0.15, 100)])[0]
+    row = slim(score_bet(bet, market, legs, {"A": BOOKS["A"]}, now=NOW))  # leg B has no quote
+    json.dumps(row, allow_nan=False)
+    assert row["id"] == "KXMVE-X|yes" and row["L"] == 2 and row["G"] == 2 and row["sg"] == 0
+    assert row["live"] is True  # leg A settles within 3h, so its game has started
+    assert row["evm"] is None and "NO QUOTE" in row["flags"]
+    assert [l["s"] for l in row["legs"]] == ["yes", "yes"]

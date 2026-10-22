@@ -91,6 +91,15 @@ def build_bets(trades: list[dict], group: bool = True) -> list[ComboBet]:
     return list(bets.values())
 
 
+def _combo_quote(market: dict, side: str, which: str) -> float | None:
+    """The combo market's own best bid/ask for `side` (RFQ combos usually have none)."""
+    yes_bid, yes_ask = (float(market.get(k) or 0) for k in ("yes_bid_dollars", "yes_ask_dollars"))
+    if side == "no":
+        yes_bid, yes_ask = (1 - yes_ask if yes_ask else 0), (1 - yes_bid if yes_bid else 0)
+    value = yes_bid if which == "bid" else yes_ask
+    return value if 0 < value < 1 else None
+
+
 def legs_of(market: dict) -> list[dict]:
     return market.get("mve_selected_legs") or []
 
@@ -150,6 +159,8 @@ def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], b
     expiry = max(leg_expiries) if leg_expiries else _parse_time(
         combo_market.get("expected_expiration_time") or combo_market.get("close_time"))
     hours_to_resolve = None if expiry is None else (expiry - now).total_seconds() / 3600
+    # Kalshi has no game start time; a leg's expected expiration is roughly its game's end.
+    hours_to_first_leg = (min(leg_expiries) - now).total_seconds() / 3600 if leg_expiries else None
 
     events = events or {}
     leg_rows = []
@@ -177,12 +188,15 @@ def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], b
         "title": combo_market.get("yes_sub_title") or combo_market.get("title") or bet.ticker,
         "side": bet.taker_side,
         "legs": len(legs),
+        "games": len(set(game_keys)),
         "contracts": bet.contracts,
         "price": bet.price,
         "stake": bet.stake,
         "max_payout": bet.contracts,
         "fills": bet.fills,
         "last_time": bet.last_time,
+        "combo_bid": _combo_quote(combo_market, bet.taker_side, "bid"),
+        "combo_ask": _combo_quote(combo_market, bet.taker_side, "ask"),
         "minutes_ago": (now - bet.last_time).total_seconds() / 60,
         "fair_mid": fair_mid,
         "fair_ask": fair_ask,
@@ -215,5 +229,6 @@ def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], b
         "inactive_legs": inactive_legs,
         "same_game_legs": same_game_legs,
         "hours_to_resolve": hours_to_resolve,
+        "hours_to_first_leg": hours_to_first_leg,
         "leg_detail": leg_rows,
     }

@@ -3,6 +3,7 @@
 python scripts/live_check.py [lookback_minutes] [min_stake]
 """
 
+import json
 import sys
 import time
 import traceback
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from combo_tracker.client import COMBO_PREFIX, KalshiClient  # noqa: E402
 from combo_tracker.format import bet_card  # noqa: E402
+from combo_tracker.view import slim  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.pipeline import Scorer  # noqa: E402
 
@@ -89,6 +91,9 @@ if snap.rows:
           f"full-depth EV {deep and deep['ev_pct_mid']}")
 for e in snap.errors[:5]:
     print("  error:", e)
+payload = json.dumps([slim(r) for r in snap.rows], allow_nan=False)  # what the phone table receives
+print(f"     table payload: {len(payload) / 1024:.0f} KB for {len(snap.rows)} rows · "
+      f"{sum(1 for r in snap.rows if slim(r)['live'])} look live")
 missing = sum(1 for r in snap.rows if r["missing_quotes"])
 print(f"     rows with a missing leg quote: {missing}/{len(snap.rows)}")
 rows = sorted(snap.rows, key=lambda r: r["ev_pct_mid"] if r["ev_pct_mid"] is not None else -9, reverse=True)
