@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from .quote import DemoRfqDesk, LiveCheck, RfqDesk, RfqError, check, odds, quote_for
+from .quote import DemoRfqDesk, LiveCheck, RfqDesk, RfqError, cents, check, odds, quote_for
 from .view import leg_live
 
 WATCH_SECONDS = 5
@@ -45,8 +45,10 @@ CSS = """<style>
 </style>"""
 
 
-def _c(p: float | None, digits: int = 1) -> str:
-    return "–" if p is None else f"{p * 100:.{digits}f}¢"
+def _c(p: float | None, digits: int | None = None) -> str:
+    if p is None:
+        return "–"
+    return cents(p) if digits is None else f"{p * 100:.{digits}f}¢"
 
 
 def _pct(x: float | None) -> str:
@@ -179,7 +181,8 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False)
         if force or watch or not last or last["key"] != key or time.time() - last["at"] > CHECK_TTL:
             try:
                 last = {"key": key, "at": time.time(), "check": check(client, ticker, side, price, contracts, starts,
-                                                                        since=base["since"] if side == base["side"] else None)}
+                                                                        since=base["since"] if side == base["side"] else None,
+                                                                        cache=ss.setdefault("q_legs", {}))}
             except Exception as exc:  # network / unknown ticker
                 st.error(f"Couldn't check {ticker}: {exc}"[:300])
                 return

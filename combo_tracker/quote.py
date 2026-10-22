@@ -28,6 +28,14 @@ from .orderbook import LegBook
 FRESH_SECONDS = 90  # a same-side fill at or under your price this recently = live
 RECENT_SECONDS = 600  # fills older than this say nothing about now
 PRICE_SLACK = 0.02  # a fill up to 2% (relative) over your price still counts as "your price"
+LEG_TTL = 30  # seconds the legs' books are reused between checks of the same combo (WATCH)
+
+
+def cents(p: float | None) -> str:
+    """'40.9¢', or '0.17¢' for long shots where a tenth of a cent is a big move."""
+    if p is None:
+        return "–"
+    return f"{p * 100:.2f}¢" if p < 0.1 else f"{p * 100:.1f}¢"
 
 
 @dataclass
@@ -98,38 +106,48 @@ def verdict(side: str, price: float, book_at_price: float, book_ask: float | Non
     fresh_ok = [f for f in fresh if f.price <= cap]
     if fresh_ok:
         f = fresh_ok[0]
-        return "LIVE", (f"Filled {ago(f)} ago at {f.price * 100:.1f}¢ ({len(fresh_ok)} fill"
+        return "LIVE", (f"Filled {ago(f)} ago at {cents(f.price)} ({len(fresh_ok)} fill"
                         f"{'s' if len(fresh_ok) != 1 else ''} at this price in the last {FRESH_SECONDS}s)."), best
     ok = [f for f in mine if f.price <= cap]
     if ok and mine[0].price <= cap:
         f = ok[0]
-        return "LIKELY", f"Last fill was {ago(f)} ago at {f.price * 100:.1f}¢. No resting order, so get a quote.", best
+        return "LIKELY", f"Last fill was {ago(f)} ago at {cents(f.price)}. No resting order, so get a quote.", best
     if mine:
         f = mine[0]
-        return "MOVED", f"Newest fill ({ago(f)} ago) was at {f.price * 100:.1f}¢, over {price * 100:.1f}¢.", best
+        return "MOVED", f"Newest fill ({ago(f)} ago) was at {cents(f.price)}, over {cents(price)}.", best
     if book_ask is not None:
-        return "MOVED", f"Nothing filled in {RECENT_SECONDS // 60} min; the combo's book asks {book_ask * 100:.1f}¢.", best
+        return "MOVED", f"Nothing filled in {RECENT_SECONDS // 60} min; the combo's book asks {cents(book_ask)}.", best
     if any(f.side == side for f in fills):
         return "STALE", f"No fills on this side in {RECENT_SECONDS // 60} min and no resting orders.", best
     return "NO DATA", "No recent fills and no resting orders on this combo.", best
 
 
 def check(client, ticker: str, side: str, price: float, contracts: float, game_start=None,
-          now: datetime | None = None, since: datetime | None = None) -> LiveCheck:
+          now: datetime | None = None, since: datetime | None = None, cache: dict | None = None) -> LiveCheck:
     """Check one combo + side at one price against its own book, its newest fills and its legs now.
 
     `since` is the time of the bet being checked: its own fills prove nothing about
     now, so only later fills count toward the verdict (all are still listed).
+    `cache` (any dict kept between calls) holds the legs' data for LEG_TTL seconds, so
+    re-checking the same combo only fetches its own book and fills.
     """
     now = now or datetime.now(timezone.utc)
-    market = client.get_markets([ticker]).get(ticker)
-    if market is None:
-        raise LookupError(f"Kalshi has no market {ticker}")
-    legs = legs_of(market)
-    leg_tickers = [l["market_ticker"] for l in legs]
-    books = client.get_orderbooks([ticker] + leg_tickers)
-    leg_markets = client.get_markets(leg_tickers, batch_size=100) if leg_tickers else {}
-    events = client.get_events([l["event_ticker"] for l in legs]) if legs else {}
+    hit = (cache or {}).get(ticker)
+    if hit and time.time() - hit[0] < LEG_TTL:
+        market, leg_books, leg_markets, events = hit[1]
+    else:
+        market = client.get_markets([ticker]).get(ticker)
+        if market is None:
+            raise LookupError(f"Kalshi has no market {ticker}")
+        legs = legs_of(market)
+        leg_tickers = [l["market_ticker"] for l in legs]
+        leg_books = client.get_orderbooks(leg_tickers) if leg_tickers else {}
+        leg_markets = client.get_markets(leg_tickers, batch_size=100) if leg_tickers else {}
+        events = client.get_events([l["event_ticker"] for l in legs]) if legs else {}
+        if cache is not None:
+            cache.clear()  # one combo at a time
+            cache[ticker] = (time.time(), (market, leg_books, leg_markets, events))
+    books = {**leg_books, **client.get_orderbooks([ticker])}
 
     combo = LegBook.from_raw(ticker, side, books.pop(ticker, {}) or {})
     at_price = sum(s for p, s in combo.asks if p <= price + 1e-9)

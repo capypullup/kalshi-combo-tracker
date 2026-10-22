@@ -37,7 +37,15 @@ The **BETTORS** tab ranks public Kalshi profiles, with tennis bettors as the sta
 
 ### API key for RFQ matching
 
-Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """-----BEGIN ...""" `) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it.
+Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """-----BEGIN ...""" `) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's GET QUOTE button, which creates and deletes your own RFQs.
+
+## Quote page
+
+A fill in the feed means someone got that price, not that you still can. The QUOTE tab checks one combo now (pick a recent bet or paste a combo ticker; `?t=TICKER&side=yes&p=0.25&n=100` on `/quote` pre-fills it):
+
+- **Verdict**: LIVE when the combo's own orderbook has resting orders at or under the price, or the same side filled at that price in the last 90 s (the picked bet's own fills don't count); LIKELY when the newest fill was at the price a few minutes ago; MOVED when newer fills are worse; STALE when nothing has filled since.
+- The combo's book, its newest fills, and each leg's book now, with EV at the price and at the best price available now. WATCH re-checks every 5 s.
+- **GET QUOTE** (needs the API key above) sends a real RFQ for $10–$500, lists makers' quotes as they arrive with price incl. fee, odds, size, maker code and EV MID/CROSS, and cancels the RFQ after 45 s. It never accepts a quote. This is the one place the app sends signed write requests (create/delete your own RFQ).
 
 ## Run it
 
@@ -68,5 +76,6 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/view.py`: the compact rows the table receives
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
+- `combo_tracker/quote.py` + `quote_view.py`: the Quote page (live check, RFQs)
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page
