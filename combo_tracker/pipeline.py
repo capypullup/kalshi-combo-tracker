@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from .engine import build_bets, legs_of, score_bet
+from .engine import _game_key, _parse_time, build_bets, legs_of, score_bet
 
 
 @dataclass
@@ -61,11 +61,54 @@ def top_of_book(market: dict) -> dict:
     }
 
 
+class GameStarts:
+    """When each event's game starts, from Kalshi's public schedule ("milestones").
+
+    A milestone lists every event for one game, props included. Lookups fall back
+    to the game part of the ticker ('KXNBAPTS-26OCT21ATLORL' -> '26OCT21ATLORL').
+    """
+
+    def __init__(self, client, ttl: float = 600, back_hours: float = 12, ahead_hours: float = 48):
+        self.client = client
+        self.ttl = ttl
+        self.back = timedelta(hours=back_hours)
+        self.ahead = timedelta(hours=ahead_hours)
+        self.by_event: dict[str, datetime] = {}
+        self.by_game: dict[str, datetime] = {}
+        self.fetched_at = 0.0
+        self.error: str | None = None
+
+    def refresh(self) -> None:
+        if time.time() - self.fetched_at < self.ttl or not hasattr(self.client, "get_milestones"):
+            return
+        self.fetched_at = time.time()  # also on failure, so a bad response isn't retried on every score
+        now = datetime.now(timezone.utc)
+        try:
+            milestones = self.client.get_milestones(now - self.back, now + self.ahead)
+        except Exception as exc:  # keep the last schedule; LIVE falls back to settlement times
+            self.error = repr(exc)[:200]
+            return
+        by_event: dict[str, datetime] = {}
+        by_game: dict[str, datetime] = {}
+        for m in milestones:
+            start = _parse_time(m.get("start_date"))
+            if start is None:
+                continue
+            for ticker in (m.get("related_event_tickers") or []) + (m.get("primary_event_tickers") or []):
+                by_event[ticker] = start
+                by_game.setdefault(_game_key(ticker), start)
+        self.by_event, self.by_game, self.error = by_event, by_game, None
+
+    def __call__(self, event_ticker: str) -> datetime | None:
+        return self.by_event.get(event_ticker) or self.by_game.get(_game_key(event_ticker))
+
+
 class Scorer:
     """Holds the caches that make repeated refreshes cheap."""
 
     def __init__(self, client, quote_ttl: float = 60, book_ttl: float = 60):
         self.client = client
+        self.starts = GameStarts(client)
         self.combo_markets = TTLCache(None)  # a combo's legs never change
         self.events = TTLCache(None)
         self.leg_markets = TTLCache(quote_ttl)  # also carries each leg's top of book
@@ -86,18 +129,22 @@ class Scorer:
         leg_tickers = [l["market_ticker"] for l in legs]
         books = self.books.get_many(leg_tickers, self.client.get_orderbooks)
         events = self.events.get_many([l["event_ticker"] for l in legs], self.client.get_events)
-        return score_bet(bets[0], market, self._leg_markets(leg_tickers), books, events=events)
+        return score_bet(bets[0], market, self._leg_markets(leg_tickers), books, events=events, game_start=self.starts)
 
     def score(self, trades: list[dict], min_stake: float = 0.0, group: bool = True,
               max_bets: int = 400) -> Snapshot:
         now = datetime.now(timezone.utc)
         bets = build_bets(trades, group=group)
-        # Filter on size before touching orderbooks; it is what keeps a refresh fast.
-        kept = sorted((b for b in bets if b.stake >= min_stake), key=lambda b: -b.stake)
+        # Filter on size before touching orderbooks; it is what keeps a refresh fast. Keep the
+        # newest bets: combo edges disappear within minutes, so recent ones matter most.
+        kept = sorted((b for b in bets if b.stake >= min_stake), key=lambda b: b.last_time, reverse=True)
         over_min = len(kept)
         kept = kept[:max_bets]
 
         errors: list[str] = []
+        self.starts.refresh()
+        if self.starts.error:
+            errors.append(f"game schedule: {self.starts.error}")
         combo_markets = self.combo_markets.get_many([b.ticker for b in kept], self.client.get_markets)
         legs = [l for m in combo_markets.values() for l in legs_of(m)]
         leg_tickers = [l["market_ticker"] for l in legs]
@@ -111,7 +158,7 @@ class Scorer:
             if market is None or not legs_of(market):
                 errors.append(f"no leg data for {bet.ticker}")
                 continue
-            rows.append(score_bet(bet, market, leg_markets, books, now=now, events=events))
+            rows.append(score_bet(bet, market, leg_markets, books, now=now, events=events, game_start=self.starts))
 
         return Snapshot(rows, now, len(trades), len(bets), over_min, len(rows), errors)
 
