@@ -3,12 +3,12 @@
 
 const MIN_TRADES = [20, 50, 100, 300];
 const PAGE = 60;
-const STORE = "bettors-ui-v1";
+const STORE = "bettors-ui-v2";
 
 const ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 
 function loadUi() {
-  const base = { scope: "tennis", minN: null, hidePrivate: false, q: "", sort: "z", dir: -1, open: null, show: PAGE };
+  const base = { scope: "tennis", view: "all", who: "all", minN: null, hidePrivate: false, q: "", sort: "pnl", dir: -1, open: null, show: PAGE };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
     return { ...base, ...saved, q: "", open: null, show: PAGE };
@@ -43,13 +43,19 @@ function ago(ms) {
 }
 const cents = (p) => (isNum(p) ? `${(p * 100).toFixed(p < 0.1 ? 1 : 0)}¢` : "–");
 
-function scopeOf(S, r) { return r[S.scope]; }
+// SCOPE picks tennis or every trade; VIEW picks the whole history or the last 30 days.
+function scopeOf(S, r) { return r[S.view === "30" ? `${S.scope}30` : S.scope]; }
+// A code has no Kalshi profile numbers, so its PnL is what its matched bets made in this view.
+const pnlOf = (S, r) => (r.code ? scopeOf(S, r).pnl : S.view === "30" ? r.p30 : r.pa);
+const otherPnl = (S, r) => (r.code ? r[S.view === "30" ? S.scope : `${S.scope}30`].pnl : S.view === "30" ? r.pa : r.p30);
 
 function visibleRows(S, data) {
   const q = S.q.trim().toLowerCase();
   const rows = data.rows.filter((r) => {
     const s = scopeOf(S, r);
     if (S.hidePrivate && r.hidden) return false;
+    if (S.who === "named" && r.code) return false;
+    if (S.who === "codes" && !(r.code || (r.codes && r.codes.length))) return false;
     if (S.minN !== null && !(s.n >= S.minN)) return false;
     if (q && !r.nick.toLowerCase().includes(q)) return false;
     return true;
@@ -57,8 +63,8 @@ function visibleRows(S, data) {
   const v = (x) => (isNum(x) ? x : -Infinity);
   const key = {
     last: (r) => v(Math.max(scopeOf(S, r).last || 0, r.fl || 0)),
-    pnl: (r) => v(r.pa),
-    p30: (r) => v(r.p30),
+    pnl: (r) => v(pnlOf(S, r)),
+    win: (r) => v(scopeOf(S, r).win),
     n: (r) => v(scopeOf(S, r).n),
     ev: (r) => v(scopeOf(S, r).ev),
     z: (r) => v(scopeOf(S, r).z),
@@ -79,17 +85,24 @@ function shell(root) {
       <div class="search"><input type="search" placeholder="Find or add a nickname…" data-ref="q" autocomplete="off" autocapitalize="off">
         <span class="count" data-ref="count"></span></div>
       <div data-ref="track"></div>
+      <div class="frow"><span class="flabel">VIEW</span>
+        <button class="chip" data-act="view" data-v="all">All-time</button>
+        <button class="chip" data-act="view" data-v="30">30 days</button></div>
       <div class="frow"><span class="flabel">SCOPE</span>
         <button class="chip" data-act="scope" data-v="tennis">Tennis</button>
         <button class="chip" data-act="scope" data-v="all">All bets</button><span class="sp"></span>
         <button class="tog" data-act="hidePrivate"><span class="sw"></span>HIDE PRIVATE</button></div>
+      <div class="frow"><span class="flabel">WHO</span>
+        <button class="chip" data-act="who" data-v="all">All</button>
+        <button class="chip" data-act="who" data-v="named">Profiles</button>
+        <button class="chip" data-act="who" data-v="codes">RFQ codes</button></div>
       <div class="frow"><span class="flabel">MIN TRADES</span><span data-ref="minN"></span></div>
       <div class="note" data-ref="note"></div>
     </div>
     <div class="bgrid thead">
       <button data-sort="last">BETTOR<span class="clock">LAST BET</span></button>
-      <button class="r" data-sort="pnl">PNL<span class="clock" data-sort="p30">30D</span></button>
-      <button class="r" data-sort="n">TRADES<span class="clock">MKTS</span></button>
+      <button class="r" data-sort="pnl">PNL<span class="clock" data-ref="pnlSub">30D</span></button>
+      <button class="r" data-sort="n">TRADES<span class="clock" data-sort="win">WIN %</span></button>
       <button class="r" data-sort="ev">EV<span class="clock">ROI</span></button>
       <button class="r" data-sort="z">BEAT<span class="clock">Z</span></button>
     </div>
@@ -98,6 +111,8 @@ function shell(root) {
 }
 
 function srcTag(r) {
+  if (r.code) return "RFQ code";
+  if (r.codes && r.codes.length) return `code ${r.codes[0]}`;
   return r.src.includes("you") ? "added" : "";
 }
 
@@ -114,8 +129,8 @@ function rowHtml(S, r) {
   return `<div class="row ${open ? "open" : ""}" data-id="${esc(r.nick)}">
     <div class="bgrid" data-act="toggle">
       <div class="who"><b>${esc(r.nick)}</b><div class="sub">${esc(ago(last))}${srcTag(r) ? ` · <span class="tag">${esc(srcTag(r))}</span>` : ""}</div></div>
-      <div class="r"><div class="ev ${cls(r.pa)}">${money0(r.pa)}</div><div class="sub">${money0(r.p30)}</div></div>
-      <div class="r"><b>${hidden ? "–" : int(s.n)}</b><div class="sub">${int(r.ma)}</div></div>
+      <div class="r"><div class="ev ${cls(pnlOf(S, r))}">${money0(pnlOf(S, r))}</div><div class="sub">${money0(otherPnl(S, r))}</div></div>
+      <div class="r"><b>${hidden ? "–" : int(s.n)}${r.done === false && !hidden ? "+" : ""}</b><div class="sub">${isNum(s.win) ? Math.round(s.win * 100) + "%" : "–"}</div></div>
       ${evCell}${beatCell}
     </div>
     ${open ? detailHtml(S, r) : ""}
@@ -124,16 +139,21 @@ function rowHtml(S, r) {
 
 function detailHtml(S, r) {
   const s = scopeOf(S, r);
-  const scopeName = S.scope === "tennis" ? "tennis" : "all";
+  const scopeName = `${S.scope === "tennis" ? "tennis" : "all bets"}, ${S.view === "30" ? "last 30 days" : "all-time"}`;
   const since = isNum(s.first) ? new Date(s.first).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "–";
   const lines = [];
   lines.push(`Kalshi profile: PnL <b>${money0(r.pa)}</b> all-time · <b>${money0(r.p30)}</b> last 30d · <b>${int(r.ma)}</b> markets traded (${int(r.m30)} in 30d)`);
+  if (r.code) {
+    lines.splice(0, 1, `Known by RFQ code <b>${esc(r.code.slice(0, 16))}…</b>: <b>${int(s.n)}</b> combo bets matched since tracking started, ${int(r.sure)} of them sure matches. PnL here is what those bets made${r.linked ? `; trades show the name <b>${esc(r.linked)}</b>` : ""}.`);
+  }
+  if (r.codes && r.codes.length) lines.push(`Also seen by RFQ code ${r.codes.map(esc).join(", ")} (their combo requests).`);
   if (r.missing) {
     lines.splice(0, 1, `<span class="w">Kalshi has no public profile called “${esc(r.nick)}”. Check the spelling.</span>`);
   } else if (r.hidden) {
     lines.push(`<span class="w">This profile hides its trades, so trade count, EV and PnL vs EV can't be measured.</span>`);
   } else {
-    lines.push(`Sample (${scopeName}): <b>${int(s.n)}</b> trades in <b>${int(s.mk)}</b> markets since ${esc(since)} · <b>${plain0(s.vol)}</b> staked · taker ${isNum(s.tk) ? Math.round(s.tk * 100) + "%" : "–"} · priced ${isNum(s.cov) ? Math.round(s.cov * 100) + "%" : "–"}`);
+    if (r.done === false) lines.push(`<span class="w">Still loading older trades; the + after the count means more are coming.</span>`);
+    lines.push(`Sample (${scopeName}): <b>${int(s.n)}</b> trades in <b>${int(s.mk)}</b> markets since ${esc(since)} · won <b>${isNum(s.win) ? Math.round(s.win * 100) + "%" : "–"}</b> of ${int(s.st)} settled · <b>${plain0(s.vol)}</b> staked · taker ${isNum(s.tk) ? Math.round(s.tk * 100) + "%" : "–"} · priced ${isNum(s.cov) ? Math.round(s.cov * 100) + "%" : "–"}`);
     lines.push(`EV vs book <b class="${cls(s.ev)}">${money0(s.ev)}</b> (${pct(s.evr)}) · settled PnL <b class="${cls(s.pnl)}">${money0(s.pnl)}</b> on ${int(s.st)} trades (${pct(s.pr)}) · open ${plain0(s.open)}`);
     lines.push(`PnL − EV <b class="${cls(s.edge)}">${money0(s.edge)}</b> · z <b>${isNum(s.z) ? s.z.toFixed(2) : "–"}</b>${isNum(s.z) && s.z >= 2 ? ` · <span class="hot">beats the book by more than luck explains</span>` : ""}`);
   }
@@ -172,6 +192,9 @@ export default function (component) {
   function paintControls() {
     $("minN").innerHTML = MIN_TRADES.map((v) => `<button class="chip ${v === S.minN ? "on" : ""}" data-act="minN" data-v="${v}">${v}</button>`).join(" ");
     root.querySelectorAll('[data-act="scope"]').forEach((b) => b.classList.toggle("on", S.scope === b.dataset.v));
+    root.querySelectorAll('[data-act="view"]').forEach((b) => b.classList.toggle("on", S.view === b.dataset.v));
+    root.querySelectorAll('[data-act="who"]').forEach((b) => b.classList.toggle("on", S.who === b.dataset.v));
+    $("pnlSub").textContent = S.view === "30" ? "ALL" : "30D";
     root.querySelector('[data-act="hidePrivate"]').classList.toggle("on", S.hidePrivate);
     root.querySelectorAll(".thead [data-sort]").forEach((b) => {
       const on = b.dataset.sort === S.sort;
@@ -234,6 +257,8 @@ export default function (component) {
       const row = b.closest(".row");
       switch (b.dataset.act) {
         case "scope": return update(() => { S.scope = v; });
+        case "view": return update(() => { S.view = v; });
+        case "who": return update(() => { S.who = v; S.show = PAGE; });
         case "minN": return update(() => { S.minN = S.minN === +v ? null : +v; S.show = PAGE; });
         case "hidePrivate": return update(() => { S.hidePrivate = !S.hidePrivate; });
         case "more": return update(() => { S.show += PAGE; }, true);

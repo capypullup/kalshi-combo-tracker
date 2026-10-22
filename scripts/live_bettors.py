@@ -20,7 +20,7 @@ def main() -> None:
     top_n = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     max_fills = int(sys.argv[2]) if len(sys.argv) > 2 else 300
     client = KalshiClient(rate_per_sec=8)
-    t = BettorTracker(client, top_n=top_n, max_fills=max_fills, first_pages=8)
+    t = BettorTracker(client, top_n=top_n, pages_per_pass=max_fills // 100, first_pages=8)
     start = time.time()
     t.read_feed()
     print(f"feed: {time.time() - start:.1f}s, requests so far {client.requests_made}")

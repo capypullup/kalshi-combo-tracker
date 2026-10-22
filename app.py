@@ -42,10 +42,11 @@ def _reload_if_deployed() -> None:
 _reload_if_deployed()
 
 from combo_tracker.bettors import BettorTracker  # noqa: E402  (after the reload check)
-from combo_tracker.client import KalshiClient  # noqa: E402
+from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
-from combo_tracker.demo import DemoClient  # noqa: E402
+from combo_tracker.demo import DemoClient, demo_rfqs  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
+from combo_tracker.rfq import RfqBook  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
 DEMO = os.environ.get("DEMO") == "1"
@@ -234,16 +235,38 @@ def combo_page() -> None:
 BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed and bettors' histories
 
 
+def _kalshi_auth() -> KalshiAuth | None:
+    """The API key from Streamlit secrets or the environment; None when it isn't set."""
+    try:
+        secrets = dict(st.secrets)
+    except Exception:  # no secrets file
+        secrets = {}
+    return KalshiAuth.from_env(secrets)
+
+
 @st.cache_resource
 def get_bettors() -> BettorTracker:
-    """One tracker shared by every visitor, started the first time someone opens the page."""
+    """One tracker shared by every visitor, started the first time someone opens the page.
+
+    With a Kalshi API key it also listens to RFQs and matches them to the combo
+    collector's trades, which identifies combo bettors by their RFQ code.
+    """
     if DEMO:
-        tracker = BettorTracker(DemoClient(), every=BETTOR_CYCLE)
+        client = DemoClient()
+        rfq = RfqBook(client, lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m)))
+        for d in demo_rfqs(client):
+            rfq.ingest(d)
+        tracker = BettorTracker(client, every=BETTOR_CYCLE, rfq=rfq)
         tracker.cycle()
         return tracker
-    _stop_collectors("bettor-tracker")
+    for name in ("bettor-tracker", "rfq-stream"):
+        _stop_collectors(name)
+    auth = _kalshi_auth()
+    rfq = None
+    if auth is not None:
+        rfq = RfqBook(KalshiClient(rate_per_sec=3, auth=auth), get_source().collector.window).start()
     # Its own client and rate limit, so it never slows the combo collector down.
-    return BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE).start()
+    return BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE, rfq=rfq).start()
 
 
 def _track():
@@ -260,6 +283,13 @@ def bettors_view():
     if snap and snap.feed_since:
         notes.append(f"Tennis feed since {snap.feed_since:%H:%M} UTC: {snap.named_trades:,} of "
                      f"{snap.feed_trades:,} trades show a public name.")
+    rfq = snap.rfq if snap else None
+    if rfq is None and not DEMO:
+        notes.append("RFQ matching is off: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets.")
+    elif rfq:
+        matched = rfq.get("sure", 0) + rfq.get("likely", 0)
+        notes.append(f"RFQs: {rfq.get('rfqs', 0):,} seen, {matched:,} matched to bets ({rfq.get('sure', 0):,} sure), "
+                     f"{rfq.get('codes', 0)} codes, {rfq.get('linked', 0)} named. Stream {rfq.get('stream')}.")
     bettor_table(
         key="bt",
         data={
@@ -278,8 +308,14 @@ def bettors_page() -> None:
     bettors_view()
     with st.expander("Where this data comes from and how to read it"):
         st.markdown(
-            "- **Who's listed**: the 40 busiest public names in the last day of Kalshi's tennis trades, plus any "
-            "nickname you add with the search box.\n"
+            "- **Who's listed**: the 40 busiest public names in the last day of Kalshi's tennis trades, any "
+            "nickname you add with the search box, and combo bettors identified by **RFQ code** (below).\n"
+            "- **RFQ codes**: every combo bet starts as a request for quote, which Kalshi broadcasts to logged-in "
+            "users with the requester's code (a hash that stays the same for that person). A combo trade on the same "
+            "market, with the same size, seconds later is that request filling, so it's that person's bet. **Sure** "
+            "means only one request and one trade fit; otherwise the closest in time wins. When a matched trade shows "
+            "a public nickname in the social feed, the code is linked to that name. Codes only build up while the app "
+            "runs (Kalshi doesn't keep RFQ history), and need an API key in the app's secrets.\n"
             "- Kalshi's main trade feed has no trader ID. Its **social API** (what kalshi.com profiles use, free "
             "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
             "that show their trades. A profile that hides them shows **hidden**, with only Kalshi's own PnL and "

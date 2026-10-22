@@ -40,7 +40,9 @@ TENNIS_SERIES = [
 ]
 TENNIS_RE = re.compile(r"^KX(ATP|WTA|ITF)")
 MONEY_UNIT = 10_000  # the social API's money fields are in 1/100 of a cent
-SCOPES = ("all", "tennis")
+# Row summaries: every trade or tennis only, over the whole history or the last 30 days.
+SCOPES = ("all", "tennis", "all30", "tennis30")
+DAY = 86400
 
 
 def _ts(value: str) -> float:
@@ -167,6 +169,7 @@ def summarize(fills: list[Fill], fair_yes: dict[str, float | None], results: dic
             s["pnl"] += sc["pnl"]
             s["pnl_n"] += 1
             s["pnl_vol"] += f.stake
+            s["wins"] += sc["pnl"] > 0
             if sc["ev"] is not None:
                 s["both_pnl"] += sc["pnl"]
                 s["both_ev"] += sc["ev"]
@@ -181,6 +184,7 @@ def summarize(fills: list[Fill], fair_yes: dict[str, float | None], results: dic
         "ev": s["ev"] if s["ev_n"] else None, "ev_cover": s["ev_n"] / n if n else None,
         "ev_roi": s["ev"] / s["ev_vol"] if s["ev_vol"] else None,
         "pnl": s["pnl"] if s["pnl_n"] else None, "settled": int(s["pnl_n"]),
+        "win_rate": s["wins"] / s["pnl_n"] if s["pnl_n"] else None,
         "pnl_roi": s["pnl"] / s["pnl_vol"] if s["pnl_vol"] else None,
         "open_vol": s["open_vol"],
         "edge": edge if s["both_var"] else None,
@@ -197,15 +201,21 @@ def _money(metrics: dict, key: str) -> float | None:
 @dataclass
 class Profile:
     nickname: str
-    sources: set[str] = field(default_factory=set)  # "feed" (busy in the tennis feed), "you" (added on the page)
+    # "feed" (busy in the tennis feed), "you" (added on the page), "rfq" (found through RFQ matching)
+    sources: set[str] = field(default_factory=set)
     hidden: bool | None = None  # trades hidden on their profile; None = not checked yet
     missing: bool = False  # no profile with this nickname
     fills: dict[str, Fill] = field(default_factory=dict)
-    complete_to: float | None = None  # history is complete from here to now
+    back_cursor: str | None = None  # where paging older history resumes; None once it's all loaded
+    history_done: bool = False
     metrics: dict = field(default_factory=dict)
     metrics_30d: dict = field(default_factory=dict)
     metrics_at: float = 0.0
     history_at: float = 0.0
+    code: str | None = None  # set for a bettor known only by their RFQ creator ID
+    linked: str | None = None  # for a code: the public nickname its trades showed
+    sure: int = 0  # for a code: matches where only one RFQ and one trade fit
+    link_tried: set[str] = field(default_factory=set)  # trade ids already looked up in the social feed
 
 
 @dataclass
@@ -217,6 +227,7 @@ class BettorSnapshot:
     feed_trades: int
     named_trades: int
     errors: list[str] = field(default_factory=list)
+    rfq: dict | None = None  # RFQ matching status, when a key is set
 
 
 class BettorTracker:
@@ -227,14 +238,18 @@ class BettorTracker:
     fills against one-minute candles, and publish rows.
     """
 
-    def __init__(self, client, series: list[str] | None = None, feed_hours: float = 24, history_days: int = 30,
-                 max_fills: int = 1000, top_n: int = 40, every: float = 900,
+    def __init__(self, client, series: list[str] | None = None, feed_hours: float = 24, max_fills: int = 50_000,
+                 pages_per_pass: int = 60, price_days: int = 30, top_n: int = 40, every: float = 900, rfq=None,
+                 links_per_cycle: int = 60,
                  first_pages: int = 30, more_pages: int = 20, metrics_ttl: float = 3600, history_ttl: float = 1800):
         self.client = client
         self.series = series or TENNIS_SERIES
         self.feed_window = feed_hours * 3600
-        self.history_days = history_days
-        self.max_fills = max_fills
+        self.rfq = rfq  # an rfq.RfqBook when a Kalshi API key is set
+        self.links_per_cycle = links_per_cycle
+        self.max_fills = max_fills  # a memory guard; real histories are usually far smaller
+        self.pages_per_pass = pages_per_pass  # long histories load over several cycles
+        self.price_days = price_days  # fills older than this aren't priced against the book
         self.top_n = top_n
         self.every = every
         self.first_pages = first_pages
@@ -329,12 +344,65 @@ class BettorTracker:
             self.profiles.setdefault(n, Profile(n)).sources.add("feed")
         with self.lock:
             wanted = list(self.wanted)
-        order = wanted + top + [n for n, p in self.profiles.items() if "you" in p.sources]
+        order = wanted + top + [n for n, p in self.profiles.items()
+                                if not p.code and p.sources & {"you", "rfq"}]
         return [self.profiles[n] for n in dict.fromkeys(order) if n in self.profiles]
+
+    # ---- RFQ codes ----
+    def sync_codes(self) -> None:
+        """Turn RFQ matches into per-code fills (the requester took the trade)."""
+        if self.rfq is None:
+            return
+        self.rfq.match_now()
+        for creator, matches in self.rfq.by_creator().items():
+            key = "#" + creator[:10]
+            p = self.profiles.setdefault(key, Profile(key, hidden=False, history_done=True))
+            p.code = creator
+            p.sources.add("rfq")
+            for m in matches:
+                e = m.execution
+                if e.trade_ids[0] not in p.fills:
+                    p.fills[e.trade_ids[0]] = Fill(e.trade_ids[0], e.ts, e.ticker, e.side, e.price, e.count, True)
+                    p.sure += m.sure
+
+    def link_codes(self) -> None:
+        """Find which public nickname, if any, is behind each code.
+
+        A matched trade that shows a taker nickname in the social feed names the
+        code's owner. First check histories we already have, then ask the social
+        feed about a few of each unlinked code's trades (biggest codes first).
+        """
+        takers = {f.trade_id: p.nickname for p in self.profiles.values() if not p.code
+                  for f in p.fills.values() if f.taker}
+        codes = sorted((p for p in self.profiles.values() if p.code and not p.linked), key=lambda p: -len(p.fills))
+        budget = self.links_per_cycle
+        for p in codes:
+            name = next((takers[t] for t in p.fills if t in takers), None)
+            tried = p.link_tried
+            for f in sorted(p.fills.values(), key=lambda f: -f.stake):
+                if name or budget <= 0:
+                    break
+                if f.trade_id in tried:
+                    continue
+                tried.add(f.trade_id)
+                budget -= 1
+                data = self.client.social_trades(market_ticker=f.ticker)
+                hit = next((t for t in data.get("trades") or [] if t["trade_id"] == f.trade_id), None)
+                if hit and hit.get("taker_nickname"):
+                    name = hit["taker_nickname"]
+                if len(tried) >= 3:  # three anonymous trades in a row: probably a private profile
+                    break
+            if name:
+                p.linked = name
+                prof = self.profiles.setdefault(name, Profile(name))
+                prof.sources.add("rfq")
+
+    def code_profiles(self) -> list[Profile]:
+        return [p for p in self.profiles.values() if p.code]
 
     # ---- per-bettor data ----
     def refresh_metrics(self, p: Profile, force: bool = False) -> None:
-        if p.missing or (not force and time.time() - p.metrics_at < self.metrics_ttl):
+        if p.code or p.missing or (not force and time.time() - p.metrics_at < self.metrics_ttl):
             return
         try:
             p.metrics = self.client.profile_metrics(p.nickname)
@@ -347,38 +415,51 @@ class BettorTracker:
         p.metrics_at = time.time()
 
     def refresh_history(self, p: Profile, force: bool = False) -> None:
-        """Page the bettor's own trades newest first, until we reach ones we have."""
-        if p.hidden or p.missing or (not force and time.time() - p.history_at < self.history_ttl):
+        """Load the bettor's whole trade history, newest first.
+
+        Each pass first pages new trades until it reaches ones we have, then keeps
+        paging back in time from where the last pass stopped, up to pages_per_pass
+        pages, so a long history fills in over a few cycles.
+        """
+        if p.code or p.hidden or p.missing or (not force and time.time() - p.history_at < self.history_ttl):
             return
-        now = time.time()
-        oldest_wanted = now - self.history_days * 86400
-        known_to = max((f.ts for f in p.fills.values()), default=None) if p.complete_to else None
-        cursor = None
-        pages = math.ceil(self.max_fills / 100)
-        for _ in range(pages):
+        budget = self.pages_per_pass
+
+        def page(cursor):
+            nonlocal budget
+            budget -= 1
             data = self.client.social_trades(nickname=p.nickname, cursor=cursor)
             if data.get("visibility_state") == "hidden":
                 p.hidden = True
-                return
+                return None, []
             p.hidden = False
-            trades = data.get("trades") or []
-            stop = not trades
-            for t in trades:
-                f = to_fill(t, p.nickname)
-                if f is None:
-                    continue
-                if f.ts < oldest_wanted or (known_to is not None and f.ts < known_to - 60):
-                    stop = True
+            fills = [f for f in (to_fill(t, p.nickname) for t in data.get("trades") or []) if f is not None]
+            return data.get("cursor") or None, fills
+
+        if p.fills:
+            newest = max(f.ts for f in p.fills.values())
+            cursor = None
+            for _ in range(self.pages_per_pass):  # new trades; usually one page
+                cursor, fills = page(cursor)
+                if p.hidden:
+                    return
+                p.fills.update((f.trade_id, f) for f in fills)
+                if not cursor or not fills or fills[-1].ts < newest - 60:
                     break
-                p.fills[f.trade_id] = f
-            cursor = data.get("cursor")
-            if stop or not cursor:
-                break
-        # Keep the newest max_fills inside the history window.
-        keep = sorted((f for f in p.fills.values() if f.ts >= oldest_wanted), key=lambda f: -f.ts)[: self.max_fills]
-        p.fills = {f.trade_id: f for f in keep}
-        p.complete_to = keep[-1].ts if keep else now
-        p.history_at = now
+            budget = self.pages_per_pass
+        else:
+            p.back_cursor, fills = page(None)
+            if p.hidden:
+                return
+            p.fills.update((f.trade_id, f) for f in fills)
+            p.history_done = p.back_cursor is None
+        while budget > 0 and p.back_cursor and len(p.fills) < self.max_fills:
+            p.back_cursor, fills = page(p.back_cursor)
+            p.fills.update((f.trade_id, f) for f in fills)
+            if not fills:
+                p.back_cursor = None
+        p.history_done = p.back_cursor is None
+        p.history_at = time.time()
 
     def refresh_markets(self, profiles: list[Profile]) -> None:
         tickers = {f.ticker for p in profiles for f in p.fills.values()}
@@ -407,7 +488,8 @@ class BettorTracker:
 
     def refresh_fair(self, profiles: list[Profile], lookback: int = 3600) -> None:
         """Price fills we haven't priced yet, an hour of trades per candle request."""
-        todo = [f for p in profiles for f in p.fills.values() if f.trade_id not in self.fair]
+        since = time.time() - self.price_days * DAY
+        todo = [f for p in profiles for f in p.fills.values() if f.ts >= since and f.trade_id not in self.fair]
         buckets: dict[int, list[Fill]] = defaultdict(list)
         for f in todo:
             buckets[int(f.ts // 3600)].append(f)
@@ -435,10 +517,17 @@ class BettorTracker:
     def build_rows(self) -> list[dict]:
         feed = self.feed_stats()
         results = {t: m["result"] for t, m in self.markets.items()}
+        month = time.time() - 30 * DAY
+        codes_of: dict[str, list[str]] = defaultdict(list)
+        for p in list(self.profiles.values()):
+            if p.code and p.linked:
+                codes_of[p.linked].append(p.nickname)
         rows = []
         for p in list(self.profiles.values()):
             if not p.sources or (p.missing and "you" not in p.sources):
                 continue
+            if p.code and p.linked and p.linked in self.profiles:
+                continue  # shown on the nickname's row
             fills = sorted(p.fills.values(), key=lambda f: -f.ts)
             tennis = [f for f in fills if is_tennis(f.ticker, self.markets.get(f.ticker, {}).get("legs"))]
             fs = feed.get(p.nickname, {})
@@ -457,8 +546,16 @@ class BettorTracker:
                 "feed_n": fs.get("n", 0), "feed_vol": fs.get("vol", 0.0), "feed_last": fs.get("last") or None,
                 "all": summarize(fills, self.fair, results),
                 "tennis": summarize(tennis, self.fair, results),
+                "all30": summarize([f for f in fills if f.ts >= month], self.fair, results),
+                "tennis30": summarize([f for f in tennis if f.ts >= month], self.fair, results),
+                "history_done": p.history_done,
+                "code": p.code, "linked": p.linked, "codes": codes_of.get(p.nickname, []), "sure": p.sure,
                 "recent": recent,
             })
+            if p.code:
+                # No Kalshi profile numbers for a code: its PnL is what its matched bets made.
+                rows[-1]["pnl_all"] = rows[-1]["all"]["pnl"]
+                rows[-1]["pnl_30d"] = rows[-1]["all30"]["pnl"]
         return rows
 
     def publish(self) -> None:
@@ -467,7 +564,11 @@ class BettorTracker:
         snap = BettorSnapshot(
             rows=self.build_rows(), updated=datetime.now(timezone.utc), status=self.status,
             feed_since=None if self.feed_oldest is None else datetime.fromtimestamp(self.feed_oldest, timezone.utc),
-            feed_trades=self.feed_trades, named_trades=self.feed_named, errors=errors)
+            feed_trades=self.feed_trades, named_trades=self.feed_named, errors=errors,
+            rfq=None if self.rfq is None else {**self.rfq.stats, "stream": self.rfq.ws_status,
+                                                "error": self.rfq.last_error,
+                                                "codes": len(self.code_profiles()),
+                                                "linked": sum(1 for p in self.code_profiles() if p.linked)})
         self.snapshot = snap
 
     # ---- loop ----
@@ -493,8 +594,10 @@ class BettorTracker:
         with self.lock:
             self.errors.clear()
         self._step("reading tennis trades", self.read_feed)
+        self._step("matching RFQs", self.sync_codes)
+        self._step("naming RFQ codes", self.link_codes)
         self.publish()
-        self.analyze(self.candidates())
+        self.analyze(self.candidates() + self.code_profiles())
         self.status = "idle"
         self.publish()
 
@@ -516,6 +619,8 @@ class BettorTracker:
                     next_cycle = time.time() + self.every
                 else:
                     self.serve_wanted()
+                    if self.rfq is not None:
+                        self.sync_codes()
             except Exception as exc:
                 with self.lock:
                     self.errors.append(repr(exc)[:200])

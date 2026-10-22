@@ -31,7 +31,13 @@ The **BETTORS** tab ranks public Kalshi profiles, with tennis bettors as the sta
 - **PNL / 30D** are Kalshi's own numbers for the profile. **TRADES** is the size of our sample, **MKTS** Kalshi's all-time markets traded.
 - **EV** prices every trade against the market's bid/ask mid in the minute it happened (from one-minute candles), after taker fees; a combo is priced from its legs. **BEAT** is settled PnL minus EV on the same trades, and **Z** is that divided by its standard deviation, so a high Z over many trades means the bettor beats the book by more than luck explains.
 - **SCOPE** switches between tennis-only and all of a bettor's trades. Tap a row for the breakdown and their latest trades.
-- Limits: profiles that hide their trades only show Kalshi's PnL and market count. Kalshi's leaderboard isn't used because it scrambles nicknames for non-browser clients. The RFQ (request for quote) API does show who asked for a quote, but it needs an API key, shows only a hashed ID that isn't linked to a profile, and keeps quotes private, so it can't name bettors.
+- **VIEW** switches between all-time and the last 30 days (Kalshi's PnL for that period, and our sample over it); **TRADES** shows win % underneath. Each bettor's whole history is loaded (long ones fill in over a few 15-minute cycles; a `+` after the count means more is coming). EV is priced for the last 30 days of trades.
+- **RFQ codes** (needs an API key, see below): every combo bet starts as a request for quote, which Kalshi broadcasts to logged-in users with the requester's code, a hash that stays the same for that person. The app listens to that stream and matches each request to the combo trade it became (same market, same size, seconds later). "Sure" matches are the only fit both ways. That gives every combo bettor, public or not, a stable ID with their bets, EV, PnL and win rate. When one of a code's trades shows a public nickname in the social feed, the code is linked to that name. Codes only build up while the app is running, because Kalshi doesn't keep RFQ history.
+- Limits: profiles that hide their trades only show Kalshi's PnL and market count. Kalshi's leaderboard isn't used because it scrambles nicknames for non-browser clients.
+
+### API key for RFQ matching
+
+Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """-----BEGIN ...""" `) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it.
 
 ## Run it
 
@@ -61,5 +67,6 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/pipeline.py`: one refresh, end to end
 - `combo_tracker/view.py`: the compact rows the table receives
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
+- `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page

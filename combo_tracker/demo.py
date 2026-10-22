@@ -57,6 +57,8 @@ class DemoClient:
                 "mve_selected_legs": [{"event_ticker": self.leg_markets[t]["event_ticker"],
                                        "market_ticker": t, "side": sides[t]} for t in legs],
             }
+            if rng.random() < 0.7:
+                self.combo_markets[cticker].update(status="finalized", result="yes" if rng.random() < 0.3 else "no")
             fair = 1.0
             for t in legs:
                 b = self.books[t]
@@ -164,11 +166,12 @@ class _DemoSocial:
         return {**t, "taker_nickname": "" if t["taker_nickname"] in self.hidden else t["taker_nickname"],
                 "maker_nickname": "" if t["maker_nickname"] in self.hidden else t["maker_nickname"]}
 
-    def social_trades(self, nickname=None, series_ticker=None, cursor=None, limit=100) -> dict:
+    def social_trades(self, nickname=None, series_ticker=None, cursor=None, limit=100, market_ticker=None) -> dict:
         if nickname in self.hidden:
             return {"trades": [], "visibility_state": "hidden"}
         rows = [self._visible(t) for t in self.trades
                 if (not series_ticker or t["ticker"].startswith(series_ticker + "-"))
+                and (not market_ticker or t["ticker"] == market_ticker)
                 and (not nickname or nickname in (t["taker_nickname"], t["maker_nickname"]))]
         start = int(cursor or 0)
         page = rows[start : start + limit]
@@ -181,12 +184,17 @@ class _DemoSocial:
         scale = 0.15 if days else 1
         return {"pnl": int(base * scale * 10_000), "num_markets_traded": int((300 + h * 3) * (0.2 if days else 1))}
 
-    def get_candles(self, tickers: list[str], start_ts: int, end_ts: int) -> dict[str, list[dict]]:
+    def get_candles(self, tickers: list[str], start_ts: int, end_ts: int, books: dict | None = None) -> dict[str, list[dict]]:
         out = {}
         for tk in tickers:
-            if tk not in self.truth:
+            if tk in self.truth:
+                _, mid, spread = self.truth[tk]
+            elif books and tk in books:  # combo legs: their demo book
+                b = books[tk]
+                bid, ask = float(b["yes_dollars"][-1][0]), 1 - float(b["no_dollars"][-1][0])
+                mid, spread = (bid + ask) / 2, ask - bid
+            else:
                 continue
-            _, mid, spread = self.truth[tk]
             bid, ask = f"{mid - spread / 2:.4f}", f"{mid + spread / 2:.4f}"
             out[tk] = [{"end_period_ts": t, "yes_bid": {"open_dollars": bid, "close_dollars": bid},
                         "yes_ask": {"open_dollars": ask, "close_dollars": ask}}
@@ -211,5 +219,34 @@ def _get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, di
 
 
 DemoClient.get_markets = _get_markets
-for _name in ("social_trades", "profile_metrics", "get_candles"):
+for _name in ("social_trades", "profile_metrics"):
     setattr(DemoClient, _name, (lambda name: lambda self, *a, **k: getattr(_social(self), name)(*a, **k))(_name))
+DemoClient.get_candles = lambda self, tickers, start, end: _social(self).get_candles(tickers, start, end, self.books)
+
+
+def demo_rfqs(client: DemoClient, seed: int = 5) -> list[dict]:
+    """Made-up RFQs behind the demo combo trades, from a handful of requesters (some hiding their ID)."""
+    from .rfq import PLACEHOLDER
+
+    rng = random.Random(seed)
+    codes = [f"{rng.getrandbits(256):064x}" for _ in range(9)]
+    out = []
+    for t in client.trades:
+        ts = datetime.fromisoformat(t["created_time"])
+        who = rng.choice(codes + [PLACEHOLDER])
+        price = float(t["yes_price_dollars"] if t["taker_side"] == "yes" else t["no_price_dollars"])
+        sized = {"contracts_fp": t["count_fp"]} if rng.random() < 0.6 else {
+            "target_cost_dollars": f"{float(t['count_fp']) * price:.2f}", "target_cost_excludes_fees": True}
+        out.append({"id": f"rfq-{t['trade_id']}", "creator_id": who, "market_ticker": t["ticker"], **sized,
+                    "created_ts": (ts - timedelta(seconds=rng.uniform(2, 6))).isoformat(),
+                    "cancelled_ts": (ts + timedelta(seconds=1)).isoformat(), "status": "closed"})
+        if rng.random() < 0.3:  # an RFQ that never filled
+            out.append({**out[-1], "id": out[-1]["id"] + "-x", "creator_id": rng.choice(codes)})
+    return out
+
+
+def _get_rfq(self, rfq_id: str) -> dict:
+    return {"id": rfq_id, "creator_id": f"{abs(hash(rfq_id)) % 7:064x}"}  # hidden requesters, revealed
+
+
+DemoClient.get_rfq = _get_rfq
