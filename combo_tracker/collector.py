@@ -19,6 +19,22 @@ def _ts(trade: dict) -> datetime:
     return datetime.fromisoformat(trade["created_time"].replace("Z", "+00:00"))
 
 
+def _compact(t: dict) -> tuple:
+    """Keep only what scoring needs, as a tuple: a few hundred thousand fills fit in ~100MB."""
+    side = t.get("taker_outcome_side") or t["taker_side"]
+    return (_ts(t).timestamp(), t["trade_id"], t["ticker"], side,
+            float(t["yes_price_dollars"]), float(t["count_fp"]))
+
+
+def _expand(c: tuple) -> dict:
+    ts, trade_id, ticker, side, yes_price, count = c
+    return {
+        "trade_id": trade_id, "ticker": ticker, "taker_side": side, "taker_outcome_side": side,
+        "yes_price_dollars": yes_price, "no_price_dollars": 1 - yes_price, "count_fp": count,
+        "created_time": datetime.fromtimestamp(ts, timezone.utc).isoformat(),
+    }
+
+
 class Collector:
     def __init__(self, client, max_window_minutes: int = 180, poll_seconds: int = 60,
                  initial_backfill_minutes: int = 60):
@@ -27,7 +43,7 @@ class Collector:
         self.poll_seconds = poll_seconds
         self.initial_backfill = timedelta(minutes=initial_backfill_minutes)
         self.lock = threading.Lock()
-        self.trades: dict[str, dict] = {}  # trade_id -> combo trade
+        self.trades: dict[str, tuple] = {}  # trade_id -> compact combo trade (see _compact)
         self.covered_from: datetime | None = None  # oldest time we have complete data for
         self.covered_to: datetime | None = None  # newest time we have complete data for
         self.markets: dict[str, dict] = {}  # combo ticker -> market (legs never change)
@@ -44,7 +60,7 @@ class Collector:
             self.trades_scanned += 1
             if t["ticker"].startswith(COMBO_PREFIX):
                 with self.lock:
-                    self.trades[t["trade_id"]] = t
+                    self.trades[t["trade_id"]] = _compact(t)
             if progress and self.trades_scanned % 1000 == 0:
                 # Trades come newest first, so everything after this one is complete.
                 with self.lock:
@@ -76,7 +92,7 @@ class Collector:
     def _prune(self, now: datetime) -> None:
         cutoff = now - self.max_window
         with self.lock:
-            self.trades = {k: t for k, t in self.trades.items() if _ts(t) >= cutoff}
+            self.trades = {k: t for k, t in self.trades.items() if t[0] >= cutoff.timestamp()}
             if self.covered_from and self.covered_from < cutoff:
                 self.covered_from = cutoff
 
@@ -98,9 +114,10 @@ class Collector:
 
     # ---- reads ----
     def window(self, minutes: int) -> list[dict]:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).timestamp()
         with self.lock:
-            return [t for t in self.trades.values() if _ts(t) >= cutoff]
+            recent = [t for t in self.trades.values() if t[0] >= cutoff]
+        return [_expand(t) for t in recent]
 
     def coverage_minutes(self) -> float:
         if self.covered_from is None:

@@ -17,7 +17,7 @@ EV CRX +3568.4% (fair -363) · 19u
 - **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number.
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
 - Flags: `SG` same-game legs (correlated), `THIN` shallow leg books, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%.
-- Filters: minimum bet size chips ($10+/$100+/$1k+ or a custom amount), time window, side, max legs, plus hiding same-game or thin combos.
+- The page is a compact table, about 10 bets per phone screen. Tap a column header to sort, or tap a row to open its bet card with the full leg orderbooks. Toggles at the top: min bet size chips, quick filters (+EV, Clean, No SG, No thin, YES only) and ⚙️ More filters (window, custom min, max legs, Kelly settings).
 
 All data comes from Kalshi's free public API. No API key is needed.
 

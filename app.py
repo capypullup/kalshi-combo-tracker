@@ -33,12 +33,17 @@ SORTS = {
     "Newest": "minutes_ago",
 }
 KELLY = {"Full": 1.0, "½": 0.5, "¼": 0.25, "⅛": 0.125}
+# One-tap filters. Add new ones here and handle them in apply_quick_filters().
+QUICK = ["+EV", "Clean", "No SG", "No thin", "YES only"]
+TABLE_ROWS = 11  # rows visible before the table scrolls; ~10 bets per phone screen
 
 st.set_page_config(page_title="Combo EV", page_icon="🎯", layout="wide", initial_sidebar_state="collapsed")
 st.markdown(
     """<style>
-    .block-container {padding-top: 1.2rem; padding-left: 0.8rem; padding-right: 0.8rem;}
-    h1 {font-size: 1.5rem !important; margin-bottom: 0 !important;}
+    header[data-testid="stHeader"] {display: none;}
+    .block-container {padding-top: 1.6rem; padding-left: 0.6rem; padding-right: 0.6rem;}
+    h1 {font-size: 1.25rem !important; padding: 0 0 0.2rem 0 !important; margin: 0 !important; line-height: 1.4 !important;}
+    [data-testid="stVerticalBlock"] {gap: 0.5rem;}
     [data-testid="stMetricValue"] {font-size: 1.25rem !important;}
     [data-testid="stMetricDelta"] {font-size: 0.8rem !important;}
     [data-testid="stMetric"] {min-width: 4.5rem;}
@@ -107,32 +112,27 @@ def ago(dt: datetime) -> str:
 # ---------- Controls ----------
 st.title("🎯 Combo EV" + (" · demo" if DEMO else ""))
 
-size_label = st.segmented_control("Min bet size", list(SIZE_CHIPS), default="$100+", required=True,
-                                  key="size", width="stretch")
+size_label = st.segmented_control("Min bet", list(SIZE_CHIPS), default="$100+", required=True,
+                                  key="size", width="stretch", label_visibility="collapsed")
+quick = st.pills("Quick filters", QUICK, selection_mode="multi", default=["+EV"], key="quick",
+                 label_visibility="collapsed",
+                 help="+EV: positive EV at mid · Clean: outside the leg band, deep books, no same-game legs · "
+                      "No SG: hide same-game combos · No thin: hide combos with a shallow leg book")
 
-bar = st.container(horizontal=True, vertical_alignment="center")
-with bar.popover("⚙️ Filters & sort", width="stretch"):
-    sort_label = st.selectbox("Sort by", list(SORTS), key="sort")
+bar = st.container(horizontal=True, vertical_alignment="center", gap="small")
+with bar.popover("⚙️ More filters", width="stretch"):
+    sort_label = st.selectbox("Default sort", list(SORTS), key="sort",
+                              help="You can also tap any column header in the table to sort by it.")
     lookback_label = st.segmented_control("Bets placed in the last", list(LOOKBACKS), default="1h",
                                           required=True, key="lookback")
     custom_min = st.number_input("Custom min bet ($)", min_value=0, value=0, step=25,
                                  help="Overrides the size chips when greater than 0.")
-    side_filter = st.radio("Bettor side", ["Both", "YES", "NO"], horizontal=True,
-                           help="YES = bettor needs every leg to hit. NO = bettor is fading the parlay.")
-    only_positive = st.toggle("Only +EV at mid", value=True)
-    only_clean = st.toggle("Only trustworthy edges", value=False,
-                           help="Price outside the leg bid/ask band, deep enough books, no same-game legs.")
-    hide_same_game = st.toggle("Hide same-game combos", value=False,
-                               help="Same-game legs are correlated, so multiplying leg prices understates the true odds.")
-    hide_thin = st.toggle("Hide thin books", value=False,
-                          help="Hide combos where a leg has less depth within 2¢ than the bet size.")
     max_legs = st.slider("Max legs", 2, 12, 12)
     group = st.toggle("Merge fills of the same combo", value=True,
                       help="Kalshi often fills one bet in several pieces. Merged rows show the total size and average price.")
     st.markdown("**Kelly sizing**")
     kelly_label = st.segmented_control("Kelly fraction", list(KELLY), default="¼", required=True, key="kelly")
     unit_pct = st.number_input("1 unit = % of bankroll", min_value=0.1, max_value=100.0, value=1.0, step=0.5)
-    table_view = st.toggle("Table view (wide screens)", value=False)
 refresh_clicked = bar.button("↻", help="Refresh now", width="content")
 
 min_stake = float(custom_min) if custom_min > 0 else float(SIZE_CHIPS[size_label])
@@ -142,8 +142,9 @@ kelly_mult = KELLY[kelly_label]
 # ---------- Data ----------
 if refresh_clicked:
     load.clear()
+    with_depth.clear()
 try:
-    with st.spinner("Pulling combo trades and leg orderbooks…"):
+    with st.spinner("Pulling combo trades and leg prices…"):
         snap = load(lookback, min_stake, group)
 except Exception as exc:  # network / API errors should not blank the page
     st.error(f"Couldn't reach Kalshi: {exc}")
@@ -153,10 +154,9 @@ collector = get_source()[2]
 if collector is not None:
     covered = collector.coverage_minutes()
     if covered < lookback - 1:
-        st.info(f"⏳ Still loading history: {covered:.0f} of {lookback} min so far. "
-                "Tap ↻ in a minute to see more.")
+        st.caption(f"⏳ Still loading history: {covered:.0f} of {lookback} min so far. Tap ↻ in a minute.")
     if collector.last_error:
-        st.warning(f"Last Kalshi poll failed, retrying: {collector.last_error[:200]}")
+        st.caption(f"⚠️ Last Kalshi poll failed, retrying: {collector.last_error[:150]}")
 
 if not snap.rows:
     st.caption(f"Updated {snap.fetched_at:%H:%M} UTC ({ago(snap.fetched_at)})")
@@ -169,34 +169,35 @@ df["label"] = df["leg_detail"].map(
 df["flags"] = df.apply(flags, axis=1)
 df["clean"] = df.apply(is_clean, axis=1)
 
-view = df
-if side_filter != "Both":
-    view = view[view["side"] == side_filter.lower()]
-if only_positive:
-    view = view[view["ev_pct_mid"].fillna(-1) > 0]
-if only_clean:
-    view = view[view["clean"]]
-if hide_same_game:
-    view = view[view["same_game_legs"] == 0]
-if hide_thin:
-    view = view[view["min_depth_ratio"].fillna(0) >= 1]
-view = view[view["legs"] <= max_legs]
 
+def apply_quick_filters(view: pd.DataFrame) -> pd.DataFrame:
+    if "+EV" in quick:
+        view = view[view["ev_pct_mid"].fillna(-1) > 0]
+    if "Clean" in quick:
+        view = view[view["clean"]]
+    if "No SG" in quick:
+        view = view[view["same_game_legs"] == 0]
+    if "No thin" in quick:
+        view = view[view["min_depth_ratio"].fillna(0) >= 1]
+    if "YES only" in quick:
+        view = view[view["side"] == "yes"]
+    return view
+
+
+view = apply_quick_filters(df)
+view = view[view["legs"] <= max_legs]
 sort_col = SORTS[sort_label]
 view = view.sort_values(sort_col, ascending=(sort_col == "minutes_ago"), na_position="last").reset_index(drop=True)
 
-sort_md = sort_label.replace("$", "\\$")
 st.caption(
-    f"Updated {snap.fetched_at:%H:%M} UTC ({ago(snap.fetched_at)}) · last {lookback_label} · "
-    f"bets ≥ \\${min_stake:,.0f} · sorted by {sort_md}  \n"
-    f"**{len(view):,}** shown of {len(df):,} · **{(df['ev_pct_mid'] > 0).sum():,}** +EV at mid · "
-    f"**{(df['ev_net'] > 0).sum():,}** +EV after fees"
-    + (f" · scored the {snap.bets_scored:,} largest of {snap.bets_over_min:,}"
-       if snap.bets_over_min > MAX_BETS else "")
+    f"**{len(view):,}** bets · {(df['ev_pct_mid'] > 0).sum():,} +EV of {len(df):,} ≥ \\${min_stake:,.0f} "
+    f"in the last {lookback_label}"
+    + (f" (largest {snap.bets_scored:,} of {snap.bets_over_min:,})" if snap.bets_over_min > MAX_BETS else "")
+    + f" · updated {ago(snap.fetched_at)} · tap a row for details"
 )
 
 if view.empty:
-    st.info("Nothing left after these filters. Loosen them under ⚙️ Filters & sort.")
+    st.info("Nothing left after these filters. Turn some off above or under ⚙️ More filters.")
     st.stop()
 
 
@@ -209,16 +210,6 @@ def money(x, signed: bool = False) -> str:
     if x is None or pd.isna(x):
         return "–"
     return f"{'+' if signed and x > 0 else ''}{'-' if x < 0 else ''}\\${abs(x):,.2f}"
-
-
-def ev_badge(r: pd.Series) -> str:
-    ev = r["ev_pct_mid"]
-    if ev is None or pd.isna(ev):
-        return ":gray[**EV ?**]"
-    text = f"**{ev * 100:+.1f}%**"
-    if ev <= 0:
-        return f":red[{text}]"
-    return f":green[{text}]" if r["clean"] else f":orange[{text}]"
 
 
 def render_detail(r: pd.Series) -> None:
@@ -256,57 +247,75 @@ def render_detail(r: pd.Series) -> None:
 
 
 # ---------- Results ----------
-if table_view:
-    table = pd.DataFrame({
-        "Combo": view["legs"].astype(str) + "L · " + view["label"],
-        "Side": view["side"].str.upper(),
-        "Odds": view["price"].map(fmt_odds),
-        "EV mid": view["ev_pct_mid"] * 100,
-        "EV CRX": view["ev_pct_crx"] * 100,
-        "Units": view["kelly_mid"].map(lambda k: units(k, kelly_mult, unit_pct)),
-        "Bet $": view["stake"],
-        "Net EV $": view["ev_net"],
-        "Flags": view["flags"],
-    })
-    event = st.dataframe(
-        table, hide_index=True, width="stretch", height=min(35 * len(table) + 38, 600),
-        on_select="rerun", selection_mode="single-row",
-        column_config={
-            "Combo": st.column_config.TextColumn(width="large"),
-            "EV mid": st.column_config.NumberColumn(format="%+.1f%%", help="Fair at leg mids ÷ price − 1"),
-            "EV CRX": st.column_config.NumberColumn(format="%+.1f%%", help="Fair at leg bids ÷ price − 1"),
-            "Units": st.column_config.NumberColumn(help="Kelly stake at mid, in units"),
-            "Bet $": st.column_config.NumberColumn(format="$%.0f"),
-            "Net EV $": st.column_config.NumberColumn(format="$%.2f", help="(Fair − price) × contracts − taker fee"),
-        },
-    )
-    rows = event.selection.rows if event and event.selection else []
-    if rows:
-        with st.container(border=True):
-            render_detail(view.iloc[rows[0]])
+@st.dialog("Bet details", width="large", on_dismiss=lambda: st.session_state.update(dismissed=st.session_state.get("open_bet")))
+def show_detail(r: pd.Series) -> None:
+    with st.spinner("Loading full leg orderbooks…"):
+        try:
+            deep = pd.Series(with_depth(r.drop(["label", "flags", "clean"]).to_dict(), lookback, group))
+            deep["flags"], deep["clean"] = flags(deep), is_clean(deep)
+        except Exception as exc:
+            st.caption(f"Couldn't load full depth ({exc}); showing top of book.")
+            deep = r
+    render_detail(deep)
+
+
+def ev_colors(col: pd.Series) -> list[str]:
+    out = []
+    for ev, clean in zip(view["ev_pct_mid"] if col.name == "EV" else view["ev_pct_crx"], view["clean"]):
+        if ev is None or pd.isna(ev) or ev <= 0:
+            out.append("color: #c0392b")
+        elif clean and col.name == "EV":
+            out.append("color: #1e8449; font-weight: 600")
+        else:
+            out.append("color: #b9770e; font-weight: 600" if col.name == "EV" else "")
+    return out
+
+
+table = pd.DataFrame({
+    "#": range(1, len(view) + 1),
+    "EV": view["ev_pct_mid"] * 100,
+    "CRX": view["ev_pct_crx"] * 100,
+    "u": view["kelly_mid"].map(lambda k: units(k, kelly_mult, unit_pct)),
+    "Odds": view["price"].map(fmt_odds),
+    "Bet": view["stake"],
+    "Legs": view["side"].str.upper() + " " + view["legs"].astype(str) + "L · " + view["label"],
+    "Flags": view["flags"],
+    "Age": view["minutes_ago"],
+})
+event = st.dataframe(
+    table.style.apply(ev_colors, subset=["EV", "CRX"]),
+    hide_index=True,
+    width="stretch",
+    height=38 + 35 * min(len(table), TABLE_ROWS),
+    row_height=35,
+    on_select="rerun",
+    selection_mode="single-cell",  # tap any cell to open the bet (no checkbox column)
+    key="bets",
+    column_config={
+        "#": st.column_config.NumberColumn("#", width=30, pinned=True, help="Rank in the default sort"),
+        "EV": st.column_config.NumberColumn("EV", format="%+.1f%%", width=64, pinned=True,
+                                            help="EV at leg mids: fair ÷ price − 1, before fees"),
+        "CRX": st.column_config.NumberColumn("CRX", format="%+.1f%%", width=62,
+                                             help="EV with each leg priced by crossing the spread (its bid)"),
+        "u": st.column_config.NumberColumn("u", format="%d", width=32, help="Kelly units at mid"),
+        "Odds": st.column_config.TextColumn("Odds", width=56, help="American odds the bettor got"),
+        "Bet": st.column_config.NumberColumn("Bet", format="$%.0f", width=62, help="Contracts × price paid"),
+        "Legs": st.column_config.TextColumn("Legs", width=320, help="Bettor side, leg count, then each leg"),
+        "Flags": st.column_config.TextColumn("Flags", width=120, help="SG same-game · THIN shallow book · "
+                                             "IN BAND edge within leg spreads · NO QUOTE · CHECK edge over +200%"),
+        "Age": st.column_config.NumberColumn("Age", format="%.0fm", width=48, help="Minutes since the bet"),
+    },
+)
+# Tapping a column header to sort also focuses that row's first cell, so taps on
+# the "#" column are ignored rather than opening a bet.
+selected = [c for c in (event.selection.cells if event and event.selection else []) if c[1] != "#"]
+if selected:
+    r = view.iloc[selected[0][0]]
+    st.session_state["open_bet"] = f"{r['ticker']}|{r['side']}"
+    if st.session_state.get("dismissed") != st.session_state["open_bet"]:
+        show_detail(r)
 else:
-    shown = st.session_state.get("shown", 25)
-    for i, r in view.head(shown).iterrows():
-        u = units(r["kelly_mid"], kelly_mult, unit_pct)
-        meta = (f"{'–' if u is None else u}u · {r['side'].upper()} {fmt_odds(r['price'])} · "
-                f"\\${r['stake']:,.0f} bet · {r['legs']}L")
-        if r["flags"]:
-            meta += f" · :orange[{r['flags']}]"
-        label = r["label"] if len(r["label"]) <= 90 else r["label"][:89] + "…"
-        key = f"open_{r['ticker']}_{r['side']}"
-        with st.expander(f"{ev_badge(r)} · {meta}  \n{label}", key=key, on_change="rerun"):
-            if st.session_state.get(key):
-                with st.spinner("Loading full leg orderbooks…"):
-                    try:
-                        deep = pd.Series(with_depth(r.drop(["label", "flags", "clean"]).to_dict(), lookback, group))
-                        deep["flags"], deep["clean"] = flags(deep), is_clean(deep)
-                    except Exception as exc:
-                        st.caption(f"Couldn't load full depth ({exc}); showing top of book.")
-                        deep = r
-                render_detail(deep)
-    if len(view) > shown and st.button(f"Show more ({len(view) - shown:,} left)", width="stretch"):
-        st.session_state["shown"] = shown + 25
-        st.rerun()
+    st.session_state["dismissed"] = None
 
 with st.expander("ℹ️ How EV and flags work"):
     st.markdown(
