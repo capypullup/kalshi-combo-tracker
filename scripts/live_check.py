@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from combo_tracker.client import COMBO_PREFIX, KalshiClient  # noqa: E402
 from combo_tracker.format import bet_card  # noqa: E402
-from combo_tracker.pipeline import refresh  # noqa: E402
+from combo_tracker.collector import Collector  # noqa: E402
+from combo_tracker.pipeline import Scorer  # noqa: E402
 
 lookback = int(sys.argv[1]) if len(sys.argv) > 1 else 15
 min_stake = float(sys.argv[2]) if len(sys.argv) > 2 else 100
@@ -57,18 +58,32 @@ if page:
                     print(f"     orderbook keys: {list(first)}; yes levels: {str(first.get('yes_dollars'))[:200]}")
 
 print()
-t0 = time.time()
-snap = stage(f"full refresh ({lookback} min, bets ≥ ${min_stake:.0f})",
-             lambda: refresh(client, lookback_minutes=lookback, min_stake=min_stake))
+col = Collector(client, max_window_minutes=lookback, initial_backfill_minutes=lookback)
+stage(f"collector backfill ({lookback} min)", col.poll)
+print(f"     scanned {col.trades_scanned:,} trades, kept {len(col.trades):,} combo fills, "
+      f"{client.requests_made} requests so far")
+reqs = client.requests_made
+stage("collector incremental poll", col.poll)
+print(f"     incremental poll used {client.requests_made - reqs} requests")
+
+scorer = Scorer(client)
+reqs = client.requests_made
+snap = stage(f"score bets ≥ ${min_stake:.0f}", lambda: scorer.score(col.window(lookback), min_stake=min_stake))
 if snap is None:
     sys.exit(1)
-print(f"{time.time() - t0:.1f}s · {snap.combo_trades_seen} combo fills · {snap.bets_seen} bets · "
+print(f"     {client.requests_made - reqs} requests · batch orderbooks ok: {client.batch_orderbooks_ok}")
+print(f"     {snap.combo_trades_seen} combo fills · {snap.bets_seen} bets · {snap.bets_over_min} ≥ ${min_stake:.0f} · "
       f"{snap.bets_scored} scored · {len(snap.errors)} errors")
+reqs = client.requests_made
+stage("score again (warm caches)", lambda: scorer.score(col.window(lookback), min_stake=min_stake))
+print(f"     {client.requests_made - reqs} requests")
 for e in snap.errors[:5]:
     print("  error:", e)
+missing = sum(1 for r in snap.rows if r["missing_quotes"])
+print(f"     rows with a missing leg quote: {missing}/{len(snap.rows)}")
 rows = sorted(snap.rows, key=lambda r: r["ev_pct_mid"] if r["ev_pct_mid"] is not None else -9, reverse=True)
 for r in rows[:8]:
     print()
     print(bet_card(r))
     print(f"(${r['stake']:,.0f} bet · {r['contracts']:,.0f} contracts · net EV ${r['ev_net'] or 0:,.2f} · "
-          f"min depth {r['min_depth_ratio']} · flags SG={r['same_game_legs']} missing={r['missing_quotes']} · {r['ticker']})")
+          f"min depth {r['min_depth_ratio']} · SG={r['same_game_legs']} missing={r['missing_quotes']} · {r['ticker']})")

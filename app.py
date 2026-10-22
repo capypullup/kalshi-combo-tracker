@@ -7,7 +7,7 @@ Offline demo: DEMO=1 streamlit run app.py
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import streamlit as st
@@ -15,10 +15,12 @@ import streamlit as st
 from combo_tracker.client import KalshiClient
 from combo_tracker.demo import DemoClient
 from combo_tracker.format import bet_card, fmt_odds, units
-from combo_tracker.pipeline import refresh
+from combo_tracker.collector import Collector
+from combo_tracker.pipeline import Scorer
 
 DEMO = os.environ.get("DEMO") == "1"
-REFRESH_SECONDS = 180
+REFRESH_SECONDS = 60
+MAX_BETS = 400
 
 SIZE_CHIPS = {"All": 0, "$10+": 10, "$100+": 100, "$1k+": 1000}
 LOOKBACKS = {"15m": 15, "1h": 60, "3h": 180}
@@ -46,13 +48,23 @@ st.markdown(
 
 
 @st.cache_resource
-def get_client():
-    return DemoClient() if DEMO else KalshiClient()
+def get_source():
+    """One client, scorer and background collector shared by every visitor."""
+    if DEMO:
+        client = DemoClient()
+        return client, Scorer(client), None
+    client = KalshiClient()
+    return client, Scorer(client), Collector(client, max_window_minutes=max(LOOKBACKS.values())).start()
 
 
 @st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
 def load(lookback: int, min_stake: float, group: bool):
-    return refresh(get_client(), lookback_minutes=lookback, min_stake=min_stake, group=group)
+    client, scorer, collector = get_source()
+    if collector is None:
+        trades = client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=lookback))
+    else:
+        trades = collector.window(lookback)
+    return scorer.score(trades, min_stake=min_stake, group=group, max_bets=MAX_BETS)
 
 
 def flags(row: pd.Series) -> str:
@@ -129,6 +141,15 @@ except Exception as exc:  # network / API errors should not blank the page
     st.error(f"Couldn't reach Kalshi: {exc}")
     st.stop()
 
+collector = get_source()[2]
+if collector is not None:
+    covered = collector.coverage_minutes()
+    if covered < lookback - 1:
+        st.info(f"⏳ Still loading history: {covered:.0f} of {lookback} min so far. "
+                "Tap ↻ in a minute to see more.")
+    if collector.last_error:
+        st.warning(f"Last Kalshi poll failed, retrying: {collector.last_error[:200]}")
+
 if not snap.rows:
     st.caption(f"Updated {snap.fetched_at:%H:%M} UTC ({ago(snap.fetched_at)})")
     st.info("No combo bets match these filters yet. Try a smaller minimum bet or a longer window.")
@@ -162,6 +183,8 @@ st.caption(
     f"bets ≥ \\${min_stake:,.0f} · sorted by {sort_md}  \n"
     f"**{len(view):,}** shown of {len(df):,} · **{(df['ev_pct_mid'] > 0).sum():,}** +EV at mid · "
     f"**{(df['ev_net'] > 0).sum():,}** +EV after fees"
+    + (f" · scored the {snap.bets_scored:,} largest of {snap.bets_over_min:,}"
+       if snap.bets_over_min > MAX_BETS else "")
 )
 
 if view.empty:
