@@ -1,57 +1,45 @@
-"""One-off probe: find Kalshi's social/profile/leaderboard endpoints and check RFQ access.
-
-Runs in GitHub Actions (the dev sandbox can't reach Kalshi). Prints what it finds.
-"""
-import re
-import sys
-import json
+"""One-off probe of Kalshi's public social API (v1). Runs in GitHub Actions."""
 import requests
 
 S = requests.Session()
-S.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128 Safari/537.36"
-API = "https://api.elections.kalshi.com"
+S.headers["User-Agent"] = "Mozilla/5.0"
+API = "https://api.elections.kalshi.com/v1/social"
+N = "weatherman.allday"
+SID = "6d479151-102d-4b4b-b881-f86c7c2fc94c"
 
 
-def show(url, n=1500, **kw):
+def show(path, n=1800):
     try:
-        r = S.get(url, timeout=20, **kw)
-        body = r.text
-        print(f"\n### {r.status_code} {url}\n{body[:n]}")
+        r = S.get(API + path, timeout=20)
+        print(f"\n### {r.status_code} {path}\n{r.text[:n]}")
         return r
     except Exception as e:
-        print(f"\n### ERR {url}: {e}")
+        print(f"\n### ERR {path}: {e}")
 
 
-paths = set()
-for page in ["https://kalshi.com/", "https://kalshi.com/leaderboard", "https://kalshi.com/profile/weatherman.allday"]:
-    r = show(page, n=300)
-    if not r:
-        continue
-    scripts = set(re.findall(r'src="([^"]+\.js[^"]*)"', r.text))
-    print("scripts:", len(scripts))
-    for s in list(scripts)[:80]:
-        url = s if s.startswith("http") else "https://kalshi.com" + s
-        try:
-            js = S.get(url, timeout=20).text
-        except Exception:
-            continue
-        for m in re.findall(r'["\'`](/?(?:v1|trade-api/v2)?/?(?:social|leaderboard|profile|profiles|users?)[^"\'`\s]{0,80})["\'`]', js):
-            paths.add(m)
-        for m in re.findall(r'[^"\'`\s]{0,40}leaderboard[^"\'`\s]{0,60}', js):
-            paths.add("LB:" + m)
-print("\n=== candidate paths from bundles ===")
-for p in sorted(paths)[:400]:
-    print(p)
-
-print("\n=== direct guesses ===")
+for metric in ["projected_pnl", "pnl", "volume", "num_markets_traded", "profit", "realized_pnl"]:
+    show(f"/leaderboard?metric_name={metric}&limit=5")
+show("/leaderboard?metric_name=projected_pnl&limit=5&category=Sports")
+show("/leaderboard?metric_name=projected_pnl&limit=5&since_day_before=7")
+show("/leaderboard?metric_name=projected_pnl&limit=200")
 for p in [
-    "/v1/social/profile?nickname=weatherman.allday",
-    "/v1/social/profiles/weatherman.allday",
-    "/v1/social/leaderboard",
-    "/v1/social/leaderboard?metric=pnl",
-    "/v1/leaderboard",
-    "/v1/social/profile/metrics?nickname=weatherman.allday",
-    "/trade-api/v2/communications/rfqs?limit=5",
-    "/trade-api/v2/communications/quotes?limit=5",
+    f"/profile/trades?nickname={N}&limit=5",
+    f"/trades?nickname={N}&limit=5",
+    f"/profile/positions?nickname={N}&limit=5",
+    f"/profile/positions?nickname={N}&limit=5&status=closed",
+    f"/positions?nickname={N}&limit=5",
+    f"/profile/top_categories?nickname={N}",
+    f"/profile/category_metrics?nickname={N}",
+    f"/profile/metrics?nickname={N}&since_day_before=30",
+    f"/profile/badges?nickname={N}",
+    f"/profile?social_id={SID}",
+    f"/trades?social_id={SID}&limit=5",
+    f"/profile/trades?social_id={SID}&limit=5",
+    "/trades?limit=5",
+    "/trades?ticker=KXATPMATCH&limit=5",
+    "/market/trades?limit=5",
+    "/feed?limit=3",
+    "/posts?limit=3",
+    f"/posts?nickname={N}&limit=3",
 ]:
-    show(API + p)
+    show(p)
