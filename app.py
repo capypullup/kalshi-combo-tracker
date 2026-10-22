@@ -366,7 +366,7 @@ def quote_page() -> None:
             snap = src.board.get(*view)
     rows = sorted(snap.rows, key=lambda r: r["last_time"], reverse=True) if snap else []
     client = src.scorer.client if DEMO else quote_client()  # the demo's bets only exist in its own client
-    quote_view.render(client, rows, starts=src.scorer.starts, auth=None if DEMO else _kalshi_auth(), demo=DEMO)
+    quote_view.render(client, rows, starts=src.scorer.starts, auth=None if DEMO else _kalshi_auth()[0], demo=DEMO)
     with st.expander("How to read this"):
         st.markdown(
             "- A fill in the feed means someone got that price, not that you still can. This page checks one combo "

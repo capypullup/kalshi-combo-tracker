@@ -37,7 +37,7 @@ The **BETTORS** tab ranks public Kalshi profiles, with tennis bettors as the sta
 
 ### API key for RFQ matching
 
-Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """-----BEGIN ...""" `) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's GET QUOTE button, which creates and deletes your own RFQs.
+Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's GET QUOTE button, which creates and deletes your own RFQs.
 
 ## Quote page
 
