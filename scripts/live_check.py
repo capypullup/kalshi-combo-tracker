@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from combo_tracker.client import COMBO_PREFIX, KalshiClient  # noqa: E402
 from combo_tracker.format import bet_card  # noqa: E402
-from combo_tracker.view import pack, slim  # noqa: E402
+from combo_tracker.view import is_live, pack, slim  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 
@@ -96,6 +96,27 @@ if snap.rows:
           f"full-depth EV {deep and deep['ev_pct_mid']}")
 for e in snap.errors[:5]:
     print("  error:", e)
+legs = [l for r in snap.rows for l in r["leg_detail"]]
+if legs:
+    def pctl(xs, q):
+        xs = sorted(xs)
+        return xs[min(len(xs) - 1, int(q * len(xs)))]
+    spreads = [l["spread"] * 100 for l in legs if l["spread"] is not None]
+    sizes = [min(l["top_bid_size"], l["top_ask_size"]) for l in legs]
+    print(f"     leg spreads (¢) p25/50/75/90: {[round(pctl(spreads, q), 1) for q in (.25, .5, .75, .9)]} · "
+          f"no two-sided quote: {len(legs) - len(spreads)}/{len(legs)}")
+    print(f"     smaller top-of-book size (contracts) p10/25/50/75: {[round(pctl(sizes, q)) for q in (.1, .25, .5, .75)]}")
+    for cut_sp, cut_sz in [(2, 50), (3, 100), (4, 100), (5, 100), (4, 250), (10, 0)]:
+        thin = sum(1 for r in snap.rows if any(l["spread"] is None or l["spread"] * 100 > cut_sp + 1e-9 or
+                                               min(l["top_bid_size"], l["top_ask_size"]) < cut_sz for l in r["leg_detail"]))
+        print(f"     bets with a leg spread > {cut_sp}¢ or top size < {cut_sz}: {thin}/{len(snap.rows)}")
+    known = [l for l in legs if l["start"] is not None]
+    print(f"     legs with a scheduled start: {len(known)}/{len(legs)} · started: {sum(1 for l in known if l['hours_to_start'] <= 0)} · "
+          f"schedule: {len(scorer.starts.by_event)} events, error {scorer.starts.error}")
+    missing = sorted({l["ticker"].split("-")[0] for l in legs if l["start"] is None})
+    print(f"     series with no scheduled start: {missing[:40]}")
+    old_rule = sum(1 for r in snap.rows if r["inactive_legs"] or (r["hours_to_first_leg"] is not None and r["hours_to_first_leg"] < 3))
+    print(f"     live bets: {sum(1 for r in snap.rows if is_live(r))}/{len(snap.rows)} (old 3h rule said {old_rule})")
 payload = json.dumps(pack(snap.rows), allow_nan=False)  # what the phone table receives
 print(f"     table payload: {len(payload) / 1024:.0f} KB packed "
       f"({len(json.dumps([slim(r) for r in snap.rows])) / 1024:.0f} KB unpacked) for {len(snap.rows)} rows · "

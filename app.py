@@ -50,7 +50,7 @@ from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs  # noqa: E402
 DEMO = os.environ.get("DEMO") == "1"
 SCORE_SECONDS = 120  # how often the background worker re-scores the views people have open
 DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
-MAX_BETS = 400
+MAX_BETS = 600  # newest bets scored per view
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
 
@@ -83,7 +83,7 @@ def get_source() -> SimpleNamespace:
     re-scores the views people have open. Pages only read its latest results.
     """
     if DEMO:
-        client = DemoClient()
+        client = DemoClient(n_trades=1500)  # enough rows to exercise endless scroll
         scorer = Scorer(client)
         trades_for = lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m))  # noqa: E731
         return SimpleNamespace(scorer=scorer, trades_for=trades_for, collector=None,
@@ -153,7 +153,7 @@ def table_view():
         if collector.last_error:
             error = error or f"Last Kalshi poll failed, retrying: {collector.last_error[:150]}"
     if snap and snap.bets_over_min > snap.bets_scored:
-        notes.append(f"Scoring the largest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
+        notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
     deep = {k: v for k, v in st.session_state.deep.items() if time.time() - v["at"] < DEEP_TTL}
     depth_error = None
@@ -200,10 +200,13 @@ with st.expander("How EV, units and flags work"):
         "- **MIN EV / MIN QK** filter on whichever basis the MID / CROSS switch shows. Tap a chip again to clear it.\n"
         "- **INDEP. ONLY** hides combos with two legs on the same game (they're correlated, so the product "
         "of leg prices understates the true odds). Those rows show their legs/games count in yellow.\n"
-        "- **PREGAME / LIVE** is a best guess: Kalshi gives no start time, so a combo counts as live once "
-        f"a leg is within {LIVE_HOURS}h of its expected settlement or has already closed.\n"
+        "- **PREGAME / LIVE** uses each game's scheduled start from Kalshi's schedule: a combo is live once "
+        "any leg's game has started (red dot by the time; open a bet to see each leg's start). Legs Kalshi "
+        f"doesn't schedule count as live within {LIVE_HOURS}h of their expected settlement.\n"
+        "- **HIDE THIN** hides combos with a leg whose spread is wide or whose top of book is small, since "
+        "its mid isn't a reliable price. Set the cutoffs with the gear icon; thin quotes show in yellow with *.\n"
         "- **Full book** (book icon on an open bet) walks each leg's whole orderbook for the bet's size.\n"
-        "- **Flags**: THIN a leg has less depth within 2¢ of its ask than the bet size · IN BAND the price "
+        "- **Flags**: THIN see HIDE THIN · IN BAND the price "
         "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
         "over +200%, usually a stale book.\n"
         "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
