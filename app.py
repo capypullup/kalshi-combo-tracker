@@ -59,7 +59,10 @@ def get_source():
         client = DemoClient()
         return client, Scorer(client), None
     client = KalshiClient()
-    return client, Scorer(client), Collector(client, max_window_minutes=max(LOOKBACKS.values())).start()
+    scorer = Scorer(client)
+    # Score the default view after every poll so leg quotes and titles are cached before anyone looks.
+    warm = lambda col: scorer.score(col.window(60), min_stake=100, max_bets=MAX_BETS)  # noqa: E731
+    return client, scorer, Collector(client, max_window_minutes=max(LOOKBACKS.values()), after_poll=warm).start()
 
 
 def window_trades(lookback: int) -> list[dict]:

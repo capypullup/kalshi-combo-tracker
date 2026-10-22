@@ -37,7 +37,7 @@ def _expand(c: tuple) -> dict:
 
 class Collector:
     def __init__(self, client, max_window_minutes: int = 180, poll_seconds: int = 60,
-                 initial_backfill_minutes: int = 60):
+                 initial_backfill_minutes: int = 60, after_poll=None):
         self.client = client
         self.max_window = timedelta(minutes=max_window_minutes)
         self.poll_seconds = poll_seconds
@@ -49,6 +49,7 @@ class Collector:
         self.markets: dict[str, dict] = {}  # combo ticker -> market (legs never change)
         self.last_error: str | None = None
         self.last_poll_seconds: float | None = None
+        self.after_poll = after_poll  # e.g. pre-score the default view so page loads hit warm caches
         self.trades_scanned = 0
         self._thread: threading.Thread | None = None
 
@@ -100,6 +101,8 @@ class Collector:
         while True:
             try:
                 self.poll()
+                if self.after_poll:
+                    self.after_poll(self)
                 self.extend_backfill()
                 self.last_error = None
             except Exception as exc:  # keep collecting through API hiccups
