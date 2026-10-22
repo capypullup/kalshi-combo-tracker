@@ -1,6 +1,6 @@
 """One-off probe of Kalshi's public social API (v1). Runs in GitHub Actions."""
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 import requests
 
 S = requests.Session()
@@ -10,18 +10,14 @@ API = ROOT + "/v1/social"
 V2 = ROOT + "/trade-api/v2"
 
 
-def get(url, quiet=True, n=400):
+def get(url, quiet=True, n=500):
     for _ in range(4):
-        try:
-            r = S.get(url, timeout=25)
-        except Exception as e:
-            print("ERR", url, e)
-            return None
+        r = S.get(url, timeout=25)
         if r.status_code == 429:
             time.sleep(2)
             continue
         if not quiet or r.status_code != 200:
-            print(f"### {r.status_code} {url.replace(ROOT, '')} {r.text[:n]}")
+            print(f"### {r.status_code} {url.replace(ROOT, '')[:200]} {r.text[:n]}")
         time.sleep(0.08)
         try:
             return r.json()
@@ -29,87 +25,67 @@ def get(url, quiet=True, n=400):
             return None
 
 
-print("== leaderboard time params ==")
-for tp in ["day", "week", "month", "year", "all", "all_time", "daily", "weekly", "monthly", "1d", "7d", "30d", "DAY", "WEEK"]:
-    d = get(f"{API}/leaderboard?metric_name=projected_pnl&limit=3&time_period={tp}")
-    if d and "rank_list" in d:
-        print("time_period", tp, "->", [(r["nickname"], r["value"]) for r in d["rank_list"]])
-for sd in [7, 14, 30, 60, 90, 365]:
-    d = get(f"{API}/leaderboard?metric_name=projected_pnl&limit=3&since_day_before={sd}")
-    print("since_day_before", sd, "->", [(r["nickname"], r["value"]) for r in (d or {}).get("rank_list", [])])
-for cat in ["Sports", "Politics", "Crypto", "Economics", "Climate and Weather", "Financials"]:
-    d = get(f"{API}/leaderboard?metric_name=projected_pnl&limit=1&category={cat}")
-    print("category", cat, len((d or {}).get("rank_list", [])))
+print("== side/action semantics over 3000 trades ==")
+soc, cursor = [], None
+for _ in range(30):
+    d = get(f"{API}/trades?limit=100" + (f"&cursor={cursor}" if cursor else "")) or {}
+    soc += d.get("trades", [])
+    cursor = d.get("cursor")
+v2, cursor = {}, None
+for _ in range(6):
+    d = get(f"{V2}/markets/trades?limit=1000" + (f"&cursor={cursor}" if cursor else "")) or {}
+    for t in d.get("trades", []):
+        v2[t["trade_id"]] = t
+    cursor = d.get("cursor")
+combos = Counter()
+for t in soc:
+    o = v2.get(t["trade_id"])
+    if o:
+        combos[(t["taker_side"], t["taker_action"], o.get("taker_side"), o.get("taker_outcome_side"), o.get("taker_book_side"),
+                abs(float(t["price_dollars"]) - float(o["yes_price_dollars"])) < 1e-6)] += 1
+for k, v in combos.most_common():
+    print("social(side,action) v2(side,outcome,book) price==yes:", k, v)
+print("social keys:", sorted(soc[0].keys()) if soc else None)
 
-print("\n== tennis series feed: last 24h ==")
-since = time.time() - 86400
-nick_trades = defaultdict(Counter)
-for series in ["KXATPMATCH", "KXWTAMATCH", "KXATPCHALLENGERMATCH", "KXWTACHALLENGERMATCH", "KXITFMATCH", "KXITFWMATCH",
-               "KXATPSETWINNER", "KXATPGAMESPREAD", "KXATPTOTALGAMES"]:
-    cursor, n, named, pages, oldest = None, 0, 0, 0, None
-    while pages < 150:
-        d = get(f"{API}/trades?series_ticker={series}&limit=100" + (f"&cursor={cursor}" if cursor else ""))
-        tr = (d or {}).get("trades", [])
-        pages += 1
-        stop = False
+print("\n== a visible tennis bettor's history depth ==")
+for nk in ["Hughman", "JohnR0809", "dry.ear"]:
+    cursor, total, pages, oldest, roles = None, 0, 0, None, Counter()
+    while pages < 30:
+        d = get(f"{API}/trades?nickname={nk}&limit=100" + (f"&cursor={cursor}" if cursor else "")) or {}
+        tr = d.get("trades", [])
+        total += len(tr)
         for t in tr:
-            ts = time.mktime(time.strptime(t["create_date"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
-            if ts < since:
-                stop = True
-                break
-            oldest = t["create_date"]
-            n += 1
-            for role in ("taker", "maker"):
-                nk = t[f"{role}_nickname"]
-                if nk:
-                    named += 1
-                    nick_trades[nk][role] += 1
-        cursor = (d or {}).get("cursor")
-        if stop or not cursor or not tr:
+            roles["taker" if t["taker_nickname"] == nk else "maker" if t["maker_nickname"] == nk else "neither"] += 1
+        if tr:
+            oldest = tr[-1]["create_date"]
+        cursor, pages = d.get("cursor"), pages + 1
+        if not cursor or not tr:
             break
-    print(f"{series}: trades {n} named-sides {named} pages {pages} oldest {oldest}")
-print("distinct tennis nicknames:", len(nick_trades))
-top = sorted(nick_trades.items(), key=lambda kv: -sum(kv[1].values()))[:40]
-for nk, c in top:
-    print("  ", nk, dict(c))
+    print(nk, "trades", total, "pages", pages, "oldest", oldest, "more" if cursor else "end", dict(roles))
+d = get(f"{API}/trades?nickname=Hughman&limit=100&min_ts={int(time.time()) - 86400 * 20}&max_ts={int(time.time()) - 86400 * 10}") or {}
+tr = d.get("trades", [])
+print("min/max_ts on nickname feed:", len(tr), tr[0]["create_date"] if tr else None, tr[-1]["create_date"] if tr else None)
 
-print("\n== visibility of top names ==")
-vis = Counter()
-for nk, _ in top[:25]:
-    d = get(f"{API}/trades?nickname={nk}&limit=100")
-    m = get(f"{API}/profile/metrics?nickname={nk}")
-    tr = (d or {}).get("trades", [])
-    vis[(d or {}).get("visibility_state", "visible")] += 1
-    print(f"  {nk}: vis={(d or {}).get('visibility_state')} n={len(tr)} cursor={'y' if (d or {}).get('cursor') else 'n'} "
-          f"metrics={(m or {}).get('metrics')} oldest={tr[-1]['create_date'] if tr else None} "
-          f"series={Counter(t['ticker'].split('-')[0] for t in tr).most_common(3)}")
-print(vis)
+print("\n== candle batch limits ==")
+tk = list(dict.fromkeys(t["ticker"] for t in soc if not t["ticker"].startswith("KXMVE")))
+now = int(time.time())
+for n, minutes in [(10, 60), (50, 60), (100, 60), (100, 600), (20, 1440)]:
+    d = get(f"{V2}/markets/candlesticks?market_tickers={','.join(tk[:n])}&start_ts={now - minutes * 60}&end_ts={now}&period_interval=1", n=300)
+    if d and "markets" in d:
+        print(f"tickers={n} minutes={minutes}: markets {len(d['markets'])} candles {sum(len(m.get('candlesticks', [])) for m in d['markets'])} keys {sorted(d['markets'][0].keys())}")
+combo = next((t["ticker"] for t in soc if t["ticker"].startswith("KXMVE")), None)
+if combo:
+    d = get(f"{V2}/markets/candlesticks?market_tickers={combo}&start_ts={now - 3600}&end_ts={now}&period_interval=1", n=600, quiet=False)
+d = get(f"{V2}/markets/candlesticks?market_tickers={tk[0]}&start_ts={now - 86400 * 9}&end_ts={now - 86400 * 8}&period_interval=1", n=300, quiet=False)
 
-print("\n== sports leaderboard visibility ==")
-lb = get(f"{API}/leaderboard?metric_name=projected_pnl&limit=100&category=Sports") or {}
-lbv = Counter()
-for r in lb.get("rank_list", [])[:60]:
-    d = get(f"{API}/trades?nickname={r['nickname']}&limit=1")
-    lbv[(d or {}).get("visibility_state", "visible") + (":anon" if r.get("is_anonymous") else "")] += 1
-print(lbv)
+print("\n== settled market fields ==")
+d = get(f"{V2}/markets?status=settled&limit=2&series_ticker=KXWTAMATCH") or {}
+for m in d.get("markets", []):
+    print({k: m.get(k) for k in ("ticker", "status", "result", "settlement_value_dollars", "close_time", "settlement_ts", "last_price_dollars", "expiration_value")})
+d = get(f"{V2}/markets?tickers=" + ",".join(m["ticker"] for m in d.get("markets", [])), quiet=True) or {}
+print("tickers= lookup returns status:", [(m["ticker"], m["status"], m.get("result")) for m in d.get("markets", [])])
 
-print("\n== deep history for one visible tennis name ==")
-for nk, _ in top[:25]:
-    d = get(f"{API}/trades?nickname={nk}&limit=100")
-    if d and d.get("trades") and not d.get("visibility_state"):
-        cursor, total, pages = d.get("cursor"), len(d["trades"]), 1
-        oldest = d["trades"][-1]["create_date"]
-        while cursor and pages < 40:
-            d = get(f"{API}/trades?nickname={nk}&limit=100&cursor={cursor}") or {}
-            total += len(d.get("trades", []))
-            if d.get("trades"):
-                oldest = d["trades"][-1]["create_date"]
-            cursor, pages = d.get("cursor"), pages + 1
-        print(nk, "trades", total, "pages", pages, "oldest", oldest, "more" if cursor else "end")
-        break
-
-print("\n== combo trades with names ==")
-d = get(f"{API}/trades?series_ticker=KXMVECROSSCATEGORY&limit=100") or {}
-print("crosscat named", sum(1 for t in d.get("trades", []) if t["taker_nickname"] or t["maker_nickname"]), "of", len(d.get("trades", [])))
-d = get(f"{API}/trades?series_ticker=KXMVESPORTSMULTIGAMEEXTENDED&limit=100") or {}
-print("sports multigame named", sum(1 for t in d.get("trades", []) if t["taker_nickname"] or t["maker_nickname"]), "of", len(d.get("trades", [])))
+print("\n== metrics variants ==")
+for q in ["nickname=Hughman", "nickname=Hughman&since_day_before=30", "nickname=Blackbriar", "nickname=Blackbriar&since_day_before=30"]:
+    get(f"{API}/profile/metrics?{q}", quiet=False)
+get(f"{API}/leaderboard?metric_name=projected_pnl&limit=3&category=Sports&since_day_before=30", quiet=False)
