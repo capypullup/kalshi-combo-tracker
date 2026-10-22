@@ -1,6 +1,7 @@
 name: CI
 on:
   push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       lookback:
@@ -9,6 +10,9 @@ on:
       min_stake:
         description: Minimum bet size in dollars
         default: "100"
+
+permissions:
+  contents: write
 
 jobs:
   test:
@@ -21,4 +25,17 @@ jobs:
       - run: pip install -r requirements.txt pytest
       - run: pytest -q
       - name: Live check against Kalshi
-        run: python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }}
+        run: |
+          set -o pipefail
+          python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }} 2>&1 | tee /tmp/live_check.txt
+      - name: Save live check output to the ci-output branch
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan ci-output
+          git rm -rqf .
+          cp /tmp/live_check.txt live_check.txt || echo "no output" > live_check.txt
+          git add live_check.txt
+          git commit -qm "Live check output for ${GITHUB_SHA::7}"
+          git push -qf origin ci-output
