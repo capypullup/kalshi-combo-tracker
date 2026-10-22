@@ -11,7 +11,10 @@ from typing import Iterator
 import requests
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+# Kalshi's social API (the one kalshi.com profiles use). Also public and keyless.
+SOCIAL_URL = "https://api.elections.kalshi.com/v1/social"
 COMBO_PREFIX = "KXMVE"
+MAX_CANDLES = 10_000  # per /markets/candlesticks request, across all its markets
 
 
 class RateLimiter:
@@ -49,7 +52,9 @@ class KalshiClient:
         self.requests_made = 0
 
     def _get(self, path: str, params: dict | None = None, retries: int = 5) -> dict:
-        url = f"{self.base_url}{path}"
+        return self._get_url(f"{self.base_url}{path}", params, retries)
+
+    def _get_url(self, url: str, params: dict | None = None, retries: int = 5) -> dict:
         for attempt in range(retries + 1):
             self.limiter.wait()
             self.requests_made += 1
@@ -142,3 +147,54 @@ class KalshiClient:
         for ticker, book in self._parallel(fetch, unique):
             out[ticker] = {**book, "_fetched_at": fetched_at}
         return out
+
+    # ---- price history ----
+    def get_candles(self, tickers: list[str], start_ts: int, end_ts: int) -> dict[str, list[dict]]:
+        """One-minute candles (yes bid/ask at each minute's close) for many markets over one span.
+
+        Kalshi caps a request at MAX_CANDLES candles across all its markets, so the
+        tickers are split into as many requests as that takes.
+        """
+        minutes = max(1, (end_ts - start_ts) // 60 + 1)
+        per_call = max(1, min(100, MAX_CANDLES // minutes))
+        unique = list(dict.fromkeys(tickers))
+        out: dict[str, list[dict]] = {}
+        for i in range(0, len(unique), per_call):
+            data = self._get("/markets/candlesticks", {"market_tickers": ",".join(unique[i : i + per_call]),
+                                                       "start_ts": start_ts, "end_ts": end_ts, "period_interval": 1})
+            for m in data.get("markets", []):
+                out[m["market_ticker"]] = m.get("candlesticks") or []
+        return out
+
+    # ---- social (public profiles) ----
+    def social_trades(self, nickname: str | None = None, series_ticker: str | None = None,
+                      cursor: str | None = None, limit: int = 100) -> dict:
+        """One page (max 100, newest first) of trades with the maker's and taker's public
+        nicknames. A nickname is blank unless that trader's profile shows their trades.
+        For a profile with hidden trades, the response has visibility_state "hidden"."""
+        params = {"limit": limit}
+        if nickname:
+            params["nickname"] = nickname
+        if series_ticker:
+            params["series_ticker"] = series_ticker
+        if cursor:
+            params["cursor"] = cursor
+        return self._get_url(f"{SOCIAL_URL}/trades", params)
+
+    def profile_metrics(self, nickname: str, days: int | None = None) -> dict:
+        """A profile's PnL (in 1/100 cents), markets traded, etc. `days` limits it to recent days (30 works)."""
+        params = {"nickname": nickname}
+        if days:
+            params["since_day_before"] = days
+        return self._get_url(f"{SOCIAL_URL}/profile/metrics", params).get("metrics") or {}
+
+    def leaderboard(self, metric: str = "projected_pnl", limit: int = 100, category: str | None = None,
+                    days: int | None = None) -> list[dict]:
+        """Kalshi's opt-in leaderboard. metric: projected_pnl or num_markets_traded; limit <= 100;
+        category e.g. "Sports"; days: 30 for the last month, None for all time."""
+        params = {"metric_name": metric, "limit": limit}
+        if category:
+            params["category"] = category
+        if days:
+            params["since_day_before"] = days
+        return self._get_url(f"{SOCIAL_URL}/leaderboard", params).get("rank_list") or []

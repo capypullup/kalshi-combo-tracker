@@ -41,11 +41,12 @@ def _reload_if_deployed() -> None:
 
 _reload_if_deployed()
 
-from combo_tracker.client import KalshiClient  # noqa: E402  (after the reload check)
+from combo_tracker.bettors import BettorTracker  # noqa: E402  (after the reload check)
+from combo_tracker.client import KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
-from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs  # noqa: E402
+from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
 DEMO = os.environ.get("DEMO") == "1"
 SCORE_SECONDS = 120  # how often the background worker re-scores the views people have open
@@ -60,18 +61,27 @@ st.html(
     header[data-testid="stHeader"] {display: none;}
     .block-container {padding: 0.4rem 0.5rem 3rem; max-width: 760px;}
     [data-testid="stVerticalBlock"] {gap: 0.25rem;}
+    .st-key-nav {gap: 6px;}
+    .st-key-nav [data-testid="stPageLink"] a {border: 1px solid #1b3540; border-radius: 8px; padding: 2px 12px;
+        min-height: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em;}
+    .st-key-nav [data-testid="stPageLink"] a span {color: #6f8f99;}
+    .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] {border-color: #00e5ff; background: rgba(0, 229, 255, 0.14);}
+    .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] span {color: #00e5ff;}
     </style>"""
 )
 
 UI = Path(__file__).parent / "combo_tracker" / "ui"
 combo_table = st.components.v2.component(
     "combo_table", css=(UI / "table.css").read_text(), js=(UI / "table.js").read_text())
+bettor_table = st.components.v2.component(
+    "bettor_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text(),
+    js=(UI / "bettors.js").read_text())
 
 
-def _stop_collectors() -> None:
-    """Stop collectors left running by an earlier version of the app, so only one polls Kalshi."""
+def _stop_collectors(name: str = "combo-collector") -> None:
+    """Stop workers left running by an earlier version of the app, so only one polls Kalshi."""
     for thread in threading.enumerate():
-        if thread.name == "combo-collector" and hasattr(thread, "stop"):
+        if thread.name == name and hasattr(thread, "stop"):
             thread.stop()
 
 
@@ -188,24 +198,108 @@ def table_view():
     )
 
 
-table_view()
+def nav() -> None:
+    """Page switcher: two small tabs above the table (the Streamlit header is hidden)."""
+    with st.container(horizontal=True, key="nav"):
+        st.page_link(PAGES[0], label="COMBOS")
+        st.page_link(PAGES[1], label="BETTORS")
 
-with st.expander("How EV, units and flags work"):
-    st.markdown(
-        "- **EV MID** multiplies each leg's mid price to get a fair price, then EV = fair ÷ price paid − 1. "
-        "That assumes the legs are independent.\n"
-        "- **EV CROSS** prices each leg by crossing the spread (its bid). It's the conservative number.\n"
-        "- **Units** = Kelly fraction (p − price) ÷ (1 − price), times your Kelly multiplier, divided by your "
-        "unit size. Set both with the gear icon. The defaults are ¼ Kelly and 1u = 1% of bankroll.\n"
-        "- **MIN EV / MIN QK** filter on whichever basis the MID / CROSS switch shows. Tap a chip again to clear it.\n"
-        "- **INDEP. ONLY** hides combos with two legs on the same game (they're correlated, so the product "
-        "of leg prices understates the true odds). Those rows show their legs/games count in yellow.\n"
-        "- **PREGAME / LIVE** is a best guess: Kalshi gives no start time, so a combo counts as live once "
-        f"a leg is within {LIVE_HOURS}h of its expected settlement or has already closed.\n"
-        "- **Full book** (book icon on an open bet) walks each leg's whole orderbook for the bet's size.\n"
-        "- **Flags**: THIN a leg has less depth within 2¢ of its ask than the bet size · IN BAND the price "
-        "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
-        "over +200%, usually a stale book.\n"
-        "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
-        "Kalshi's public data has no bettor ID."
+
+def combo_page() -> None:
+    nav()
+    table_view()
+
+    with st.expander("How EV, units and flags work"):
+        st.markdown(
+            "- **EV MID** multiplies each leg's mid price to get a fair price, then EV = fair ÷ price paid − 1. "
+            "That assumes the legs are independent.\n"
+            "- **EV CROSS** prices each leg by crossing the spread (its bid). It's the conservative number.\n"
+            "- **Units** = Kelly fraction (p − price) ÷ (1 − price), times your Kelly multiplier, divided by your "
+            "unit size. Set both with the gear icon. The defaults are ¼ Kelly and 1u = 1% of bankroll.\n"
+            "- **MIN EV / MIN QK** filter on whichever basis the MID / CROSS switch shows. Tap a chip again to clear it.\n"
+            "- **INDEP. ONLY** hides combos with two legs on the same game (they're correlated, so the product "
+            "of leg prices understates the true odds). Those rows show their legs/games count in yellow.\n"
+            "- **PREGAME / LIVE** is a best guess: Kalshi gives no start time, so a combo counts as live once "
+            f"a leg is within {LIVE_HOURS}h of its expected settlement or has already closed.\n"
+            "- **Full book** (book icon on an open bet) walks each leg's whole orderbook for the bet's size.\n"
+            "- **Flags**: THIN a leg has less depth within 2¢ of its ask than the bet size · IN BAND the price "
+            "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
+            "over +200%, usually a stale book.\n"
+            "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
+            "Kalshi's trade feed has no bettor ID, so these bets are anonymous (the Bettors page covers public profiles)."
+        )
+
+
+# ---------- Bettors page ----------
+BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed, leaderboard and histories
+
+
+@st.cache_resource
+def get_bettors() -> BettorTracker:
+    """One tracker shared by every visitor, started the first time someone opens the page."""
+    if DEMO:
+        tracker = BettorTracker(DemoClient(), every=BETTOR_CYCLE)
+        tracker.cycle()
+        return tracker
+    _stop_collectors("bettor-tracker")
+    # Its own client and rate limit, so it never slows the combo collector down.
+    return BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE).start()
+
+
+def _track():
+    name = getattr(st.session_state.bt, "track", None)
+    if name:
+        get_bettors().add(name)
+
+
+@st.fragment
+def bettors_view():
+    tracker = get_bettors()
+    snap = tracker.snapshot
+    notes = []
+    if snap and snap.feed_since:
+        notes.append(f"Tennis feed since {snap.feed_since:%H:%M} UTC: {snap.named_trades:,} of "
+                     f"{snap.feed_trades:,} trades show a public name.")
+    bettor_table(
+        key="bt",
+        data={
+            "rows": pack_bettors(snap.rows) if snap else [], "demo": DEMO,
+            "updated": int((snap.updated if snap else datetime.now(timezone.utc)).timestamp() * 1000),
+            "status": tracker.status, "note": " ".join(notes),
+            "error": ("Some Kalshi calls failed and will be retried: " + snap.errors[-1][:160]) if snap and snap.errors else None,
+        },
+        on_refresh_change=lambda: None,
+        on_track_change=_track,
     )
+
+
+def bettors_page() -> None:
+    nav()
+    bettors_view()
+    with st.expander("Where this data comes from and how to read it"):
+        st.markdown(
+            "- **Who's listed**: everyone with a public name in the last day of Kalshi's tennis trade feed "
+            "(the 40 biggest by volume), Kalshi's Sports leaderboard (top 50 all-time and last 30 days), and "
+            "any nickname you add with the search box.\n"
+            "- Kalshi's main trade feed has no trader ID. Its **social API** (what kalshi.com profiles use, free "
+            "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
+            "that show their trades. Most leaderboard leaders hide theirs: they show **hidden** and only Kalshi's "
+            "own PnL and markets-traded counts.\n"
+            "- **PNL** is Kalshi's number for the profile (all-time, and 30D underneath). **TRADES** counts the fills "
+            "in our sample (their last 1,000 trades within 30 days); **MKTS** is Kalshi's all-time markets traded.\n"
+            "- **EV** prices every trade against the market's bid/ask mid in the minute it happened (one-minute "
+            "candles), after taker fees. A combo is priced from its legs' books. A market maker earns the spread, "
+            "so EV is positive; a taker who crosses the spread starts negative.\n"
+            "- **BEAT** = settled PnL − EV on the same trades, and **Z** = that ÷ its standard deviation. Z tells "
+            "luck from skill: around 0 is what the book expected, 2+ over hundreds of trades is rare by chance. "
+            "That's the tennis-sharp signal: PnL far above what the book said their bets were worth.\n"
+            "- **SCOPE** switches the sample between tennis-only and all of the bettor's trades. Tap a row for "
+            "their latest trades. Maker fees (some markets charge them) aren't included.\n"
+            "- The tracker refreshes every 15 minutes in the background; the first pass after a restart takes "
+            "several minutes."
+        )
+
+
+PAGES = [st.Page(combo_page, title="Combo EV", icon="🎯", default=True),
+         st.Page(bettors_page, title="Bettors", icon="📈", url_path="bettors")]
+st.navigation(PAGES, position="hidden").run()

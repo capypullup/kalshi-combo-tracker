@@ -86,3 +86,136 @@ class DemoClient:
 
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         return {t: self.books.get(t, {}) for t in tickers}
+
+
+# ---- public profiles (the Bettors page) ----
+PLAYERS = ["SIN", "ALC", "ZVE", "MED", "RUU", "FRI", "DEM", "TSI", "PAU", "SHE", "SAB", "GAU", "PEG", "RYB",
+           "KEY", "NAV", "PAO", "JOV", "AND", "MUC", "FON", "MEN", "LEH", "BON"]
+BETTORS = [  # nickname, style, trades hidden
+    ("baseline.sharp", "sharp", False), ("Hughman", "sharp", False), ("JohnR0809", "maker", False),
+    ("clay.court.kid", "sharp", False), ("dry.ear", "square", False), ("glass.cup", "square", False),
+    ("long.jet", "square", False), ("tall.van", "square", False), ("netcord", "maker", False),
+    ("tiebreak.tom", "square", False), ("ace.pilot", "sharp", False), ("CookieV222", "square", False),
+    ("BigWhale", "square", True), ("Blackbriar", "maker", True), ("4thewin", "sharp", True),
+]
+
+
+class _DemoSocial:
+    def __init__(self, seed: int = 11):
+        rng = random.Random(seed)
+        now = datetime.now(timezone.utc).timestamp()
+        self.markets: dict[str, dict] = {}
+        self.truth: dict[str, tuple[float, float, float]] = {}  # ticker -> (true p, book mid, spread)
+        for i in range(0, len(PLAYERS) - 1, 2):
+            for day, series in ((0, "KXATPMATCH"), (1, "KXWTAMATCH"), (3, "KXATPCHALLENGERMATCH"), (6, "KXITFMATCH")):
+                a, b = PLAYERS[i], PLAYERS[i + 1]
+                event = f"{series}-26OCT{20 - day:02d}{a}{b}"
+                q = rng.uniform(0.2, 0.8)
+                mid = min(0.95, max(0.05, q + rng.gauss(0, 0.06)))
+                spread = rng.choice([0.01, 0.02, 0.02, 0.03])
+                settled = day > 0 or rng.random() < 0.5
+                result = ("yes" if rng.random() < q else "no") if settled else None
+                for who, p_yes in ((a, mid), (b, 1 - mid)):
+                    ticker = f"{event}-{who}"
+                    self.markets[ticker] = {
+                        "ticker": ticker, "event_ticker": event, "yes_sub_title": f"{who.title()} wins",
+                        "status": "finalized" if settled else "active",
+                        "result": "" if result is None else (result if who == a else ("no" if result == "yes" else "yes")),
+                        "_t0": now - day * 86400 - rng.uniform(1, 8) * 3600,
+                    }
+                    self.truth[ticker] = (q if who == a else 1 - q, p_yes, spread)
+        self.trades: list[dict] = []
+        tickers = list(self.markets)
+        n = 0
+        for nick, style, _ in BETTORS + [("", "square", False)] * 6:
+            for _ in range(rng.randint(40, 160)):
+                tk = rng.choice(tickers)
+                q, mid, spread = self.truth[tk]
+                t = self.markets[tk]["_t0"] + rng.uniform(0, 3 * 3600)
+                if t > now:
+                    continue
+                if style == "sharp":
+                    side = "yes" if q > mid else "no"
+                elif style == "maker":
+                    side = rng.choice(["yes", "no"])
+                else:
+                    side = rng.choice(["yes", "no"])
+                taker = style != "maker"
+                # Takers pay the ask; makers get filled at their bid.
+                ask_yes, bid_yes = mid + spread / 2, mid - spread / 2
+                if taker:
+                    yes_price = ask_yes if side == "yes" else bid_yes
+                else:
+                    yes_price = bid_yes if side == "yes" else ask_yes
+                count = rng.choice([10, 25, 50, 100, 200, 500, 1000])
+                other = rng.choice([x[0] for x in BETTORS if not x[2]] + [""] * 8)
+                n += 1
+                self.trades.append({
+                    "trade_id": f"demo-social-{n}", "ticker": tk, "price_dollars": f"{yes_price:.4f}",
+                    "count_fp": f"{count:.2f}", "create_date": datetime.fromtimestamp(t, timezone.utc).isoformat(),
+                    "taker_side": side if taker else ("no" if side == "yes" else "yes"), "taker_action": "buy",
+                    "taker_nickname": nick if taker else other, "maker_nickname": other if taker else nick,
+                })
+        self.trades.sort(key=lambda x: x["create_date"], reverse=True)
+        self.hidden = {n for n, _, h in BETTORS if h}
+        self.rng = rng
+
+    def _visible(self, t: dict) -> dict:
+        return {**t, "taker_nickname": "" if t["taker_nickname"] in self.hidden else t["taker_nickname"],
+                "maker_nickname": "" if t["maker_nickname"] in self.hidden else t["maker_nickname"]}
+
+    def social_trades(self, nickname=None, series_ticker=None, cursor=None, limit=100) -> dict:
+        if nickname in self.hidden:
+            return {"trades": [], "visibility_state": "hidden"}
+        rows = [self._visible(t) for t in self.trades
+                if (not series_ticker or t["ticker"].startswith(series_ticker + "-"))
+                and (not nickname or nickname in (t["taker_nickname"], t["maker_nickname"]))]
+        start = int(cursor or 0)
+        page = rows[start : start + limit]
+        return {"trades": page, "cursor": str(start + limit) if start + limit < len(rows) else ""}
+
+    def profile_metrics(self, nickname: str, days: int | None = None) -> dict:
+        h = sum(map(ord, nickname))
+        style = next((s for n, s, _ in BETTORS if n == nickname), "square")
+        base = {"sharp": 90_000, "maker": 250_000, "square": -20_000}[style] * (1 + h % 7)
+        scale = 0.15 if days else 1
+        return {"pnl": int(base * scale * 10_000), "num_markets_traded": int((300 + h * 3) * (0.2 if days else 1))}
+
+    def leaderboard(self, metric="projected_pnl", limit=100, category=None, days=None) -> list[dict]:
+        names = ["Blackbriar", "4thewin", "BigWhale", "baseline.sharp", "JohnR0809"]
+        rows = sorted(names, key=lambda n: -self.profile_metrics(n, days)["pnl"])
+        return [{"nickname": n, "rank": i + 1, "value": self.profile_metrics(n, days)["pnl"] / 10_000, "is_anonymous": False}
+                for i, n in enumerate(rows[:limit])]
+
+    def get_candles(self, tickers: list[str], start_ts: int, end_ts: int) -> dict[str, list[dict]]:
+        out = {}
+        for tk in tickers:
+            if tk not in self.truth:
+                continue
+            _, mid, spread = self.truth[tk]
+            bid, ask = f"{mid - spread / 2:.4f}", f"{mid + spread / 2:.4f}"
+            out[tk] = [{"end_period_ts": t, "yes_bid": {"open_dollars": bid, "close_dollars": bid},
+                        "yes_ask": {"open_dollars": ask, "close_dollars": ask}}
+                       for t in range(start_ts - start_ts % 60 + 60, end_ts + 60, 60)]
+        return out
+
+
+def _social(self) -> _DemoSocial:
+    if not hasattr(self, "_social_data"):
+        self._social_data = _DemoSocial()
+    return self._social_data
+
+
+_combo_get_markets = DemoClient.get_markets
+
+
+def _get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
+    out = _combo_get_markets(self, tickers, batch_size)
+    social = _social(self).markets
+    out.update({t: social[t] for t in tickers if t in social})
+    return out
+
+
+DemoClient.get_markets = _get_markets
+for _name in ("social_trades", "profile_metrics", "leaderboard", "get_candles"):
+    setattr(DemoClient, _name, (lambda name: lambda self, *a, **k: getattr(_social(self), name)(*a, **k))(_name))
