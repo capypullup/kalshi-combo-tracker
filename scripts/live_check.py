@@ -49,9 +49,14 @@ if page:
             print(f"     legs: {market.get('mve_selected_legs')}")
             legs = market.get("mve_selected_legs") or []
             if legs:
-                stage("leg markets", lambda: client.get_markets([l["market_ticker"] for l in legs]))
+                lm = stage("leg markets", lambda: client.get_markets([l["market_ticker"] for l in legs]))
+                if lm:
+                    one = next(iter(lm.values()))
+                    print("     leg market fields:", {k: v for k, v in one.items() if k not in ("rules_primary", "rules_secondary")})
                 ev = stage("leg events", lambda: client.get_events([l["event_ticker"] for l in legs]))
                 print(f"     event titles: {[e.get('title') for e in (ev or {}).values()]}")
+                if ev:
+                    print("     event fields:", next(iter(ev.values())))
                 ob = stage("leg orderbooks", lambda: client.get_orderbooks([l["market_ticker"] for l in legs]))
                 if ob:
                     first = next(iter(ob.values()))
