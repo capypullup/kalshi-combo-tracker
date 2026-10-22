@@ -57,14 +57,22 @@ def get_source():
     return client, Scorer(client), Collector(client, max_window_minutes=max(LOOKBACKS.values())).start()
 
 
+def window_trades(lookback: int) -> list[dict]:
+    client, _, collector = get_source()
+    if collector is None:
+        return client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=lookback))
+    return collector.window(lookback)
+
+
 @st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
 def load(lookback: int, min_stake: float, group: bool):
-    client, scorer, collector = get_source()
-    if collector is None:
-        trades = client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=lookback))
-    else:
-        trades = collector.window(lookback)
-    return scorer.score(trades, min_stake=min_stake, group=group, max_bets=MAX_BETS)
+    return get_source()[1].score(window_trades(lookback), min_stake=min_stake, group=group, max_bets=MAX_BETS)
+
+
+@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
+def with_depth(row: dict, lookback: int, group: bool) -> dict:
+    """Re-score one bet against the full orderbook of each leg (list rows use top of book)."""
+    return get_source()[1].rescore_with_depth(row, window_trades(lookback), group=group)
 
 
 def flags(row: pd.Series) -> str:
@@ -278,15 +286,24 @@ if table_view:
             render_detail(view.iloc[rows[0]])
 else:
     shown = st.session_state.get("shown", 25)
-    for _, r in view.head(shown).iterrows():
+    for i, r in view.head(shown).iterrows():
         u = units(r["kelly_mid"], kelly_mult, unit_pct)
         meta = (f"{'–' if u is None else u}u · {r['side'].upper()} {fmt_odds(r['price'])} · "
                 f"\\${r['stake']:,.0f} bet · {r['legs']}L")
         if r["flags"]:
             meta += f" · :orange[{r['flags']}]"
         label = r["label"] if len(r["label"]) <= 90 else r["label"][:89] + "…"
-        with st.expander(f"{ev_badge(r)} · {meta}  \n{label}"):
-            render_detail(r)
+        key = f"open_{r['ticker']}_{r['side']}"
+        with st.expander(f"{ev_badge(r)} · {meta}  \n{label}", key=key, on_change="rerun"):
+            if st.session_state.get(key):
+                with st.spinner("Loading full leg orderbooks…"):
+                    try:
+                        deep = pd.Series(with_depth(r.drop(["label", "flags", "clean"]).to_dict(), lookback, group))
+                        deep["flags"], deep["clean"] = flags(deep), is_clean(deep)
+                    except Exception as exc:
+                        st.caption(f"Couldn't load full depth ({exc}); showing top of book.")
+                        deep = r
+                render_detail(deep)
     if len(view) > shown and st.button(f"Show more ({len(view) - shown:,} left)", width="stretch"):
         st.session_state["shown"] = shown + 25
         st.rerun()

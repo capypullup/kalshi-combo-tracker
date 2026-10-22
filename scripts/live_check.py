@@ -77,6 +77,11 @@ print(f"     {snap.combo_trades_seen} combo fills · {snap.bets_seen} bets · {s
 reqs = client.requests_made
 stage("score again (warm caches)", lambda: scorer.score(col.window(lookback), min_stake=min_stake))
 print(f"     {client.requests_made - reqs} requests")
+if snap.rows:
+    reqs = client.requests_made
+    deep = stage("open one card (full depth)", lambda: scorer.rescore_with_depth(snap.rows[0], col.window(lookback)))
+    print(f"     {client.requests_made - reqs} requests · top-of-book EV {snap.rows[0]['ev_pct_mid']} -> "
+          f"full-depth EV {deep and deep['ev_pct_mid']}")
 for e in snap.errors[:5]:
     print("  error:", e)
 missing = sum(1 for r in snap.rows if r["missing_quotes"])

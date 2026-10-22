@@ -43,15 +43,50 @@ class TTLCache:
         return fresh
 
 
+def top_of_book(market: dict) -> dict:
+    """A one-level orderbook built from a market's best bid/ask and their sizes.
+
+    Kalshi's public API has no batch orderbook call, so full depth costs one request
+    per leg. Top of book comes 100 legs per request from /markets.
+    """
+    def level(price, size):
+        p, s = float(price or 0), float(size or 0)
+        return [[f"{p:.4f}", f"{s:.2f}"]] if 0 < p < 1 and s > 0 else []
+
+    yes_ask = market.get("yes_ask_dollars")
+    return {
+        "yes_dollars": level(market.get("yes_bid_dollars"), market.get("yes_bid_size_fp")),
+        "no_dollars": level(1 - float(yes_ask) if yes_ask else 0, market.get("yes_ask_size_fp")),
+        "_top_only": True,
+    }
+
+
 class Scorer:
     """Holds the caches that make repeated refreshes cheap."""
 
-    def __init__(self, client, book_ttl: float = 60, leg_ttl: float = 600):
+    def __init__(self, client, quote_ttl: float = 60, book_ttl: float = 60):
         self.client = client
         self.combo_markets = TTLCache(None)  # a combo's legs never change
         self.events = TTLCache(None)
-        self.leg_markets = TTLCache(leg_ttl)
-        self.books = TTLCache(book_ttl)
+        self.leg_markets = TTLCache(quote_ttl)  # also carries each leg's top of book
+        self.books = TTLCache(book_ttl)  # full depth, fetched only when a bet is opened
+
+    def _leg_markets(self, tickers: list[str]) -> dict[str, dict]:
+        return self.leg_markets.get_many(tickers, lambda t: self.client.get_markets(t, batch_size=100))
+
+    def rescore_with_depth(self, row: dict, trades: list[dict], group: bool = True) -> dict:
+        """Re-score one bet using the full orderbook of every leg."""
+        bets = [b for b in build_bets(trades, group=group) if b.ticker == row["ticker"] and b.taker_side == row["side"]]
+        if not bets:
+            return row
+        market = self.combo_markets.get_many([row["ticker"]], self.client.get_markets).get(row["ticker"])
+        if market is None:
+            return row
+        legs = legs_of(market)
+        leg_tickers = [l["market_ticker"] for l in legs]
+        books = self.books.get_many(leg_tickers, self.client.get_orderbooks)
+        events = self.events.get_many([l["event_ticker"] for l in legs], self.client.get_events)
+        return score_bet(bets[0], market, self._leg_markets(leg_tickers), books, events=events)
 
     def score(self, trades: list[dict], min_stake: float = 0.0, group: bool = True,
               max_bets: int = 400) -> Snapshot:
@@ -66,9 +101,9 @@ class Scorer:
         combo_markets = self.combo_markets.get_many([b.ticker for b in kept], self.client.get_markets)
         legs = [l for m in combo_markets.values() for l in legs_of(m)]
         leg_tickers = [l["market_ticker"] for l in legs]
-        leg_markets = self.leg_markets.get_many(leg_tickers, self.client.get_markets)
+        leg_markets = self._leg_markets(leg_tickers)
         events = self.events.get_many([l["event_ticker"] for l in legs], self.client.get_events)
-        books = self.books.get_many(leg_tickers, self.client.get_orderbooks)
+        books = {t: top_of_book(m) for t, m in leg_markets.items()}
 
         rows = []
         for bet in kept:

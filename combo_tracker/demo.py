@@ -39,7 +39,10 @@ class DemoClient:
                 no = [[f"{max(0.01, 1 - p - spread / 2 - 0.01 * i):.4f}", f"{rng.uniform(5, 40 if thin else 2000):.2f}"] for i in range(4)]
                 self.books[ticker] = {"yes_dollars": yes[::-1], "no_dollars": no[::-1]}
                 self.leg_markets[ticker] = {"ticker": ticker, "event_ticker": f"{series}-{game}",
-                                            "yes_sub_title": label.format(o)}
+                                            "yes_sub_title": label.format(o), "status": "active",
+                                            "yes_bid_dollars": yes[0][0], "yes_bid_size_fp": yes[0][1],
+                                            "yes_ask_dollars": f"{1 - float(no[0][0]):.4f}",
+                                            "yes_ask_size_fp": no[0][1]}
         tickers = list(self.leg_markets)
         self.combo_markets: dict[str, dict] = {}
         self.trades: list[dict] = []
@@ -74,7 +77,7 @@ class DemoClient:
     def combo_trades(self, min_ts: datetime, max_pages: int = 200) -> list[dict]:
         return [t for t in self.trades if datetime.fromisoformat(t["created_time"]) >= min_ts]
 
-    def get_markets(self, tickers: list[str]) -> dict[str, dict]:
+    def get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
         pool = {**self.combo_markets, **self.leg_markets}
         return {t: pool[t] for t in tickers if t in pool}
 
