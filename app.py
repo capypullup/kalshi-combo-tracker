@@ -11,17 +11,41 @@ when the min bet or window changes, on refresh, and to load a bet's full orderbo
 from __future__ import annotations
 
 import os
+import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import streamlit as st
 
-from combo_tracker.client import KalshiClient
-from combo_tracker.collector import Collector
-from combo_tracker.demo import DemoClient
-from combo_tracker.pipeline import Scorer
-from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs
+
+def _reload_if_deployed() -> None:
+    """Streamlit Cloud pulls a new commit and reruns this file without re-importing
+    combo_tracker, so new app code would run against old modules (and old cached
+    rows). When the package's files are newer than its import, start it fresh."""
+    pkg = sys.modules.get("combo_tracker")
+    if pkg is None:
+        return
+    loaded = getattr(pkg, "IMPORTED_AT", 0)
+    if all(f.stat().st_mtime <= loaded for f in Path(pkg.__file__).parent.rglob("*.py")):
+        return
+    for name in [n for n in sys.modules if n == "combo_tracker" or n.startswith("combo_tracker.")]:
+        del sys.modules[name]
+    for thread in threading.enumerate():
+        if thread.name == "combo-collector" and hasattr(thread, "stop"):
+            thread.stop()
+    st.cache_resource.clear()
+    st.cache_data.clear()
+
+
+_reload_if_deployed()
+
+from combo_tracker.client import KalshiClient  # noqa: E402  (after the reload check)
+from combo_tracker.collector import Collector  # noqa: E402
+from combo_tracker.demo import DemoClient  # noqa: E402
+from combo_tracker.pipeline import Scorer  # noqa: E402
+from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs  # noqa: E402
 
 DEMO = os.environ.get("DEMO") == "1"
 REFRESH_SECONDS = 60

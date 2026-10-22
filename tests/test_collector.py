@@ -67,3 +67,15 @@ def test_ttl_cache_fetches_only_missing():
     out = cache.get_many(["a", "b", "c"], fetch)
     assert calls == [["a", "b"], ["c"]]
     assert set(out) == {"a", "b", "c"}
+
+
+def test_stop_ends_the_collector_thread():
+    class Idle:
+        def iter_trades(self, *args, **kwargs):
+            return iter(())
+
+    col = Collector(Idle(), poll_seconds=30, initial_backfill_minutes=0).start()
+    assert col._thread.is_alive()
+    col._thread.stop()
+    col._thread.join(timeout=2)
+    assert not col._thread.is_alive()

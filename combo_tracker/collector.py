@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 
 from .client import COMBO_PREFIX
 
+THREAD_NAME = "combo-collector"
+
 
 def _ts(trade: dict) -> datetime:
     return datetime.fromisoformat(trade["created_time"].replace("Z", "+00:00"))
@@ -52,6 +54,7 @@ class Collector:
         self.after_poll = after_poll  # e.g. pre-score the default view so page loads hit warm caches
         self.trades_scanned = 0
         self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
 
     # ---- collection ----
     def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False) -> None:
@@ -98,7 +101,7 @@ class Collector:
                 self.covered_from = cutoff
 
     def run_forever(self) -> None:
-        while True:
+        while not self._stop.is_set():
             try:
                 self.poll()
                 if self.after_poll:
@@ -107,13 +110,17 @@ class Collector:
                 self.last_error = None
             except Exception as exc:  # keep collecting through API hiccups
                 self.last_error = repr(exc)
-            time.sleep(self.poll_seconds)
+            self._stop.wait(self.poll_seconds)
 
     def start(self) -> "Collector":
         if self._thread is None:
-            self._thread = threading.Thread(target=self.run_forever, daemon=True, name="combo-collector")
+            self._thread = threading.Thread(target=self.run_forever, daemon=True, name=THREAD_NAME)
+            self._thread.stop = self.stop  # lets a reloaded app stop collectors built from old code
             self._thread.start()
         return self
+
+    def stop(self) -> None:
+        self._stop.set()
 
     # ---- reads ----
     def window(self, minutes: int) -> list[dict]:
