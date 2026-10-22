@@ -21,7 +21,8 @@ for url in ("https://docs.kalshi.com/openapi.yaml", "https://docs.kalshi.com/ope
         r = requests.get(url, timeout=20)
         print(url, r.status_code, len(r.content))
         if r.ok:
-            spec = r.json() if url.endswith("json") else yaml.safe_load(r.text)
+            text = "".join(ch for ch in r.text if ch in "\n\t" or (ord(ch) >= 32 and not 0x7f <= ord(ch) <= 0x9f))
+            spec = yaml.safe_load(text)
             break
     except Exception as e:
         print(url, "ERR", e)
@@ -54,7 +55,10 @@ print("repeat tickers:", cnt.most_common(5))
 if cnt:
     tick = cnt.most_common(1)[0][0]
     m = c._get("/markets", {"tickers": tick})["markets"][0]
-    print("combo market:", json.dumps({k: v for k, v in m.items() if not k.startswith("rules")})[:3000])
+    print("combo market:", json.dumps({k: v for k, v in m.items() if k not in ("custom_strike", "mve_selected_legs") and not k.startswith("rules")})[:3000])
+    for t in [t for t, _ in cnt.most_common(8)]:
+        print(t, "orderbook:", json.dumps(c._get(f"/markets/{t}/orderbook"))[:300])
+        print("   recent fills:", [(x["created_time"][11:19], x.get("taker_outcome_side") or x["taker_side"], x["yes_price_dollars"], x["count_fp"]) for x in trades if x["ticker"] == t][:8])
     try:
         print("combo orderbook:", json.dumps(c._get(f"/markets/{tick}/orderbook"))[:800])
     except Exception as e:
