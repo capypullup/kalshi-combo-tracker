@@ -1,0 +1,30 @@
+name: Probe
+on:
+  push:
+    branches: ["claude/project-thread-qsinfa"]
+    paths: ["scripts/probe_quote.py", ".github/workflows/probe.yml"]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyyaml
+      - env:
+          KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+        run: python scripts/probe_quote.py 2>&1 | tee /tmp/probe.txt
+      - if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan quote-probe-output
+          git rm -rqf .
+          cp /tmp/probe.txt probe.txt || echo "no output" > probe.txt
+          git add -A
+          git commit -qm "Probe output for ${GITHUB_SHA::7}"
+          git push -qf origin quote-probe-output
