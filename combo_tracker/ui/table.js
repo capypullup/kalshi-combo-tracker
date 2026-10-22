@@ -44,14 +44,27 @@ function odds(p) {
 const pct = (x) => (isNum(x) ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : "–");
 // Table cells drop the decimal on four-digit edges so they fit a phone column.
 const pctShort = (x) => (isNum(x) && Math.abs(x) >= 10 ? `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%` : pct(x));
-const dollars = (x) => (isNum(x) ? `$${Math.round(x).toLocaleString()}` : "–");
 function ago(ms) {
   const m = Math.max(0, (Date.now() - ms) / 60000);
-  return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m ago` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")} ago`;
+  return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
 }
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
+// Short forms for the table: $692, $3,712, $17k, $1.2M · 17.0k contracts · 4.58x
+function money0(x) {
+  if (!isNum(x)) return "–";
+  const a = Math.abs(x);
+  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}k` : Math.round(a).toLocaleString();
+  return `${x < 0 ? "-" : ""}$${s}`;
+}
+const qtyShort = (n) => (n >= 1e4 ? `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k` : qty(n));
+function mult(p) {
+  if (!isNum(p) || p <= 0) return "–";
+  const m = 1 / p;
+  return `${m >= 100 ? Math.round(m) : m.toFixed(m >= 10 ? 1 : 2)}x`;
+}
+const priceCents = (p) => `${(p * 100).toFixed(p < 0.1 ? 2 : 1)}¢`;
 
 function units(S, kelly) {
   return isNum(kelly) ? (kelly * S.kelly * 100) / S.unitPct : null;
@@ -167,11 +180,10 @@ function shell(root) {
     </div>
     <div class="grid thead">
       <button data-sort="time">TIME<span class="clock" data-ref="clock"></span></button>
-      <span>SIDE</span>
-      <button data-sort="stake">PRICE</button>
+      <button data-sort="legs">SIDE<span class="clock">LEGS</span></button>
+      <button data-sort="stake">BET</button>
       <button class="r" data-sort="evm">EV MID</button>
       <button class="r" data-sort="evc">EV CROSS</button>
-      <button class="r" data-sort="legs">LEGS</button>
     </div>
     <div data-ref="rows"></div>
     <div class="toast"></div>`;
@@ -182,17 +194,16 @@ function chips(values, current, fmt, act) {
 }
 
 function rowHtml(S, data, r) {
-  const tm = new Date(r.t).toLocaleTimeString(undefined, { hour12: false });
+  const tm = new Date(r.t).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
   const evCell = (ev, k) => `<div class="r"><div class="ev ${isNum(ev) ? (ev > 0 ? "pos" : "neg") : ""}">${pctShort(ev)}</div><div class="sub">${fmtU(units(S, k))}</div></div>`;
   const open = S.open === r.id;
   return `<div class="row ${open ? "open" : ""}" data-id="${esc(r.id)}">
     <div class="grid" data-act="toggle">
-      <div class="time"><b>${esc(tm)}</b><div class="sub">${ago(r.t)}</div></div>
-      <div class="side ${r.side}">${r.side.toUpperCase()}</div>
-      <div class="price"><b>$${r.price.toFixed(4)}</b> <span class="x">×${qty(r.n)}</span>
-        <div class="sub">${odds(r.price)} · ${dollars(r.stake)}</div></div>
+      <div class="time"><b>${esc(tm)}</b><div class="sub" data-t="${r.t}">${ago(r.t)}</div></div>
+      <div class="side ${r.side}">${r.side.toUpperCase()}<div class="sub legs ${r.sg ? "sg" : ""}">${r.L}L/${r.G}G</div></div>
+      <div class="price"><b>${money0(r.stake)}</b> <span class="x">@</span> <span class="m">${mult(r.price)}</span> <span class="x">→</span> <b>${money0(r.n)}</b>
+        <div class="sub">${odds(r.price)} · ${qtyShort(r.n)} × ${priceCents(r.price)}</div></div>
       ${evCell(r.evm, r.km)}${evCell(r.evc, r.kc)}
-      <div class="legs ${r.sg ? "sg" : ""}" title="${r.sg ? "Same-game legs" : ""}">${r.L}L/${r.G}G</div>
     </div>
     ${open ? detailHtml(S, data, r) : ""}
   </div>`;
@@ -216,7 +227,7 @@ function detailHtml(S, data, r) {
   }
   return `<div class="detail">
     ${legs}
-    <div class="facts">Fair MID <b>${odds(r.fm)}</b> · CRX <b>${odds(r.fc)}</b> · net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
+    <div class="facts">Bet <b>${money(r.stake)}</b> · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Fair MID <b>${odds(r.fm)}</b> · CRX <b>${odds(r.fc)}</b> · net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
       · resolves in ${hrs}${flags}${deepLine}</div>
     <div class="actions">
       <span class="bk">${isNum(r.cb) || isNum(r.ca) ? `combo bid ${cents(r.cb)}<br>combo ask ${cents(r.ca)}` : "no resting<br>combo orders"}</span>
@@ -280,10 +291,19 @@ export default function (component) {
     const D = window.__cevCtx.data;
     const updated = new Date(D.updated);
     const ageMin = (Date.now() - updated.getTime()) / 60000;
-    $("updated").textContent = `${D.demo ? "demo · " : ""}${D.scored.toLocaleString()} scored`;
-    $("clock").textContent = updated.toLocaleTimeString(undefined, { hour12: false });
-    root.querySelector(".dot").classList.toggle("stale", ageMin > 3 || !!D.error);
+    $("updated").textContent = `${D.demo ? "demo · " : ""}updated ${ago(D.updated) === "now" ? "just now" : ago(D.updated) + " ago"}`;
+    $("clock").textContent = updated.toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
+    root.querySelector(".dot").classList.toggle("stale", ageMin > 5 || !!D.error);
     $("note").textContent = [D.error, D.note].filter(Boolean).join(" ");
+  }
+
+  // Scores update in the background; the page only changes when you tap refresh or a
+  // filter. Keep the "updated" and "ago" labels honest in the meantime.
+  if (!root._tick) {
+    root._tick = setInterval(() => {
+      paintMeta();
+      root.querySelectorAll("[data-t]").forEach((el) => { el.textContent = ago(+el.dataset.t); });
+    }, 15000);
   }
 
   // Min bet and window live in Python (they change what gets scored). On a fresh page

@@ -116,6 +116,57 @@ class Scorer:
         return Snapshot(rows, now, len(trades), len(bets), over_min, len(rows), errors)
 
 
+class Board:
+    """Scored snapshots of the views people have open, kept fresh in the background.
+
+    The collector thread calls refresh() after each poll; pages read the latest
+    snapshot instantly. Only a view nobody has opened recently is scored while the
+    page waits.
+    """
+
+    def __init__(self, scorer: Scorer, trades_for, every: float = 120, forget_after: float = 1800,
+                 max_bets: int = 400, default_view: tuple[int, float] = (60, 100.0)):
+        self.scorer = scorer
+        self.trades_for = trades_for  # window minutes -> combo trades
+        self.every = every
+        self.forget_after = forget_after
+        self.max_bets = max_bets
+        self.views: dict[tuple[int, float], float] = {default_view: float("inf")}  # view -> last opened
+        self.snapshots: dict[tuple[int, float], Snapshot] = {}
+        self.scored_at = 0.0
+        self.lock = threading.Lock()
+
+    def peek(self, window: int, min_stake: float) -> Snapshot | None:
+        with self.lock:
+            return self.snapshots.get((window, float(min_stake)))
+
+    def get(self, window: int, min_stake: float) -> Snapshot:
+        key = (window, float(min_stake))
+        with self.lock:
+            self.views[key] = max(self.views.get(key, 0.0), time.time())
+            snap = self.snapshots.get(key)
+        return snap or self._score(key)
+
+    def refresh(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and now - self.scored_at < self.every:
+            return
+        self.scored_at = now
+        with self.lock:
+            for key in [k for k, t in self.views.items() if now - t > self.forget_after]:
+                del self.views[key]
+                self.snapshots.pop(key, None)
+            keys = list(self.views)
+        for key in keys:
+            self._score(key)
+
+    def _score(self, key: tuple[int, float]) -> Snapshot:
+        snap = self.scorer.score(self.trades_for(key[0]), min_stake=key[1], max_bets=self.max_bets)
+        with self.lock:
+            self.snapshots[key] = snap
+        return snap
+
+
 def refresh(client, lookback_minutes: int = 60, min_stake: float = 0.0, group: bool = True,
             max_bets: int = 400) -> Snapshot:
     """One-shot: page the trade feed for the window, then score. Fine for short windows."""

@@ -16,7 +16,7 @@ from combo_tracker.client import COMBO_PREFIX, KalshiClient  # noqa: E402
 from combo_tracker.format import bet_card  # noqa: E402
 from combo_tracker.view import pack, slim  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
-from combo_tracker.pipeline import Scorer  # noqa: E402
+from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 
 lookback = int(sys.argv[1]) if len(sys.argv) > 1 else 15
 min_stake = float(sys.argv[2]) if len(sys.argv) > 2 else 100
@@ -84,6 +84,11 @@ print(f"     {snap.combo_trades_seen} combo fills · {snap.bets_seen} bets · {s
 reqs = client.requests_made
 stage("score again (warm caches)", lambda: scorer.score(col.window(lookback), min_stake=min_stake))
 print(f"     {client.requests_made - reqs} requests")
+board = Board(scorer, col.window, default_view=(lookback, min_stake))
+stage("background pass (Board.refresh)", lambda: board.refresh(force=True))
+t0 = time.time()
+board.get(lookback, min_stake)
+print(f"     a page read after that took {(time.time() - t0) * 1000:.0f} ms")
 if snap.rows:
     reqs = client.requests_made
     deep = stage("open one card (full depth)", lambda: scorer.rescore_with_depth(snap.rows[0], col.window(lookback)))

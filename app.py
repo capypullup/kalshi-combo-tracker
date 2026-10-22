@@ -4,8 +4,9 @@ Run locally:  streamlit run app.py
 Offline demo: DEMO=1 streamlit run app.py
 
 The table itself is a small custom component (combo_tracker/ui). Filters, sorting,
-expanding a bet and copying its card all run in the browser. Python only reloads
-when the min bet or window changes, on refresh, and to load a bet's full orderbooks.
+expanding a bet and copying its card all run in the browser. Scoring runs in a
+background worker; the page only reads its latest results when the min bet or
+window changes, on refresh, and to load a bet's full orderbooks.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import streamlit as st
 
@@ -23,19 +25,17 @@ import streamlit as st
 def _reload_if_deployed() -> None:
     """Streamlit Cloud pulls a new commit and reruns this file without re-importing
     combo_tracker, so new app code would run against old modules (and old cached
-    rows). When the package's files are newer than its import, start it fresh."""
+    rows). When the package's files differ from what was imported, start it fresh."""
     pkg = sys.modules.get("combo_tracker")
     if pkg is None:
         return
-    loaded = getattr(pkg, "IMPORTED_AT", 0)
-    if all(f.stat().st_mtime <= loaded for f in Path(pkg.__file__).parent.rglob("*.py")):
+    root = Path(pkg.__file__).parent
+    on_disk = {str(p.relative_to(root)): (p.stat().st_mtime, p.stat().st_size) for p in sorted(root.rglob("*.py"))}
+    if getattr(pkg, "LOADED_FILES", None) == on_disk:
         return
     for name in [n for n in sys.modules if n == "combo_tracker" or n.startswith("combo_tracker.")]:
         del sys.modules[name]
-    for thread in threading.enumerate():
-        if thread.name == "combo-collector" and hasattr(thread, "stop"):
-            thread.stop()
-    st.cache_resource.clear()
+    st.cache_resource.clear()  # get_source() then stops the old collector and builds a new one
     st.cache_data.clear()
 
 
@@ -44,11 +44,12 @@ _reload_if_deployed()
 from combo_tracker.client import KalshiClient  # noqa: E402  (after the reload check)
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient  # noqa: E402
-from combo_tracker.pipeline import Scorer  # noqa: E402
+from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs  # noqa: E402
 
 DEMO = os.environ.get("DEMO") == "1"
-REFRESH_SECONDS = 60
+SCORE_SECONDS = 120  # how often the background worker re-scores the views people have open
+DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
 MAX_BETS = 400
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
@@ -67,35 +68,41 @@ combo_table = st.components.v2.component(
     "combo_table", css=(UI / "table.css").read_text(), js=(UI / "table.js").read_text())
 
 
+def _stop_collectors() -> None:
+    """Stop collectors left running by an earlier version of the app, so only one polls Kalshi."""
+    for thread in threading.enumerate():
+        if thread.name == "combo-collector" and hasattr(thread, "stop"):
+            thread.stop()
+
+
 @st.cache_resource
-def get_source():
-    """One client, scorer and background collector shared by every visitor."""
+def get_source() -> SimpleNamespace:
+    """One scorer and background worker shared by every visitor.
+
+    The collector thread pages new combo trades each minute and, every SCORE_SECONDS,
+    re-scores the views people have open. Pages only read its latest results.
+    """
     if DEMO:
         client = DemoClient()
-        return client, Scorer(client), None
+        scorer = Scorer(client)
+        trades_for = lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m))  # noqa: E731
+        return SimpleNamespace(scorer=scorer, trades_for=trades_for, collector=None,
+                               board=Board(scorer, trades_for, max_bets=MAX_BETS))
+    _stop_collectors()
     client = KalshiClient()
     scorer = Scorer(client)
-    # Score the default view after every poll so leg quotes and titles are cached before anyone looks.
-    warm = lambda col: scorer.score(col.window(60), min_stake=100, max_bets=MAX_BETS)  # noqa: E731
-    return client, scorer, Collector(client, max_window_minutes=MAX_WINDOW, after_poll=warm).start()
+    collector = Collector(client, max_window_minutes=MAX_WINDOW)
+    board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS)
+    collector.after_poll = lambda col: board.refresh()
+    collector.start()
+    return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
 
 
-def window_trades(lookback: int) -> list[dict]:
-    client, _, collector = get_source()
-    if collector is None:
-        return client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=lookback))
-    return collector.window(lookback)
-
-
-@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
-def load(lookback: int, min_stake: float):
-    return get_source()[1].score(window_trades(lookback), min_stake=min_stake, max_bets=MAX_BETS)
-
-
-@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
+@st.cache_data(ttl=DEPTH_SECONDS, show_spinner=False)
 def with_depth(ticker: str, side: str, lookback: int) -> dict:
     """Re-score one bet against the full orderbook of each leg (list rows use top of book)."""
-    return get_source()[1].rescore_with_depth({"ticker": ticker, "side": side}, window_trades(lookback))
+    src = get_source()
+    return src.scorer.rescore_with_depth({"ticker": ticker, "side": side}, src.trades_for(lookback))
 
 
 # ---------- State the browser sends back ----------
@@ -113,26 +120,32 @@ def _sync(name: str):
 
 
 def _refresh():
-    load.clear()
-    with_depth.clear()
+    # The worker keeps scores fresh; tapping refresh just shows its latest results.
     st.session_state.deep = {}
+    if DEMO:
+        get_source().board.refresh(force=True)
 
 
 def _depth():
     st.session_state.depth_req = st.session_state.cev.depth
 
 
-@st.fragment(run_every=REFRESH_SECONDS)
-def board():
+@st.fragment
+def table_view():
     min_bet, window = st.session_state.min_bet, st.session_state.window
+    src = get_source()
     notes, error = [], None
     try:
-        with st.spinner("Pulling combo trades and leg prices…"):
-            snap = load(window, float(min_bet))
+        snap = src.board.peek(window, min_bet)
+        if snap is None:  # first look at this min bet / window; afterwards it updates in the background
+            with st.spinner("Scoring bets for this filter…"):
+                snap = src.board.get(window, min_bet)
+        else:
+            src.board.get(window, min_bet)  # marks the view as open so the worker keeps it fresh
     except Exception as exc:  # network / API errors should not blank the page
-        snap, error = None, f"Couldn't reach Kalshi: {exc}"[:200]
+        snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
-    collector = get_source()[2]
+    collector = src.collector
     if collector is not None:
         covered = collector.coverage_minutes()
         if covered < window - 1:
@@ -175,7 +188,7 @@ def board():
     )
 
 
-board()
+table_view()
 
 with st.expander("How EV, units and flags work"):
     st.markdown(

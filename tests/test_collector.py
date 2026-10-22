@@ -79,3 +79,28 @@ def test_stop_ends_the_collector_thread():
     col._thread.stop()
     col._thread.join(timeout=2)
     assert not col._thread.is_alive()
+
+
+def test_board_scores_opened_views_in_the_background():
+    from combo_tracker.pipeline import Board
+
+    class FakeScorer:
+        def __init__(self):
+            self.calls = []
+
+        def score(self, trades, min_stake, max_bets):
+            self.calls.append(min_stake)
+            return f"snap {min_stake} #{len(self.calls)}"
+
+    scorer = FakeScorer()
+    board = Board(scorer, trades_for=lambda minutes: [], every=120, default_view=(60, 100.0))
+    assert board.peek(60, 100) is None
+    assert board.get(15, 50) == "snap 50.0 #1"  # first look is scored right away
+    assert board.get(15, 50) == "snap 50.0 #1"  # then served from memory
+    board.refresh()
+    assert sorted(scorer.calls) == [50.0, 50.0, 100.0]  # default view and the opened one
+    board.refresh()
+    assert len(scorer.calls) == 3  # not again until `every` seconds pass
+    board.views[(15, 50.0)] -= 3600  # nobody has looked for an hour
+    board.refresh(force=True)
+    assert board.peek(15, 50) is None and board.peek(60, 100) is not None
