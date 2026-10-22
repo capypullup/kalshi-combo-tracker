@@ -105,8 +105,12 @@ def legs_of(market: dict) -> list[dict]:
 
 
 def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], books: dict[str, dict],
-              now: datetime | None = None, fee_rate: float = 0.07, events: dict[str, dict] | None = None) -> dict:
-    """Score one bet. Fair prices are products of leg prices, i.e. legs are assumed independent."""
+              now: datetime | None = None, fee_rate: float = 0.07, events: dict[str, dict] | None = None,
+              game_start=None) -> dict:
+    """Score one bet. Fair prices are products of leg prices, i.e. legs are assumed independent.
+
+    `game_start(event_ticker)` returns when that leg's game starts, if Kalshi's schedule has it.
+    """
     now = now or datetime.now(timezone.utc)
     legs = legs_of(combo_market)
     leg_books = [LegBook.from_raw(l["market_ticker"], l["side"], books.get(l["market_ticker"], {})) for l in legs]
@@ -163,9 +167,11 @@ def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], b
     hours_to_first_leg = (min(leg_expiries) - now).total_seconds() / 3600 if leg_expiries else None
 
     events = events or {}
+    hours = lambda t: None if t is None else (t - now).total_seconds() / 3600  # noqa: E731
     leg_rows = []
     for l, b, (vwap, filled) in zip(legs, leg_books, fills):
         lm = leg_markets.get(l["market_ticker"], {})
+        start = game_start(l["event_ticker"]) if game_start else None
         leg_rows.append({
             "leg": lm.get("yes_sub_title") or lm.get("title") or l["market_ticker"],
             "event_title": events.get(l["event_ticker"], {}).get("title") or lm.get("title") or l["event_ticker"],
@@ -176,11 +182,15 @@ def score_bet(bet: ComboBet, combo_market: dict, leg_markets: dict[str, dict], b
             "mid": b.mid,
             "spread": b.spread,
             "top_ask_size": b.top_ask_size,
+            "top_bid_size": b.top_bid_size,
             "depth_2c": b.ask_depth_within(2),
             "depth_ratio": b.ask_depth_within(2) / bet.contracts if bet.contracts else None,
             "status": lm.get("status"),
             "vwap_at_size": vwap,
             "fill_pct": filled / bet.contracts if bet.contracts else 1.0,
+            "start": start,
+            "hours_to_start": hours(start),
+            "hours_to_expiry": hours(_parse_time(lm.get("expected_expiration_time"))),
         })
 
     return {

@@ -157,3 +157,48 @@ def test_pack_sends_each_name_once():
     assert len(packed["strs"]) == 4  # two leg names + two event names, shared by both rows
     leg = packed["rows"][1]["legs"][0]
     assert packed["strs"][leg["n"]] == rows[1]["leg_detail"][0]["leg"]
+
+
+def test_schedule_decides_live_before_settlement_guess():
+    from combo_tracker.pipeline import GameStarts
+    from combo_tracker.view import is_live, leg_live
+
+    class Schedule:
+        def get_milestones(self, min_start, until, category="Sports", max_pages=20):
+            return [{"start_date": "2026-10-21T11:30:00Z", "related_event_tickers": ["KXNFLGAME-26OCT21AB"]},
+                    {"start_date": "2026-10-21T20:00:00Z", "primary_event_tickers": ["KXNBAGAME-26OCT21CD"]}]
+
+    starts = GameStarts(Schedule())
+    starts.refresh()
+    assert starts("KXNFLGAME-26OCT21AB").hour == 11
+    assert starts("KXNFLTOTAL-26OCT21AB").hour == 11  # same game, matched by the ticker's game part
+    assert starts("KXNHLGAME-26OCT21EF") is None
+
+    # Leg A's game started 30 min ago but settles in 5h (the old 3h rule said pregame).
+    legs = {"A": {"status": "active", "expected_expiration_time": "2026-10-21T17:00:00Z"},
+            "B": {"status": "active", "expected_expiration_time": "2026-10-21T13:00:00Z"}}
+    bet = build_bets([trade("1", "KXMVE-X", "yes", 0.15, 10)])[0]
+    row = score_bet(bet, combo_market(), legs, BOOKS, now=NOW, game_start=starts)
+    a, b = row["leg_detail"]
+    assert a["hours_to_start"] == pytest.approx(-0.5) and leg_live(a)
+    assert b["hours_to_start"] == pytest.approx(-0.5)  # KXNFLTOTAL shares the game
+    assert is_live(row)
+
+    # A game that starts later is pregame even when its leg settles within 3h.
+    market = combo_market()
+    market["mve_selected_legs"] = [{"event_ticker": "KXNBAGAME-26OCT21CD", "market_ticker": "B", "side": "yes"}]
+    row = score_bet(bet, market, legs, BOOKS, now=NOW, game_start=starts)
+    assert not is_live(row)
+    # With no schedule, fall back to the settlement-time guess.
+    assert is_live(score_bet(bet, market, legs, BOOKS, now=NOW))
+
+
+def test_scorer_keeps_the_newest_bets():
+    from combo_tracker.demo import DemoClient
+    from combo_tracker.pipeline import Scorer
+
+    client = DemoClient()
+    snap = Scorer(client).score(client.trades, min_stake=0, max_bets=20)
+    newest = sorted(build_bets(client.trades), key=lambda b: b.last_time, reverse=True)[:20]
+    assert {r["ticker"] for r in snap.rows} == {b.ticker for b in newest if b.ticker}
+    assert sum(1 for r in snap.rows for l in r["leg_detail"] if l["start"] is not None) > 0  # demo schedule used

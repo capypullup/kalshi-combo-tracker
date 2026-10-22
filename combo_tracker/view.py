@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-LIVE_HOURS = 3  # a leg expiring within this many hours is treated as a game in progress
+LIVE_HOURS = 3  # without a scheduled start, a leg settling within this many hours counts as in progress
 
 
 def num(x, digits: int = 6):
@@ -18,8 +18,6 @@ def flags(r: dict) -> str:
     out = []
     if r["same_game_legs"]:
         out.append("SG")
-    if r["min_depth_ratio"] is not None and r["min_depth_ratio"] < 1:
-        out.append("THIN")
     if r["missing_quotes"] or r["inactive_legs"]:
         out.append("NO QUOTE")
     if r["outside_band"] is False:
@@ -29,15 +27,25 @@ def flags(r: dict) -> str:
     return " · ".join(out)
 
 
+def leg_live(leg: dict) -> bool:
+    """Has this leg's game started? Uses Kalshi's schedule when it lists the game."""
+    if leg.get("status") not in (None, "active"):
+        return True  # closed or settled
+    if leg.get("hours_to_start") is not None:
+        return leg["hours_to_start"] <= 0
+    return leg.get("hours_to_expiry") is not None and leg["hours_to_expiry"] < LIVE_HOURS
+
+
 def is_live(r: dict) -> bool:
-    """Best guess at whether a game in the combo has started (Kalshi gives no start time)."""
-    first = r.get("hours_to_first_leg")
-    return bool(r["inactive_legs"]) or (first is not None and first < LIVE_HOURS)
+    return any(leg_live(l) for l in r["leg_detail"])
 
 
 def slim_legs(r: dict) -> list[dict]:
+    """Per leg: side, name, event, mid/bid/ask, spread, smaller top-of-book size, live, start."""
     return [{"s": l["side"], "n": l["leg"], "e": l["event_title"], "m": num(l["mid"]), "b": num(l["bid"]),
-             "a": num(l["ask"]), "d": num(l["depth_ratio"], 3)} for l in r["leg_detail"]]
+             "a": num(l["ask"]), "sp": num(l["spread"], 4), "z": num(min(l["top_bid_size"], l["top_ask_size"]), 0),
+             "lv": leg_live(l), "st": int(l["start"].timestamp() * 1000) if l.get("start") else None}
+            for l in r["leg_detail"]]
 
 
 def slim(r: dict) -> dict:

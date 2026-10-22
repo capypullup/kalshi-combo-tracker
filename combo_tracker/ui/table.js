@@ -17,10 +17,11 @@ const ICON_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
 
 function loadUi() {
   const base = { minEv: 0, minQk: null, indep: false, basis: "mid", phase: null, q: "", minBet: null, window: null,
-                 sort: "evm", dir: -1, kelly: 0.25, unitPct: 1, open: null, show: PAGE, settings: false };
+                 hideThin: false, thinSpread: 3, thinSize: 50,
+                 sort: "time", dir: -1, kelly: 0.25, unitPct: 1, open: null, show: PAGE, settings: false, seen: null };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
-    return { ...base, ...saved, q: "", open: null, show: PAGE, settings: false };
+    return { ...base, ...saved, q: "", open: null, show: PAGE, settings: false, seen: null };
   } catch (e) {
     return base;
   }
@@ -28,7 +29,7 @@ function loadUi() {
 
 function saveUi(S) {
   try {
-    const { q, open, show, settings, ...keep } = S;
+    const { q, open, show, settings, seen, ...keep } = S;
     localStorage.setItem(STORE, JSON.stringify(keep));
   } catch (e) { /* private mode etc. */ }
 }
@@ -124,6 +125,20 @@ function hydrate(data) {
   return { ...data, rows, deep };
 }
 
+// A leg's book is thin when its spread is wide or either side of the top of book is small,
+// which makes its mid (and so the combo's fair price) unreliable. Cutoffs are in settings.
+function legThin(S, l) {
+  return !isNum(l.sp) || l.sp * 100 > S.thinSpread + 1e-6 || !(l.z >= S.thinSize);
+}
+const rowThin = (S, r) => r.legs.some((l) => legThin(S, l));
+
+function startLabel(ms) {
+  if (!isNum(ms)) return "";
+  const d = new Date(ms);
+  const tm = d.toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? tm : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${tm}`;
+}
+
 function evOf(S, r) { return S.basis === "mid" ? r.evm : r.evc; }
 function kOf(S, r) { return S.basis === "mid" ? r.km : r.kc; }
 
@@ -134,6 +149,7 @@ function visibleRows(S, data) {
     if (S.minEv !== null && !(isNum(ev) && ev * 100 >= S.minEv)) return false;
     if (S.minQk !== null && !(units(S, kOf(S, r)) >= S.minQk)) return false;
     if (S.indep && r.sg > 0) return false;
+    if (S.hideThin && rowThin(S, r)) return false;
     if (S.phase === "pre" && r.live) return false;
     if (S.phase === "live" && !r.live) return false;
     if (q.length) {
@@ -168,13 +184,16 @@ function shell(root) {
         <button class="tog" data-act="indep"><span class="sw"></span>INDEP. ONLY</button></div>
       <div class="frow"><span class="flabel">MIN QK</span><span data-ref="minQk"></span><span class="sp"></span>
         <button class="tog" data-act="basis"><span class="sw"></span><span><span class="bm">MID</span> / <span class="bc">CROSS</span></span></button></div>
-      <div class="frow"><span class="flabel">MIN BET</span><span data-ref="minBet"></span></div>
+      <div class="frow"><span class="flabel">MIN BET</span><span data-ref="minBet"></span><span class="sp"></span>
+        <button class="tog" data-act="thin"><span class="sw"></span>HIDE THIN</button></div>
       <div class="frow"><span class="flabel">WINDOW</span><span data-ref="window"></span><span class="sp"></span>
         <button class="phase" data-act="phase" data-v="pre">PREGAME</button>
         <button class="phase" data-act="phase" data-v="live">LIVE</button></div>
       <div class="settings" data-ref="settings">
         <label>Kelly <select data-ref="kelly">${KELLY.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
         <label>1u = <input type="number" min="0.1" step="0.1" data-ref="unitPct"> % bankroll</label>
+        <label>Thin leg: spread over <input type="number" min="0" step="1" data-ref="thinSpread">¢</label>
+        <label>or top of book under <input type="number" min="0" step="10" data-ref="thinSize"> contracts</label>
       </div>
       <div class="note" data-ref="note"></div>
     </div>
@@ -199,7 +218,7 @@ function rowHtml(S, data, r) {
   const open = S.open === r.id;
   return `<div class="row ${open ? "open" : ""}" data-id="${esc(r.id)}">
     <div class="grid" data-act="toggle">
-      <div class="time"><b>${esc(tm)}</b><div class="sub" data-t="${r.t}">${ago(r.t)}</div></div>
+      <div class="time"><b>${esc(tm)}</b><div class="sub"><span data-t="${r.t}">${ago(r.t)}</span>${r.live ? '<span class="lvdot" title="A game in this combo has started"></span>' : ""}</div></div>
       <div class="side ${r.side}">${r.side.toUpperCase()}<div class="sub legs ${r.sg ? "sg" : ""}">${r.L}L/${r.G}G</div></div>
       <div class="price"><b>${money0(r.stake)}</b> <span class="x">@</span> <span class="m">${mult(r.price)}</span> <span class="x">→</span> <b>${money0(r.n)}</b>
         <div class="sub">${odds(r.price)} · ${qtyShort(r.n)} × ${priceCents(r.price)}</div></div>
@@ -212,12 +231,14 @@ function rowHtml(S, data, r) {
 function detailHtml(S, data, r) {
   const deep = (data.deep || {})[r.id];
   const legs = (deep ? deep.legs : r.legs).map((l) => {
-    const thin = isNum(l.d) && l.d < 1;
+    const thin = legThin(S, l);
+    const when = l.lv ? '<span class="st lv">LIVE</span>' : l.st ? `<span class="st">${startLabel(l.st)}</span>` : "";
     return `<div class="leg"><span class="s ${l.s}">${l.s.toUpperCase()}</span>
-      <span class="n">${esc(l.n)} <i>(${esc(l.e)})</i></span>
+      <span class="n">${esc(l.n)} <i>(${esc(l.e)})</i> ${when}</span>
       <span class="q"><span class="o">${odds(l.m)}</span><span class="${thin ? "thin" : ""}">${cents(l.b)} / ${cents(l.a)}${thin ? "*" : ""}</span></span></div>`;
   }).join("");
-  const flags = r.flags ? ` · <span class="w">${esc(r.flags)}</span>` : "";
+  const flagList = [r.flags, rowThin(S, r) ? "THIN" : ""].filter(Boolean).join(" · ");
+  const flags = flagList ? ` · <span class="w">${esc(flagList)}</span>` : "";
   const hrs = isNum(r.hrs) ? `${Math.max(0, r.hrs).toFixed(0)}h` : "–";
   let deepLine = "";
   if (deep) {
@@ -263,6 +284,7 @@ export default function (component) {
     $("minBet").innerHTML = chips(MIN_BET, D.minBet, (v) => `$${v}`, "minBet");
     $("window").innerHTML = WINDOWS.map(([v, l]) => `<button class="chip ${v === D.window ? "on" : ""}" data-act="window" data-v="${v}">${l}</button>`).join(" ");
     root.querySelector('[data-act="indep"]').classList.toggle("on", S.indep);
+    root.querySelector('[data-act="thin"]').classList.toggle("on", S.hideThin);
     root.querySelector('[data-act="basis"]').classList.toggle("on", S.basis === "cross");
     root.querySelectorAll('[data-act="phase"]').forEach((b) => b.classList.toggle("on", S.phase === b.dataset.v));
     root.querySelectorAll(".thead [data-sort]").forEach((b) => {
@@ -273,18 +295,51 @@ export default function (component) {
     $("settings").classList.toggle("open", S.settings);
     $("kelly").value = String(S.kelly);
     $("unitPct").value = String(S.unitPct);
+    $("thinSpread").value = String(S.thinSpread);
+    $("thinSize").value = String(S.thinSize);
     if ($("q").value !== S.q) $("q").value = S.q;
+  }
+
+  // Endless scroll: render PAGE rows at a time and append the next batch when the
+  // sentinel under the last row comes within a screen of view.
+  function moreHtml(rows) {
+    const left = rows.length - S.show;
+    return left > 0 ? `<button class="more" data-act="more">Loading more… (${left.toLocaleString()} left)</button>` : "";
+  }
+
+  function watchSentinel() {
+    if (!("IntersectionObserver" in window)) return;  // the sentinel is also a button
+    if (!root._io) {
+      root._io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) root._loadMore();
+      }, { rootMargin: "800px 0px" });
+    }
+    root._io.disconnect();
+    const s = root.querySelector(".more");
+    if (s) root._io.observe(s);
   }
 
   function paintRows() {
     const D = window.__cevCtx.data;
-    const rows = visibleRows(S, D);
+    const rows = (root._rows = visibleRows(S, D));
     $("count").textContent = `${rows.length.toLocaleString()} bet${rows.length === 1 ? "" : "s"} · ${D.trades.toLocaleString()} fills`;
     const shown = rows.slice(0, S.show);
     $("rows").innerHTML = shown.length
-      ? shown.map((r) => rowHtml(S, D, r)).join("") +
-        (rows.length > shown.length ? `<button class="more" data-act="more">Show more (${(rows.length - shown.length).toLocaleString()} left)</button>` : "")
-      : `<div class="empty">No bets match these filters. Lower MIN EV, MIN QK or MIN BET.</div>`;
+      ? shown.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows)
+      : `<div class="empty">No bets match these filters. Lower MIN EV, MIN QK or MIN BET, or turn off HIDE THIN.</div>`;
+    watchSentinel();
+  }
+
+  function loadMore() {
+    const D = window.__cevCtx.data;
+    const rows = root._rows || [];
+    if (S.show >= rows.length) return;
+    const next = rows.slice(S.show, S.show + PAGE);
+    S.show += next.length;
+    const old = root.querySelector(".more");
+    if (old) old.remove();
+    $("rows").insertAdjacentHTML("beforeend", next.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows));
+    watchSentinel();
   }
 
   function paintMeta() {
@@ -314,7 +369,16 @@ export default function (component) {
     if (S.window !== null && S.window !== data.window) setStateValue("window", S.window);
   }
 
+  // Every refresh shows the newest bets first; combo edges die fast.
+  if (S.seen !== data.updated) {
+    S.seen = data.updated;
+    S.sort = "time";
+    S.dir = -1;
+    S.show = PAGE;
+  }
+
   root._paint = () => { paintControls(); paintMeta(); paintRows(); };
+  root._loadMore = loadMore;
   root._paintRows = paintRows;
   root._paintControls = paintControls;
   root._paint();
@@ -332,6 +396,10 @@ export default function (component) {
       if (ref === "unitPct") {
         const v = parseFloat(e.target.value);
         if (v > 0) update(() => { S.unitPct = v; }, true);
+      }
+      if (ref === "thinSpread" || ref === "thinSize") {
+        const v = parseFloat(e.target.value);
+        if (v >= 0) update(() => { S[ref] = v; S.show = PAGE; }, true);
       }
     });
     el.addEventListener("change", (e) => {
@@ -352,11 +420,12 @@ export default function (component) {
       switch (b.dataset.act) {
         case "minEv": return update(() => { S.minEv = S.minEv === +v ? null : +v; S.show = PAGE; });
         case "minQk": return update(() => { S.minQk = S.minQk === +v ? null : +v; S.show = PAGE; });
-        case "indep": return update(() => { S.indep = !S.indep; });
-        case "basis": return update(() => { S.basis = S.basis === "mid" ? "cross" : "mid"; });
-        case "phase": return update(() => { S.phase = S.phase === v ? null : v; });
+        case "indep": return update(() => { S.indep = !S.indep; S.show = PAGE; });
+        case "thin": return update(() => { S.hideThin = !S.hideThin; S.show = PAGE; });
+        case "basis": return update(() => { S.basis = S.basis === "mid" ? "cross" : "mid"; S.show = PAGE; });
+        case "phase": return update(() => { S.phase = S.phase === v ? null : v; S.show = PAGE; });
         case "settings": return update(() => { S.settings = !S.settings; });
-        case "more": return update(() => { S.show += PAGE; }, true);
+        case "more": return el._loadMore();
         case "toggle": return update(() => { S.open = S.open === row.dataset.id ? null : row.dataset.id; }, true);
         case "minBet": S.minBet = +v; saveUi(S); return ctxNow.setStateValue("min_bet", +v);
         case "window": S.window = +v; saveUi(S); return ctxNow.setStateValue("window", +v);

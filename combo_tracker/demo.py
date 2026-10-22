@@ -28,6 +28,11 @@ class DemoClient:
         self.leg_markets: dict[str, dict] = {}
         self.books: dict[str, dict] = {}
         self.events: dict[str, dict] = {}
+        # Half the games have started; the rest start over the next two days.
+        self.milestones = [{"start_date": (now + timedelta(hours=-2 if i % 2 else 3 + 8 * i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "title": title, "related_event_tickers": [f"{series}-{game}"],
+                            "primary_event_tickers": [f"{series}-{game}"]}
+                           for i, (series, game, _, _, title) in enumerate(GAMES)]
         for series, game, outcomes, label, event_title in GAMES:
             self.events[f"{series}-{game}"] = {"event_ticker": f"{series}-{game}", "title": event_title}
             for o in outcomes:
@@ -89,6 +94,9 @@ class DemoClient:
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         return {t: self.books.get(t, {}) for t in tickers}
 
+    def get_milestones(self, min_start: datetime, until: datetime, category: str = "Sports",
+                       max_pages: int = 20) -> list[dict]:
+        return list(self.milestones)
 
 # ---- public profiles (the Bettors page) ----
 PLAYERS = ["SIN", "ALC", "ZVE", "MED", "RUU", "FRI", "DEM", "TSI", "PAU", "SHE", "SAB", "GAU", "PEG", "RYB",

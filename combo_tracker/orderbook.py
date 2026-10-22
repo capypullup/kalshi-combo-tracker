@@ -58,6 +58,10 @@ class LegBook:
     def top_ask_size(self) -> float:
         return self.asks[0][1] if self.asks else 0.0
 
+    @property
+    def top_bid_size(self) -> float:
+        return self.bids[0][1] if self.bids else 0.0
+
     def ask_depth_within(self, cents: float) -> float:
         """Contracts available to buy within `cents` of the best ask."""
         if not self.asks:

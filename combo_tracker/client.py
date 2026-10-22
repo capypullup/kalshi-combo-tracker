@@ -128,6 +128,25 @@ class KalshiClient:
     def combo_trades(self, min_ts: datetime, max_pages: int = 10_000) -> list[dict]:
         return [t for t in self.iter_trades(min_ts, max_pages=max_pages) if t["ticker"].startswith(COMBO_PREFIX)]
 
+    def get_milestones(self, min_start: datetime, until: datetime, category: str = "Sports",
+                       max_pages: int = 20) -> list[dict]:
+        """Scheduled events (games, matches) starting between min_start and until.
+
+        Each milestone has a `start_date` and the event tickers it covers, props
+        included. Kalshi returns them oldest start first, so paging stops at `until`.
+        """
+        params = {"limit": 500, "category": category, "minimum_start_date": min_start.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        out: list[dict] = []
+        for _ in range(max_pages):
+            data = self._get("/milestones", params)
+            page = data.get("milestones") or []
+            out.extend(page)
+            cursor = data.get("cursor")
+            if not page or not cursor or page[-1].get("start_date", "") > until.strftime("%Y-%m-%dT%H:%M:%SZ"):
+                break
+            params["cursor"] = cursor
+        return out
+
     def _parallel(self, fn, items):
         with ThreadPoolExecutor(self.max_workers) as pool:
             return list(pool.map(fn, items))
