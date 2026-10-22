@@ -80,7 +80,6 @@ def test_tracker_cycle_on_demo_data():
     snap = tracker.snapshot
     assert not snap.errors
     rows = {r["nick"]: r for r in snap.rows}
-    assert rows["Blackbriar"]["hidden"] is True and rows["Blackbriar"]["all"]["n"] == 0
     visible = [r for r in snap.rows if r["hidden"] is False]
     assert visible and all(r["all"]["n"] > 0 for r in visible)
     assert all(r["all"]["ev_cover"] == 1 for r in visible)  # the demo has candles for every market
@@ -90,8 +89,11 @@ def test_tracker_cycle_on_demo_data():
     assert packed[0]["tennis"]["n"] >= 0 and "recent" in packed[0]
 
     tracker.add("@ace.pilot")
+    tracker.add("Blackbriar")
     tracker.serve_wanted()
-    assert "you" in tracker.profiles["ace.pilot"].sources
+    rows = {r["nick"]: r for r in tracker.snapshot.rows}
+    assert rows["ace.pilot"]["src"] == ["feed", "you"]
+    assert rows["Blackbriar"]["hidden"] is True and rows["Blackbriar"]["all"]["n"] == 0
 
 
 def test_history_stops_at_known_trades():

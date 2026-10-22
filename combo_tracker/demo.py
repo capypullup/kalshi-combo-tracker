@@ -181,12 +181,6 @@ class _DemoSocial:
         scale = 0.15 if days else 1
         return {"pnl": int(base * scale * 10_000), "num_markets_traded": int((300 + h * 3) * (0.2 if days else 1))}
 
-    def leaderboard(self, metric="projected_pnl", limit=100, category=None, days=None) -> list[dict]:
-        names = ["Blackbriar", "4thewin", "BigWhale", "baseline.sharp", "JohnR0809"]
-        rows = sorted(names, key=lambda n: -self.profile_metrics(n, days)["pnl"])
-        return [{"nickname": n, "rank": i + 1, "value": self.profile_metrics(n, days)["pnl"] / 10_000, "is_anonymous": False}
-                for i, n in enumerate(rows[:limit])]
-
     def get_candles(self, tickers: list[str], start_ts: int, end_ts: int) -> dict[str, list[dict]]:
         out = {}
         for tk in tickers:
@@ -217,5 +211,5 @@ def _get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, di
 
 
 DemoClient.get_markets = _get_markets
-for _name in ("social_trades", "profile_metrics", "leaderboard", "get_candles"):
+for _name in ("social_trades", "profile_metrics", "get_candles"):
     setattr(DemoClient, _name, (lambda name: lambda self, *a, **k: getattr(_social(self), name)(*a, **k))(_name))

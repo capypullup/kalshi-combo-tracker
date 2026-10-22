@@ -85,7 +85,7 @@ def pack_bettors(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
         out.append({
-            "nick": r["nick"], "src": r["src"], "hidden": r["hidden"], "rank": r["rank"], "rank30": r["rank30"],
+            "nick": r["nick"], "src": r["src"], "hidden": r["hidden"], "missing": r["missing"],
             "pa": num(r["pnl_all"], 2), "p30": num(r["pnl_30d"], 2), "ma": r["markets_all"], "m30": r["markets_30d"],
             "fn": r["feed_n"], "fv": num(r["feed_vol"], 2), "fl": int(r["feed_last"] * 1000) if r["feed_last"] else None,
             "all": _scope(r["all"]), "tennis": _scope(r["tennis"]),

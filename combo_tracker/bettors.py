@@ -6,8 +6,8 @@ profiles use, public and keyless) returns the same trades with the maker's and
 taker's nicknames filled in for anyone whose profile shows their trades. So:
 
 1. Discovery: page the social trade feed for tennis series and note every nickname.
-2. History: for those nicknames (plus Kalshi's leaderboard and any you add), page
-   their own trade history.
+2. History: for the busiest of those nicknames (and any you add), page their own
+   trade history.
 3. EV: price each fill against the market's bid/ask in the minute it happened (from
    one-minute candles). A combo is priced from its legs' books, as on the combo page.
 4. PnL: settled fills pay out on the market's result.
@@ -25,6 +25,8 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+
+import requests
 
 from .client import COMBO_PREFIX
 from .engine import taker_fee
@@ -195,16 +197,15 @@ def _money(metrics: dict, key: str) -> float | None:
 @dataclass
 class Profile:
     nickname: str
-    sources: set[str] = field(default_factory=set)  # "feed", "board", "board30", "you"
+    sources: set[str] = field(default_factory=set)  # "feed" (busy in the tennis feed), "you" (added on the page)
     hidden: bool | None = None  # trades hidden on their profile; None = not checked yet
+    missing: bool = False  # no profile with this nickname
     fills: dict[str, Fill] = field(default_factory=dict)
     complete_to: float | None = None  # history is complete from here to now
     metrics: dict = field(default_factory=dict)
     metrics_30d: dict = field(default_factory=dict)
     metrics_at: float = 0.0
     history_at: float = 0.0
-    board_rank: int | None = None
-    board30_rank: int | None = None
 
 
 @dataclass
@@ -222,12 +223,12 @@ class BettorTracker:
     """Background worker that keeps a ranked table of bettors fresh.
 
     One cycle every `every` seconds: read new tennis trades from the social feed,
-    refresh Kalshi's leaderboard, update each candidate's history and metrics, look up
-    market results, price new fills against one-minute candles, and publish rows.
+    update each candidate's history and metrics, look up market results, price new
+    fills against one-minute candles, and publish rows.
     """
 
     def __init__(self, client, series: list[str] | None = None, feed_hours: float = 24, history_days: int = 30,
-                 max_fills: int = 1000, top_n: int = 40, board_n: int = 50, every: float = 900,
+                 max_fills: int = 1000, top_n: int = 40, every: float = 900,
                  first_pages: int = 30, more_pages: int = 20, metrics_ttl: float = 3600, history_ttl: float = 1800):
         self.client = client
         self.series = series or TENNIS_SERIES
@@ -235,7 +236,6 @@ class BettorTracker:
         self.history_days = history_days
         self.max_fills = max_fills
         self.top_n = top_n
-        self.board_n = board_n
         self.every = every
         self.first_pages = first_pages
         self.more_pages = more_pages
@@ -308,21 +308,6 @@ class BettorTracker:
                 s["last"] = max(s["last"], ts)
         return dict(out)
 
-    def read_board(self) -> None:
-        for p in self.profiles.values():
-            p.board_rank = p.board30_rank = None
-            p.sources -= {"board", "board30"}
-        for days, src in ((None, "board"), (30, "board30")):
-            for r in self.client.leaderboard(category="Sports", limit=self.board_n, days=days):
-                if r.get("is_anonymous") or not r.get("nickname"):
-                    continue
-                p = self.profiles.setdefault(r["nickname"], Profile(r["nickname"]))
-                p.sources.add(src)
-                if src == "board":
-                    p.board_rank = r["rank"]
-                else:
-                    p.board30_rank = r["rank"]
-
     def add(self, nickname: str) -> None:
         """Analyze a nickname typed on the page, ahead of the next scheduled cycle."""
         nickname = nickname.strip().lstrip("@")
@@ -344,20 +329,26 @@ class BettorTracker:
             self.profiles.setdefault(n, Profile(n)).sources.add("feed")
         with self.lock:
             wanted = list(self.wanted)
-        order = wanted + top + [n for n, p in self.profiles.items() if p.sources & {"board", "board30", "you"}]
+        order = wanted + top + [n for n, p in self.profiles.items() if "you" in p.sources]
         return [self.profiles[n] for n in dict.fromkeys(order) if n in self.profiles]
 
     # ---- per-bettor data ----
     def refresh_metrics(self, p: Profile, force: bool = False) -> None:
-        if not force and time.time() - p.metrics_at < self.metrics_ttl:
+        if p.missing or (not force and time.time() - p.metrics_at < self.metrics_ttl):
             return
-        p.metrics = self.client.profile_metrics(p.nickname)
+        try:
+            p.metrics = self.client.profile_metrics(p.nickname)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                p.missing = True
+                return
+            raise
         p.metrics_30d = self.client.profile_metrics(p.nickname, days=30)
         p.metrics_at = time.time()
 
     def refresh_history(self, p: Profile, force: bool = False) -> None:
         """Page the bettor's own trades newest first, until we reach ones we have."""
-        if p.hidden or (not force and time.time() - p.history_at < self.history_ttl):
+        if p.hidden or p.missing or (not force and time.time() - p.history_at < self.history_ttl):
             return
         now = time.time()
         oldest_wanted = now - self.history_days * 86400
@@ -459,8 +450,7 @@ class BettorTracker:
                                "legs": len(m.get("legs") or []), "side": f.side, "price": f.price, "n": f.count,
                                "taker": f.taker, "fair": sc["fair"], "ev": sc["ev"], "pnl": sc["pnl"]})
             rows.append({
-                "nick": p.nickname, "src": sorted(p.sources), "hidden": p.hidden,
-                "rank": p.board_rank, "rank30": p.board30_rank,
+                "nick": p.nickname, "src": sorted(p.sources), "hidden": p.hidden, "missing": p.missing,
                 "pnl_all": _money(p.metrics, "pnl"), "pnl_30d": _money(p.metrics_30d, "pnl"),
                 "markets_all": p.metrics.get("num_markets_traded"), "markets_30d": p.metrics_30d.get("num_markets_traded"),
                 "invested": _money(p.metrics, "dollars_investment"),
@@ -503,7 +493,6 @@ class BettorTracker:
         with self.lock:
             self.errors.clear()
         self._step("reading tennis trades", self.read_feed)
-        self._step("leaderboard", self.read_board)
         self.publish()
         self.analyze(self.candidates())
         self.status = "idle"

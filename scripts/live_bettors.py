@@ -20,12 +20,12 @@ def main() -> None:
     top_n = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     max_fills = int(sys.argv[2]) if len(sys.argv) > 2 else 300
     client = KalshiClient(rate_per_sec=8)
-    t = BettorTracker(client, top_n=top_n, board_n=10, max_fills=max_fills, first_pages=8)
+    t = BettorTracker(client, top_n=top_n, max_fills=max_fills, first_pages=8)
     start = time.time()
-    for label, fn in [("feed", t.read_feed), ("board", t.read_board)]:
-        s = time.time()
-        fn()
-        print(f"{label}: {time.time() - s:.1f}s, requests so far {client.requests_made}")
+    t.read_feed()
+    print(f"feed: {time.time() - start:.1f}s, requests so far {client.requests_made}")
+    for name in sys.argv[3:]:
+        t.add(name)
     stats = t.feed_stats()
     print(f"tennis feed: {t.feed_trades} trades, {t.feed_named} with a name, {len(stats)} nicknames")
     s = time.time()

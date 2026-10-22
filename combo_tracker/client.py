@@ -48,6 +48,7 @@ class KalshiClient:
         self.limiter = RateLimiter(rate_per_sec)
         self.session = requests.Session()
         self.session.headers["Accept"] = "application/json"
+        self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
         self.batch_orderbooks_ok: bool | None = None  # learned on first try
         self.requests_made = 0
 
@@ -187,14 +188,3 @@ class KalshiClient:
         if days:
             params["since_day_before"] = days
         return self._get_url(f"{SOCIAL_URL}/profile/metrics", params).get("metrics") or {}
-
-    def leaderboard(self, metric: str = "projected_pnl", limit: int = 100, category: str | None = None,
-                    days: int | None = None) -> list[dict]:
-        """Kalshi's opt-in leaderboard. metric: projected_pnl or num_markets_traded; limit <= 100;
-        category e.g. "Sports"; days: 30 for the last month, None for all time."""
-        params = {"metric_name": metric, "limit": limit}
-        if category:
-            params["category"] = category
-        if days:
-            params["since_day_before"] = days
-        return self._get_url(f"{SOCIAL_URL}/leaderboard", params).get("rank_list") or []

@@ -231,7 +231,7 @@ def combo_page() -> None:
 
 
 # ---------- Bettors page ----------
-BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed, leaderboard and histories
+BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed and bettors' histories
 
 
 @st.cache_resource
@@ -278,13 +278,12 @@ def bettors_page() -> None:
     bettors_view()
     with st.expander("Where this data comes from and how to read it"):
         st.markdown(
-            "- **Who's listed**: everyone with a public name in the last day of Kalshi's tennis trade feed "
-            "(the 40 biggest by volume), Kalshi's Sports leaderboard (top 50 all-time and last 30 days), and "
-            "any nickname you add with the search box.\n"
+            "- **Who's listed**: the 40 busiest public names in the last day of Kalshi's tennis trades, plus any "
+            "nickname you add with the search box.\n"
             "- Kalshi's main trade feed has no trader ID. Its **social API** (what kalshi.com profiles use, free "
             "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
-            "that show their trades. Most leaderboard leaders hide theirs: they show **hidden** and only Kalshi's "
-            "own PnL and markets-traded counts.\n"
+            "that show their trades. A profile that hides them shows **hidden**, with only Kalshi's own PnL and "
+            "markets-traded counts.\n"
             "- **PNL** is Kalshi's number for the profile (all-time, and 30D underneath). **TRADES** counts the fills "
             "in our sample (their last 1,000 trades within 30 days); **MKTS** is Kalshi's all-time markets traded.\n"
             "- **EV** prices every trade against the market's bid/ask mid in the minute it happened (one-minute "
