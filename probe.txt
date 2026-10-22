@@ -1,0 +1,31 @@
+feed: 11.1s, requests so far 88
+tennis feed: 8800 trades, 730 with a name, 267 nicknames
+analyze: 56.2s, total 67.2s, requests 382
+errors: []
+
+nickname                 src                hid        PnL all    PnL 30d    mkts |     n  cov       vol       EV    EV%  set      PnL     edge     z  tk%
+Cxnthit                  feed               False         -773       -792     199 |   330   98    11,207   -1,015   -9.1  325    1,515    2,474  2.04  100
+short.bill               feed               False      -10,281          0     659 |    84  100     3,932     -112   -2.9   78      586      667  1.06  100
+ctaxi10                  feed               False            -          -       - |    52   96     3,031      159    5.3   49    1,120      833  0.96   85
+sure.sparrow6508         feed               False            0          0       0 |   301   98    77,673    3,596    4.7  297    7,440    3,865  0.56    3
+trend.wish               feed               False      -11,776       -772     178 |   377   97    86,630    2,002    2.3  371    6,752    5,087  0.55  100
+Hughman                  you                False       61,443      5,613     301 |   400  100     7,957     -195   -2.4  400       29      224  0.38   91
+native.elephant6919      feed               False      -39,118     -1,588     602 |   314   99    61,362   -4,302   -7.1  299   -2,421    1,401  0.26  100
+dry.frame                feed               False        1,281      1,109     434 |   102  100    15,913   -1,034   -6.5  102     -899      136  0.04  100
+lcz33                    feed               False            -          -       - |    52  100     4,606      636   13.8   42       91     -459 -0.52    0
+printed.duck7256         feed               False            -          -       - |   400  100     4,574     -224   -4.9  319     -395     -210 -0.73  100
+sketchyD                 feed               False      -24,718     -6,226   3,374 |    12  100     3,182     -119   -3.7    6     -591     -486 -0.94  100
+dependent.snail8369      feed               False       -8,100     -2,244     898 |   279   97    37,884     -988   -2.7  273   -3,907   -3,489 -1.40  100
+4thewin                  you                True     7,742,386          0   4,134 |     0    0         0        -    0.0    0        -        -     -    0
+zzz.not.real.9           you                None             -          -       - |     0    0         0        -    0.0    0        -        -     -    0
+clis41                   feed               False            -          -       - |     0    0         0        -    0.0    0        -        -     -    0
+
+latest trades for Cxnthit:
+  KXNBASPREAD-26OCT21GSWLAL-LAL30 yes 0.62 10.0 taker fair 0.575 ev -0.62 pnl -6.37
+  KXNBASPREAD-26OCT21GSWLAL-LAL30 yes 0.62 94.0 taker fair 0.575 ev -5.79 pnl -59.84
+  KXNBASPREAD-26OCT21GSWLAL-LAL30 yes 0.62 14.0 taker fair 0.575 ev -0.87 pnl -8.92
+  KXNBASPREAD-26OCT21SACLAC-LAC7 no 0.18 100.0 taker fair 0.155 ev -3.54 pnl -19.04
+  KXNBASPREAD-26OCT21SACLAC-LAC7 no 0.17 49.35 taker fair 0.155 ev -1.23 pnl -8.88
+  KXNBASPREAD-26OCT21SACLAC-LAC7 no 0.18 91.52 taker fair 0.155 ev -3.24 pnl -17.42
+  KXNBASPREAD-26OCT21SACLAC-LAC7 no 0.18 100.0 taker fair 0.155 ev -3.54 pnl -19.04
+  KXNBASPREAD-26OCT21SACLAC-LAC7 yes 0.54 340.87 taker fair 0.580 ev 7.70 pnl 150.87
