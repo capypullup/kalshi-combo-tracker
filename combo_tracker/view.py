@@ -51,3 +51,23 @@ def slim(r: dict) -> dict:
         "net": num(r["ev_net"], 2), "fee": num(r["fee"], 2), "hrs": num(r["hours_to_resolve"], 2),
         "cb": num(r["combo_bid"]), "ca": num(r["combo_ask"]), "legs": slim_legs(r),
     }
+
+
+def pack(rows: list[dict]) -> dict:
+    """Slim rows with each leg and event name sent once; the table looks them up in `strs`.
+
+    Leg and event titles repeat across hundreds of combos, so this roughly halves the
+    data a phone downloads on every refresh.
+    """
+    index: dict[str, int] = {}
+
+    def ref(s: str) -> int:
+        return index.setdefault(s, len(index))
+
+    out = []
+    for r in rows:
+        s = slim(r)
+        del s["id"]  # ticker|side, rebuilt in the browser
+        s["legs"] = [{**l, "n": ref(l["n"]), "e": ref(l["e"])} for l in s["legs"]]
+        out.append(s)
+    return {"rows": out, "strs": list(index)}

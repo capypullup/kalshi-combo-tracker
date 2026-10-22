@@ -100,6 +100,17 @@ function toast(root, text) {
   t._h = setTimeout(() => t.classList.remove("show"), 1400);
 }
 
+// Leg and event names arrive once in data.strs; rows refer to them by index.
+function hydrate(data) {
+  const strs = data.strs || [];
+  const str = (v) => (typeof v === "number" ? strs[v] : v);
+  const fix = (legs) => legs.map((l) => ({ ...l, n: str(l.n), e: str(l.e) }));
+  const deep = {};
+  for (const [k, v] of Object.entries(data.deep || {})) deep[k] = { ...v, legs: fix(v.legs) };
+  const rows = data.rows.map((r) => ({ ...r, id: `${r.ticker}|${r.side}`, legs: fix(r.legs) }));
+  return { ...data, rows, deep };
+}
+
 function evOf(S, r) { return S.basis === "mid" ? r.evm : r.evc; }
 function kOf(S, r) { return S.basis === "mid" ? r.km : r.kc; }
 
@@ -219,7 +230,8 @@ function detailHtml(S, data, r) {
 export { betCard };  // for tests/test_table_js.py
 
 export default function (component) {
-  const { data, parentElement, setStateValue, setTriggerValue } = component;
+  const { parentElement, setStateValue, setTriggerValue } = component;
+  const data = hydrate(component.data);
   const S = (window.__cevUi = window.__cevUi || loadUi());
   const ctx = (window.__cevCtx = { data, setStateValue, setTriggerValue });
 

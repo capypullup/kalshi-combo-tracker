@@ -21,7 +21,7 @@ from combo_tracker.client import KalshiClient
 from combo_tracker.collector import Collector
 from combo_tracker.demo import DemoClient
 from combo_tracker.pipeline import Scorer
-from combo_tracker.view import LIVE_HOURS, num, slim, slim_legs
+from combo_tracker.view import LIVE_HOURS, num, pack, slim_legs
 
 DEMO = os.environ.get("DEMO") == "1"
 REFRESH_SECONDS = 60
@@ -134,12 +134,12 @@ def board():
             depth_error = {"id": req, "msg": str(exc)[:160]}
     st.session_state.deep = deep
 
-    rows = [slim(r) for r in snap.rows] if snap else []
+    packed = pack(snap.rows if snap else [])
     combo_table(
         key="cev",
         data={
-            "rows": rows, "minBet": min_bet, "window": window, "demo": DEMO,
-            "trades": snap.combo_trades_seen if snap else 0, "scored": len(rows),
+            **packed, "minBet": min_bet, "window": window, "demo": DEMO,
+            "trades": snap.combo_trades_seen if snap else 0, "scored": len(packed["rows"]),
             "updated": int((snap.fetched_at if snap else datetime.now(timezone.utc)).timestamp() * 1000),
             "note": " ".join(notes), "error": error, "deep": deep, "depthError": depth_error,
         },

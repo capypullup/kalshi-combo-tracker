@@ -145,3 +145,15 @@ def test_slim_row_is_json_safe_and_flags_live_games():
     assert row["live"] is True  # leg A settles within 3h, so its game has started
     assert row["evm"] is None and "NO QUOTE" in row["flags"]
     assert [l["s"] for l in row["legs"]] == ["yes", "yes"]
+
+
+def test_pack_sends_each_name_once():
+    from combo_tracker.view import pack
+
+    bets = build_bets([trade("1", "KXMVE-X", "yes", 0.15, 100), trade("2", "KXMVE-X", "no", 0.15, 100)])
+    rows = [score_bet(b, combo_market(), {}, BOOKS, now=NOW) for b in bets]
+    packed = pack(rows)
+    assert len(packed["rows"]) == 2 and "id" not in packed["rows"][0]
+    assert len(packed["strs"]) == 4  # two leg names + two event names, shared by both rows
+    leg = packed["rows"][1]["legs"][0]
+    assert packed["strs"][leg["n"]] == rows[1]["leg_detail"][0]["leg"]
