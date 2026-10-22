@@ -28,6 +28,12 @@ jobs:
         run: |
           set -o pipefail
           python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }} 2>&1 | tee /tmp/live_check.txt
+      - name: Live check of the Bettors tracker
+        if: always()
+        run: |
+          set -o pipefail
+          echo -e "\n===== Bettors =====" >> /tmp/live_check.txt
+          python scripts/live_bettors.py 12 400 2>&1 | tee -a /tmp/live_check.txt
       - name: Save live check output to the ci-output branch
         if: always()
         run: |

@@ -437,7 +437,7 @@ class BettorTracker:
         results = {t: m["result"] for t, m in self.markets.items()}
         rows = []
         for p in list(self.profiles.values()):
-            if not p.sources:
+            if not p.sources or (p.missing and "you" not in p.sources):
                 continue
             fills = sorted(p.fills.values(), key=lambda f: -f.ts)
             tennis = [f for f in fills if is_tennis(f.ticker, self.markets.get(f.ticker, {}).get("legs"))]

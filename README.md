@@ -23,6 +23,16 @@ EV CRX +3568.4% (fair -363) · 19u
 
 All data comes from Kalshi's free public API. No API key is needed.
 
+## Bettors page
+
+The **BETTORS** tab ranks public Kalshi profiles, with tennis bettors as the starting point:
+
+- Kalshi's main trade feed has no trader ID, but its social API (the one kalshi.com profiles use, also keyless) returns the same trades with the maker's and taker's nicknames for anyone whose profile shows their trades. The tracker reads the last day of tennis trades from it, takes the 40 busiest public names, and pages each one's own history (last 1,000 trades within 30 days). You can add any nickname from the search box.
+- **PNL / 30D** are Kalshi's own numbers for the profile. **TRADES** is the size of our sample, **MKTS** Kalshi's all-time markets traded.
+- **EV** prices every trade against the market's bid/ask mid in the minute it happened (from one-minute candles), after taker fees; a combo is priced from its legs. **BEAT** is settled PnL minus EV on the same trades, and **Z** is that divided by its standard deviation, so a high Z over many trades means the bettor beats the book by more than luck explains.
+- **SCOPE** switches between tennis-only and all of a bettor's trades. Tap a row for the breakdown and their latest trades.
+- Limits: profiles that hide their trades only show Kalshi's PnL and market count. Kalshi's leaderboard isn't used because it scrambles nicknames for non-browser clients. The RFQ (request for quote) API does show who asked for a quote, but it needs an API key, shows only a hashed ID that isn't linked to a profile, and keeps quotes private, so it can't name bettors.
+
 ## Run it
 
 ```bash
@@ -30,6 +40,7 @@ pip install -r requirements.txt
 streamlit run app.py            # live data
 DEMO=1 streamlit run app.py     # made-up data, no network needed
 python scripts/live_check.py 15 100   # print the top combos from the last 15 min, bets ≥ $100
+python scripts/live_bettors.py 12 400 # one small pass of the Bettors tracker
 pytest -q
 ```
 
@@ -49,5 +60,6 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/format.py`: the text bet card
 - `combo_tracker/pipeline.py`: one refresh, end to end
 - `combo_tracker/view.py`: the compact rows the table receives
-- `combo_tracker/ui/`: the table component (filters, sorting and copying run in the browser)
+- `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
+- `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page
