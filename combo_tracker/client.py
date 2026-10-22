@@ -43,32 +43,44 @@ class RateLimiter:
 
 
 class KalshiAuth:
-    """Signs requests with a Kalshi API key: RSA-PSS over timestamp + method + path.
+    """Signs requests with a Kalshi API key: a signature over timestamp + method + path,
+    made with the key's Ed25519 or RSA (PSS, SHA-256) private key.
 
     Only the RFQ endpoints need it. The app only ever makes GET requests with it.
     """
 
-    def __init__(self, key_id: str, private_key_pem: str):
+    def __init__(self, key_id: str, private_key: str):
+        self.key_id = key_id.strip()
+        self.key = self.load_key(private_key)
+
+    @staticmethod
+    def load_key(text: str):
+        """Read a private key pasted with or without its -----BEGIN/END----- lines."""
         from cryptography.hazmat.primitives import serialization
 
-        self.key_id = key_id
-        self.key = serialization.load_pem_private_key(private_key_pem.strip().encode(), password=None)
+        text = text.strip().replace("\\n", "\n")
+        if "-----BEGIN" in text:
+            return serialization.load_pem_private_key(text.encode(), password=None)
+        return serialization.load_der_private_key(base64.b64decode("".join(text.split())), password=None)
 
     @classmethod
     def from_env(cls, secrets: dict | None = None) -> "KalshiAuth | None":
         """KALSHI_KEY_ID + KALSHI_PRIVATE_KEY from Streamlit secrets or the environment, if set."""
         get = lambda k: (secrets or {}).get(k) or os.environ.get(k)  # noqa: E731
-        key_id, pem = get("KALSHI_KEY_ID"), get("KALSHI_PRIVATE_KEY")
-        return cls(key_id, pem.replace("\\n", "\n")) if key_id and pem else None
+        key_id, key = get("KALSHI_KEY_ID"), get("KALSHI_PRIVATE_KEY")
+        return cls(key_id, key) if key_id and key else None
 
     def headers(self, method: str, path: str) -> dict[str, str]:
         from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
         ts = str(int(time.time() * 1000))
-        sig = self.key.sign(f"{ts}{method}{path}".encode(),
-                            padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
-                            hashes.SHA256())
+        message = f"{ts}{method}{path}".encode()
+        if isinstance(self.key, rsa.RSAPrivateKey):
+            sig = self.key.sign(message, padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                                                     salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
+        else:  # Ed25519
+            sig = self.key.sign(message)
         return {"KALSHI-ACCESS-KEY": self.key_id, "KALSHI-ACCESS-TIMESTAMP": ts,
                 "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode()}
 

@@ -238,13 +238,18 @@ def combo_page() -> None:
 BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed and bettors' histories
 
 
-def _kalshi_auth() -> KalshiAuth | None:
-    """The API key from Streamlit secrets or the environment; None when it isn't set."""
+def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
+    """The API key from Streamlit secrets or the environment, and why it couldn't be used, if so."""
     try:
         secrets = dict(st.secrets)
-    except Exception:  # no secrets file
+    except Exception as exc:  # no secrets, or the secrets aren't valid TOML
         secrets = {}
-    return KalshiAuth.from_env(secrets)
+        if "No secrets" not in str(exc):
+            return None, f"the app's secrets couldn't be read ({exc})"[:200]
+    try:
+        return KalshiAuth.from_env(secrets), None
+    except Exception as exc:
+        return None, f"the private key couldn't be read ({exc})"[:200]
 
 
 @st.cache_resource
@@ -264,12 +269,14 @@ def get_bettors() -> BettorTracker:
         return tracker
     for name in ("bettor-tracker", "rfq-stream"):
         _stop_collectors(name)
-    auth = _kalshi_auth()
+    auth, problem = _kalshi_auth()
     rfq = None
     if auth is not None:
         rfq = RfqBook(KalshiClient(rate_per_sec=3, auth=auth), get_source().collector.window).start()
     # Its own client and rate limit, so it never slows the combo collector down.
-    return BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE, rfq=rfq).start()
+    tracker = BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE, rfq=rfq)
+    tracker.auth_problem = problem
+    return tracker.start()
 
 
 def _track():
@@ -288,7 +295,9 @@ def bettors_view():
                      f"{snap.feed_trades:,} trades show a public name.")
     rfq = snap.rfq if snap else None
     if rfq is None and not DEMO:
-        notes.append("RFQ matching is off: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets.")
+        problem = getattr(tracker, "auth_problem", None)
+        notes.append(f"RFQ matching is off: {problem}." if problem else
+                     "RFQ matching is off: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets.")
     elif rfq:
         matched = rfq.get("sure", 0) + rfq.get("likely", 0)
         notes.append(f"RFQs: {rfq.get('rfqs', 0):,} seen, {matched:,} matched to bets ({rfq.get('sure', 0):,} sure), "
