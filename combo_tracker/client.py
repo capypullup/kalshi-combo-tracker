@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import threading
 import time
@@ -46,7 +47,7 @@ class KalshiAuth:
     """Signs requests with a Kalshi API key: a signature over timestamp + method + path,
     made with the key's Ed25519 or RSA (PSS, SHA-256) private key.
 
-    Only the RFQ endpoints need it. The app only ever makes GET requests with it.
+    Only the RFQ, combo-creation and portfolio endpoints need it.
     """
 
     def __init__(self, key_id: str, private_key: str):
@@ -69,6 +70,21 @@ class KalshiAuth:
         get = lambda k: (secrets or {}).get(k) or os.environ.get(k)  # noqa: E731
         key_id, key = get("KALSHI_KEY_ID"), get("KALSHI_PRIVATE_KEY")
         return cls(key_id, key) if key_id and key else None
+
+    @property
+    def kind(self) -> str:
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        return "RSA" if isinstance(self.key, rsa.RSAPrivateKey) else "Ed25519"
+
+    def fingerprint(self) -> str:
+        """The first 12 hex digits of the public key's SHA-256. It tells two copies of a key apart
+        (say, the app's and GitHub's) without showing either."""
+        from cryptography.hazmat.primitives import serialization
+
+        der = self.key.public_key().public_bytes(serialization.Encoding.DER,
+                                                 serialization.PublicFormat.SubjectPublicKeyInfo)
+        return hashlib.sha256(der).hexdigest()[:12]
 
     def headers(self, method: str, path: str) -> dict[str, str]:
         from cryptography.hazmat.primitives import hashes
@@ -189,8 +205,9 @@ class KalshiClient:
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch the raw orderbook for each ticker, keyed by ticker.
 
-        Uses the batch endpoint (100 tickers per call) when it works without a key,
-        otherwise one call per ticker.
+        Uses the batch endpoint (100 tickers per call, as a repeated `tickers` parameter) when it
+        works without a key, and one call per ticker for anything it doesn't return. Since about
+        2026-10-23 Kalshi reads a comma-joined `tickers` as a single ticker.
         """
         unique = list(dict.fromkeys(tickers))
         fetched_at = datetime.now(timezone.utc)
@@ -198,17 +215,18 @@ class KalshiClient:
         if self.batch_orderbooks_ok is not False and unique:
             try:
                 for i in range(0, len(unique), 100):
-                    data = self._get("/markets/orderbooks", {"tickers": ",".join(unique[i : i + 100])})
+                    data = self._get("/markets/orderbooks", {"tickers": unique[i : i + 100]})
                     for ob in data.get("orderbooks", []):
-                        book = ob.get("orderbook_fp") or ob.get("orderbook") or {}
-                        out[ob["ticker"]] = {**book, "_fetched_at": fetched_at}
-                if out:
-                    self.batch_orderbooks_ok = True
-                    return out
-                self.batch_orderbooks_ok = False  # unexpected shape; fall back
+                        if ob.get("ticker") in unique:
+                            book = ob.get("orderbook_fp") or ob.get("orderbook") or {}
+                            out[ob["ticker"]] = {**book, "_fetched_at": fetched_at}
+                self.batch_orderbooks_ok = bool(out) or None  # nothing back: try again next time
             except requests.HTTPError:
                 self.batch_orderbooks_ok = False
                 out.clear()
+        unique = [t for t in unique if t not in out]
+        if not unique:
+            return out
 
         def fetch(ticker: str) -> tuple[str, dict]:
             data = self._get(f"/markets/{ticker}/orderbook")

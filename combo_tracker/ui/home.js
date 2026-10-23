@@ -106,6 +106,23 @@ function sportLabel(r) {
   return [...seen].map(([lg, spt]) => `${SPORT_ICON[spt] || "🎯"} ${esc(lg)}`).join(" + ");
 }
 
+// Kelly units at the settings from the Combos page's gear and its Mid / Cross switch (defaults ¼ Kelly,
+// 1u = 1% of bankroll, mid), so both pages size a bet the same.
+export function homeUnits(r, prefs) {
+  const p = { kelly: 0.25, unitPct: 1, basis: "mid", ...prefs };
+  const k = p.basis === "cross" ? r.kc : r.km;
+  return isNum(k) && isNum(p.kelly) && p.unitPct > 0 ? (k * p.kelly * 100) / p.unitPct : null;
+}
+export const fmtU = (u) => (u >= 10 ? `${Math.round(u)}u` : `${u.toFixed(2)}u`);
+function unitPrefs() {
+  try {
+    const { kelly, unitPct, basis } = JSON.parse(localStorage.getItem("cev-ui-v1") || "{}");  // the Combos page's store
+    return Object.fromEntries(Object.entries({ kelly, unitPct, basis }).filter(([, v]) => v !== undefined));
+  } catch (e) {
+    return {};
+  }
+}
+
 function loadUi() {
   const base = { phase: "all", minEv: 0, minBet: 0, open: null, refreshing: null };
   try {
@@ -128,7 +145,7 @@ function visible(S, rows) {
     && (r.evm ?? -1) >= S.minEv && (r.stake ?? 0) >= S.minBet);
 }
 
-function cardHtml(S, r) {
+function cardHtml(S, r, prefs) {
   const open = S.open === id(r);
   const legs = open ? r.legs : r.legs.slice(0, SHOW_LEGS);
   const more = r.legs.length - legs.length;
@@ -139,6 +156,7 @@ function cardHtml(S, r) {
   const hot = evm >= 2 ? '<span class="fire">🔥</span>' : "";
   const ring = evm >= 5 ? " ring" : "";  // +500% and up, like the Combos pill
   const lo = evc <= -0.0005 ? ' class="lo"' : "";  // a negative cross gets a red chip
+  const u = homeUnits(r, prefs);
   return `<div class="card${open ? " open" : ""}" data-id="${esc(id(r))}">
     <div class="head" data-act="toggle">
       <div class="ev${ring}" style="${evStyle(r.evm)}">${hot}
@@ -146,7 +164,8 @@ function cardHtml(S, r) {
       </div>
       <div class="what">
         <div class="meta"><span class="sport">${sportLabel(r)}</span><span class="when">${time}</span></div>
-        <div class="title">${r.L}-leg combo <em class="side ${r.side}">${r.side.toUpperCase()}</em></div>
+        <div class="title">${r.L}-leg combo <em class="side ${r.side}">${r.side.toUpperCase()}</em>`
+          + `${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</div>
         <div class="bet"><b>${money0(r.stake)}</b> @ ${mult(r.price)} <span class="dim">${odds(r.price)} · ${ago(r.t)}</span></div>
       </div>
     </div>
@@ -190,6 +209,7 @@ export default function (component) {
 function paint(root, S) {
   const D = window.__homeCtx.data;
   const rows = visible(S, D.rows);
+  const prefs = unitPrefs();
   const empty = D.rows.length
     ? "No bets match these filters. Lower the min EV or bet size."
     : "No +EV combos in the last hour yet. The capybara is still sipping… 🧋";
@@ -202,7 +222,7 @@ function paint(root, S) {
     <div class="frow"><label>Min EV</label>${chips(MIN_EV, S.minEv, (v) => (v ? `${v * 100}%` : "Any"), "minEv")}</div>
     <div class="frow"><label>Min bet</label>${chips(MIN_BET, S.minBet, (v) => (v ? money0(v) : "Any"), "minBet")}</div>
     ${D.error ? `<div class="err">${esc(D.error)}</div>` : ""}
-    <div class="cards">${rows.length ? rows.map((r) => cardHtml(S, r)).join("") : `<div class="empty"><img src="data:image/svg+xml;utf8,${encodeURIComponent(LOGO)}" alt="">${empty}</div>`}</div>`;
+    <div class="cards">${rows.length ? rows.map((r) => cardHtml(S, r, prefs)).join("") : `<div class="empty"><img src="data:image/svg+xml;utf8,${encodeURIComponent(LOGO)}" alt="">${empty}</div>`}</div>`;
 }
 
 function bind(root, S) {

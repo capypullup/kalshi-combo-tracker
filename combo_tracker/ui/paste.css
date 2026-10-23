@@ -1,0 +1,22 @@
+:host, .paste {
+  font-family: "Nunito", ui-rounded, "SF Pro Rounded", ui-sans-serif, -apple-system, system-ui, sans-serif;
+  color: #e6fbff;
+}
+.paste { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px; }
+.paste button { font: inherit; cursor: pointer; }
+.paste .big { width: 100%; min-height: 84px; border-radius: 22px; border: 2px solid #00e5ff; color: #00e5ff;
+  background: rgba(0, 229, 255, 0.12); font-size: 22px; font-weight: 900; letter-spacing: 0.01em;
+  display: flex; align-items: center; justify-content: center; gap: 10px; }
+.paste .big:active { background: rgba(0, 229, 255, 0.28); }
+.paste .big .ic { font-size: 26px; }
+.paste input { background: #070b0d; border: 1px solid #1b3540; color: #e6fbff; border-radius: 999px;
+  padding: 11px 16px; font: inherit; font-size: 16px; outline: none; min-width: 0; }
+.paste input:focus { border-color: #00e5ff; }
+.paste .hint { color: #ffc857; font-size: 12.5px; min-height: 0; }
+.paste .hint:empty { display: none; }
+.paste.small { flex-direction: row; align-items: center; }
+.paste.small .big { width: auto; min-height: 38px; border-width: 1px; border-radius: 999px; font-size: 14px;
+  padding: 0 14px; flex: none; }
+.paste.small .big .ic { font-size: 15px; }
+.paste.small input { flex: 1; padding: 8px 13px; font-size: 15px; }
+.paste.small .hint { display: none; }

@@ -42,3 +42,30 @@ def test_from_env_needs_both_values(monkeypatch):
     assert KalshiAuth.from_env({"KALSHI_KEY_ID": "kid"}) is None
     key = pem(ed25519.Ed25519PrivateKey.generate())
     assert KalshiAuth.from_env({"KALSHI_KEY_ID": "kid", "KALSHI_PRIVATE_KEY": body(key)}).key_id == "kid"
+
+
+def test_fingerprint_matches_across_pasted_shapes():
+    key = pem(ed25519.Ed25519PrivateKey.generate())
+    a, b = KalshiAuth("kid", key), KalshiAuth("kid", body(key))
+    assert a.kind == "Ed25519" and len(a.fingerprint()) == 12
+    assert a.fingerprint() == b.fingerprint() != KalshiAuth("kid", pem(ed25519.Ed25519PrivateKey.generate())).fingerprint()
+
+
+def test_batch_orderbooks_fill_gaps_one_by_one(monkeypatch):
+    """Kalshi reads a comma-joined `tickers` as one ticker, so books it leaves out are fetched singly."""
+    from combo_tracker.client import KalshiClient
+
+    c = KalshiClient(rate_per_sec=1000)
+    calls = []
+
+    def fake_get(path, params=None, retries=5, signed=False):
+        calls.append((path, params))
+        if path == "/markets/orderbooks":
+            return {"orderbooks": [{"ticker": "A", "orderbook_fp": {"yes_dollars": [["0.40", "10"]]}},
+                                   {"ticker": "A,B", "orderbook_fp": {}}]}
+        return {"orderbook_fp": {"yes_dollars": [["0.55", "5"]]}}
+
+    monkeypatch.setattr(c, "_get", fake_get)
+    books = c.get_orderbooks(["A", "B", "A"])
+    assert sorted(books) == ["A", "B"] and books["B"]["yes_dollars"] == [["0.55", "5"]]
+    assert calls[0] == ("/markets/orderbooks", {"tickers": ["A", "B"]}) and calls[1][0] == "/markets/B/orderbook"
