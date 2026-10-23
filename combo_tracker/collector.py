@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from . import activity
 from .client import COMBO_PREFIX
 
 THREAD_NAME = "combo-collector"
-SLICES = 4  # a long scan pages this many stretches of time at once (Kalshi pages 1,000 trades a call)
 
 
 def _ts(trade: dict) -> datetime:
@@ -42,7 +40,7 @@ def _expand(c: tuple) -> dict:
 
 class Collector:
     def __init__(self, client, max_window_minutes: int = 180, poll_seconds: int = 60,
-                 initial_backfill_minutes: int = 60, after_poll=None, after_error=None, slices: int = SLICES):
+                 initial_backfill_minutes: int = 60, after_poll=None, after_error=None):
         self.client = client
         self.max_window = timedelta(minutes=max_window_minutes)
         self.poll_seconds = poll_seconds
@@ -56,7 +54,6 @@ class Collector:
         self.last_poll_seconds: float | None = None
         self.after_poll = after_poll  # e.g. pre-score the default view so page loads hit warm caches
         self.after_error = after_error  # e.g. tell pages waiting for this poll to go ahead without it
-        self.slices = slices
         self.trades_scanned = 0
         self.poll_started: float | None = None  # when the latest finished poll began
         self._thread: threading.Thread | None = None
@@ -65,52 +62,26 @@ class Collector:
 
     # ---- collection ----
     def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False,
-              interruptible: bool = False, slices: int = 1) -> bool:
-        """Pull every trade in [since, until] and keep the combo ones.
+              interruptible: bool = False) -> bool:
+        """Pull every trade in [since, until] and keep the combo ones. Returns False if a refresh
+        tap (poll_now) cut an interruptible scan short.
 
-        Kalshi pages trades newest first, 1,000 a call, so a long scan splits the span into
-        `slices` stretches paged at once (the client's rate limit still applies). With
-        `progress`, covered_from follows the point back to which every trade is in. Returns
-        False if a refresh tap (poll_now) cut an interruptible scan short.
+        One page at a time: Kalshi caps its trade feed at about 5 pages a second per IP, so
+        paging stretches of time at once only draws 429s (measured 2026-10-23).
         """
-        top = until or datetime.now(timezone.utc)
-        step = (top - since) / slices
-        spans = [(top - step * k, top - step * (k + 1)) for k in range(slices)]  # newest first
-        reached = [hi for hi, _ in spans]  # how far back each stretch has got
-        finished = [False] * slices
-
-        def mark() -> None:
-            for k, (_, lo) in enumerate(spans):  # complete down to the first stretch still going
-                if not finished[k]:
-                    self.covered_from = reached[k]
-                    return
-                self.covered_from = lo
-
-        def scan(k: int) -> bool:
-            hi, lo = spans[k]
-            # max_ts is whole seconds: go a second past hi so the rest of its second is read too
-            # (the newest stretch of an open-ended scan has no upper bound).
-            for n, t in enumerate(self.client.iter_trades(lo, max_ts=None if k == 0 and until is None
-                                                          else hi + timedelta(seconds=1)), 1):
-                if interruptible and self._wake.is_set():
-                    return False
+        # max_ts is whole seconds: go a second past `until` so the rest of its second is read too.
+        for t in self.client.iter_trades(since, max_ts=until and until + timedelta(seconds=1)):
+            if interruptible and self._wake.is_set():
+                return False
+            self.trades_scanned += 1
+            if t["ticker"].startswith(COMBO_PREFIX):
                 with self.lock:
-                    self.trades_scanned += 1
-                    if t["ticker"].startswith(COMBO_PREFIX):
-                        self.trades[t["trade_id"]] = _compact(t)
-                    if progress and n % 1000 == 0:
-                        reached[k] = min(reached[k], _ts(t))
-                        mark()
-            with self.lock:
-                finished[k] = True
-                if progress:
-                    mark()
-            return True
-
-        if slices == 1:
-            return scan(0)
-        with ThreadPoolExecutor(slices, thread_name_prefix=THREAD_NAME) as pool:
-            return all(list(pool.map(scan, range(slices))))
+                    self.trades[t["trade_id"]] = _compact(t)
+            if progress and self.trades_scanned % 1000 == 0:
+                # Trades come newest first, so everything after this one is complete.
+                with self.lock:
+                    self.covered_from = _ts(t)
+        return True
 
     def poll(self) -> None:
         start = time.time()
@@ -120,15 +91,14 @@ class Collector:
             # newest trades rather than paging through the whole gap. Until that has worked, the
             # trades held and their coverage stay as they were, so a failed scan is simply redone.
             since = now - self.initial_backfill
-            self._scan(since, slices=self.slices)
+            self._scan(since)
             with self.lock:
                 if self.covered_to is not None:  # what's from before the gap goes; backfill reloads it
                     self.trades = {k: t for k, t in self.trades.items() if t[0] >= since.timestamp()}
                 self.covered_from, self.covered_to = since, now
         else:
             # Overlap a few seconds so trades stamped just before the last poll aren't missed.
-            gap = now - self.covered_to
-            self._scan(self.covered_to - timedelta(seconds=5), slices=self.slices if gap > timedelta(minutes=2) else 1)
+            self._scan(self.covered_to - timedelta(seconds=5))
             self.covered_to = now
         self._prune(now)
         self.poll_started = start
@@ -142,7 +112,7 @@ class Collector:
         until = self.covered_from
         since = max(target, until - timedelta(minutes=30))
         # A refresh tap stops this between pages: covered_from then stays where the scan got to.
-        if self._scan(since, until=until, progress=True, interruptible=True, slices=self.slices):
+        if self._scan(since, until=until, progress=True, interruptible=True):
             self.covered_from = since
 
     def _prune(self, now: datetime) -> None:

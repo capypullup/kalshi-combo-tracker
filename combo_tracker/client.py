@@ -54,6 +54,12 @@ class RateLimiter:
 SHARED_RATE = float(os.environ.get("KALSHI_SHARED_RATE", "14"))
 SHARED_LIMITER = RateLimiter(SHARED_RATE)
 
+# Some public routes have a lower limit of their own, per IP. Measured 2026-10-23 without a key,
+# with paced calls and no retries: the trade feed 429s from 5 calls a second and the /events list
+# from about 5 (/markets takes 25+), and each route's limit is separate from the others'. These
+# pace those routes, and a 429 on one pauses only that route.
+ROUTE_LIMITERS = {"/markets/trades": RateLimiter(4.5), "/events": RateLimiter(4.5)}
+
 
 class KalshiAuth:
     """Signs requests with a Kalshi API key: a signature over timestamp + method + path,
@@ -126,15 +132,19 @@ class KalshiClient:
         self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
         self.batch_orderbooks_ok: bool | None = None  # learned on first try
         self.batch_events_ok: bool | None = None  # learned on first try
+        self.routes = ROUTE_LIMITERS
         self.requests_made = 0
 
     def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
-        return self._get_url(f"{self.base_url}{path}", params, retries, signed)
+        return self._get_url(f"{self.base_url}{path}", params, retries, signed, route=self.routes.get(path))
 
-    def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
+    def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False,
+                 route: RateLimiter | None = None) -> dict:
         if signed and self.auth is None:
             raise RuntimeError("this call needs a Kalshi API key (KALSHI_KEY_ID / KALSHI_PRIVATE_KEY)")
         for attempt in range(retries + 1):
+            if route is not None:
+                route.wait()
             self.limiter.wait()
             self.requests_made += 1
             headers = self.auth.headers("GET", urlparse(url).path) if signed else None
@@ -147,7 +157,7 @@ class KalshiClient:
                     delay = float(resp.headers.get("Retry-After", ""))
                 except ValueError:
                     delay = min(1.0 * 2**attempt, 16)
-                self.limiter.pause(delay)
+                (route or self.limiter).pause(delay)
                 continue
             resp.raise_for_status()
             return resp.json()

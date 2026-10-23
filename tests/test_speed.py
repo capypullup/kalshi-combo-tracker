@@ -141,7 +141,8 @@ class Resp:
 
 def client_with(handler):
     c = KalshiClient()
-    c.limiter = RateLimiter(1000)  # not the app-wide limiter: a test's 429 pause stays in the test
+    c.limiter = RateLimiter(1000)  # not the app-wide limiters: a test's 429 pause stays in the test
+    c.routes = {"/events": RateLimiter(1000)}
     c.session.get = lambda url, params=None, timeout=None, headers=None: handler(url, params or {})
     return c
 
@@ -441,7 +442,7 @@ def test_events_fall_back_to_one_call_each_when_the_list_stops_working():
     assert set(c.get_events(["A-1"])) == {"A-1"} and c.batch_events_ok is False
 
 
-# ---- the collector pages stretches of time at once ----
+# ---- the collector ----
 class Tape:
     """Kalshi's trade feed: newest first; min_ts and max_ts in whole seconds, max_ts exclusive."""
 
@@ -474,11 +475,11 @@ class Tape:
                 if t["ticker"].startswith("KXMVE") and newer * 60 <= self.now.timestamp() - ts <= older * 60}
 
 
-def test_first_poll_and_backfill_page_four_stretches_at_once_without_gaps():
+def test_backfill_reads_the_whole_second_at_each_edge():
     tape = Tape(minutes=60)
     col = Collector(tape, max_window_minutes=45, initial_backfill_minutes=15)
     col.poll()
-    assert len(tape.calls) == 4 and tape.combos(14.9) <= set(col.trades)
+    assert tape.combos(14.9) <= set(col.trades)
     col.extend_backfill()
     assert tape.combos(44.9) <= set(col.trades) and col.coverage_minutes() >= 44
 
@@ -491,7 +492,7 @@ def test_a_tap_mid_backfill_keeps_coverage_contiguous():
     tape.seen, tape.stop_at = 0, 6000  # 30 min is 9,000 trades: the tap comes two thirds in
     col.extend_backfill()
     covered = col.coverage_minutes()
-    assert 16 < covered < 45  # some of the way: the newest stretch got past its first 1,000
+    assert 16 < covered < 45  # some of the way back, and no further than it read
     assert tape.combos(covered - 0.1) <= set(col.trades)  # everything up to covered_from is in
     col._wake.clear()
     tape.stop_at = None
@@ -549,3 +550,19 @@ def test_a_failed_poll_is_reported():
     col.start()
     assert failed.wait(5) and "down" in col.last_error
     col.stop()
+
+
+def test_a_429_on_the_events_list_pauses_only_that_route(monkeypatch):
+    replies = {"/events": [Resp(429, {}), Resp(200, {"events": [{"event_ticker": "A-1"}]})]}
+
+    def handler(url, params):
+        path = url.split("/trade-api/v2")[1]
+        return replies[path].pop(0) if path in replies else Resp(200, {"markets": []})
+
+    monkeypatch.setattr("combo_tracker.client.time.sleep", lambda s: None)
+    c = client_with(handler)
+    assert set(c.get_events(["A-1"])) == {"A-1"}
+    now = time.monotonic()
+    assert c.routes["/events"].next_at > now + 0.5  # events wait out the 429
+    assert c.limiter.next_at < now + 0.5  # leg quotes and everything else don't
+    c.routes["/events"].next_at = 0.0
