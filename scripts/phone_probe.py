@@ -209,7 +209,7 @@ def switch(page: Page, frame: Frame, wire: Wire, to: str, timeout: float) -> dic
 
 
 def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, timeout: float,
-        engine: str = "chromium") -> dict:
+        engine: str = "chromium", switch_timeout: float = 45) -> dict:
     res = {"url": url, "profile": profile, "engine": engine}
     with sync_playwright() as pw:
         if engine == "webkit":  # Safari's engine, for how an iPhone lays the page out (no throttling)
@@ -243,13 +243,14 @@ def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, t
         shot(page, f"{engine}-{profile}-home", out_dir, show)
         if profile == "none":
             res["shell"] = page.evaluate(SHELL_JS)
+        print("=====FIRST LOOK=====\n" + json.dumps(res, indent=1, default=str) + "\n=====END FIRST LOOK=====", flush=True)
 
         res["switches"] = []
         order = ["combos", "home", "quote", "tools", "home", "bettors", "home"]
         for _ in range(rounds):
             for to in order:
                 try:
-                    res["switches"].append(switch(page, frame, wire, to, timeout))
+                    res["switches"].append(switch(page, frame, wire, to, switch_timeout))
                 except Exception as exc:
                     res["switches"].append({"to": to, "error": str(exc)[:200]})
                     shot(page, f"{profile}-{to}-failed", out_dir, show)
@@ -270,14 +271,15 @@ def main() -> None:
     ap.add_argument("--profile", default="slow4g", choices=sorted(PROFILES))
     ap.add_argument("--engine", default="chromium", choices=["chromium", "webkit"])
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--timeout", type=float, default=240)
+    ap.add_argument("--timeout", type=float, default=240, help="seconds the first load may take (a sleeping app wakes slowly)")
+    ap.add_argument("--switch-timeout", type=float, default=45)
     ap.add_argument("--shots", type=Path, help="save screenshots here")
     ap.add_argument("--show", action="store_true", help="print screenshots as base64 (for CI logs)")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
     if args.shots:
         args.shots.mkdir(parents=True, exist_ok=True)
-    res = run(args.url, args.profile, args.rounds, args.shots, args.show, args.timeout, args.engine)
+    res = run(args.url, args.profile, args.rounds, args.shots, args.show, args.timeout, args.engine, args.switch_timeout)
     text = json.dumps(res, indent=1, default=str)
     if args.out:
         args.out.write_text(text)

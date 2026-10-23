@@ -11,10 +11,14 @@ on:
     branches: [claude/project-thread-5a1fxl]
     paths: [scripts/phone_probe.py, .github/workflows/phone-probe.yml]
 
+concurrency:
+  group: phone-probe
+  cancel-in-progress: true
+
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       URL: ${{ inputs.url || 'https://capyev.streamlit.app/' }}
     steps:
