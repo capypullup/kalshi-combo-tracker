@@ -380,7 +380,8 @@ function legendHtml() {
     <p><em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
       leg's book is wide or small · <em class="wn">IN BAND</em> the price sits inside the leg spreads ·
       <em class="wn">NO QUOTE</em> a leg has no market. Then the leagues and legs; a tight line shows leagues by their
-      emoji. Tap a bet for its legs, American odds, what it pays and the buttons to bet it.</p>`;
+      emoji, or leaves them to the open bet. Tap a bet for its legs, American odds, what it pays and the buttons to bet
+      it.</p>`;
 }
 
 const WARN_ORDER = ["CHECK", "NO QUOTE", "THIN", "IN BAND"];  // most important first, in case the line runs out
@@ -415,7 +416,7 @@ function rowHtml(S, data, r) {
   // the time it was bet, then tags, leagues and legs against LIVE or the start time.
   return `<div class="row ${tier}${open ? " open" : ""}" data-id="${esc(r.id)}" style="${evCardVars(ev, tier)}">
     <div class="card" data-act="toggle">
-      <div class="c1"><span class="lead"><span class="bet"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>`
+      <div class="c1"><span class="lead"><span class="bet"><b class="stake${Math.round(r.stake) >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>`
         + `${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</span><span class="evx">${pill}${fire}</span></div>
       <div class="c2"><span class="fair"><i>fair</i>${fair(r.fm, mid)}<i>/</i>${fair(r.fc, !mid)}</span>
         <span class="tm"><b>${clock(r.t)}</b><span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></span></div>
@@ -509,20 +510,21 @@ export default function (component) {
     parentElement.appendChild(root);
     shell(root);
     bind(root);
-    // A new width or a font arriving changes what fits on line 3. A new height (the keyboard) doesn't.
+    // A new width (the window, a scrollbar, the container) or a font arriving changes what fits on line 3.
+    // A new height (more rows, the keyboard) doesn't.
     let wait = 0;
     let fitW = -1;
-    root._refit = (e) => {
+    root._refit = () => {
       if (!root.isConnected) {
-        window.removeEventListener("resize", root._refit);
+        root._ro.disconnect();
         document.fonts?.removeEventListener("loadingdone", root._refit);
         return;
       }
-      if (e?.type === "resize" && root.clientWidth === fitW) return;
       clearTimeout(wait);
       wait = setTimeout(() => { fitW = root.clientWidth; fitCards([...root.querySelectorAll(".row")], true); }, 150);
     };
-    window.addEventListener("resize", root._refit);
+    root._ro = new ResizeObserver(() => { if (root.clientWidth !== fitW) root._refit(); });
+    root._ro.observe(root);
     document.fonts?.addEventListener("loadingdone", root._refit);
     document.fonts?.ready.then(root._refit);
   }

@@ -95,6 +95,10 @@ def test_js_times_read_as_clock_times(tmp_path):
     assert starts == ["starting", "starts in 1m", "starts in 25m", "starts 2:40 PM", "starts 10:00 PM", "starts Sat 1:00 PM",
                       "starts Oct 31 12:00 PM"]  # a week out shows the date, so it can't read as this week
     assert clocks == ["11:56 AM", "Thu 11:00 PM"]
+    # 6 calendar days count, though it's under 6 x 24h: Thursday would read as yesterday
+    late = "new Date(2026, 9, 23, 23, 0).getTime()"
+    expr = f"startsIn(new Date(2026, 9, 29, 22, 0).getTime(), {late})"
+    assert run_js(tmp_path, "startsIn", expr).replace("\u202f", " ") == "starts Oct 29 10:00 PM"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

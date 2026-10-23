@@ -422,7 +422,7 @@ def combo_page() -> None:
             "- **Tags**: NO the bettor took NO on the combo · SG two legs on the same game · ⚠ THIN see Hide thin · "
             "IN BAND the price sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · "
             "CHECK an edge of +200% or more, usually a stale book. Then the leagues and legs; when the line is tight, "
-            "leagues show as their emoji.\n"
+            "leagues show as their emoji, or are left to the open bet.\n"
             "- **Open a bet** to see its legs, and the multiplier the bettor paid next to the fair ones behind EV mid "
             "and EV cross (with American odds and units).\n"
             "- **Bet in Kalshi** (on an open bet) opens that combo in the Kalshi app, or in the combo builder on "
