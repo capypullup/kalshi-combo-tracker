@@ -1,0 +1,35 @@
+{
+ "packages": [
+  "com.kalshi.mobile",
+  "com.kalshi.mobile.demo",
+  "com.kalshi.app"
+ ],
+ "combo": "KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH",
+ "combo_event": "KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D",
+ "legs": [
+  {
+   "event_ticker": "KXATPSETWINNER-26OCT23MEDATM-1",
+   "market_ticker": "KXATPSETWINNER-26OCT23MEDATM-1-MED",
+   "side": "yes"
+  },
+  {
+   "event_ticker": "KXBTC15M-26OCT230600",
+   "market_ticker": "KXBTC15M-26OCT230600-00",
+   "side": "no"
+  },
+  {
+   "event_ticker": "KXWTASETWINNER-26OCT23JOVSHN-1",
+   "market_ticker": "KXWTASETWINNER-26OCT23JOVSHN-1-JOV",
+   "side": "yes"
+  }
+ ],
+ "leg_names": [
+  "Daniil Medvedev",
+  "Target Price: $81,554.97",
+  "Iva Jovic"
+ ],
+ "collection": "KXMVECROSSCATEGORY-R",
+ "leg": "KXATPSETWINNER-26OCT23MEDATM-1-MED",
+ "leg_event": "KXATPSETWINNER-26OCT23MEDATM-1",
+ "leg_series": "KXATPSETWINNER"
+}

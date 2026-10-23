@@ -1,0 +1,559 @@
+
+========== Apple app-site-association ==========
+-- https://app-site-association.cdn-apple.com/a/v1/kalshi.com
+200 application/json 3024B location=None
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "M3934666G8.com.kalshi.mobile.demo",
+        "paths": [
+          "/",
+          "/sign-in",
+          "/oauth/*",
+          "/account/banking",
+          "/reset-password",
+          "/markets/*",
+          "/events/*",
+          "/ideas/*",
+          "/social/*",
+          "/ssn-prefill/*",
+          "/aeropay/*",
+          "/account/referrals/*",
+          "/plaid/*",
+          "/explore/*",
+          "/braintree-payments/*",
+          "/account/*",
+          "/calendar",
+          "/portfolio",
+          "/portfolio/*",
+          "NOT /category/elections/midterms/ballot",
+          "NOT /category/elections/midterms/ballot/*",
+          "/category/*",
+          "/sign-up",
+          "/referrals/*",
+          "/t/*",
+          "/share/*",
+          "/sports/*",
+          "/milestone/*",
+          "/markets_by_ticker/*",
+          "/entity/*",
+          "/waitlist",
+          "/waitlist/*",
+          "/perps",
+          "/perps/*",
+          "/learn-earn",
+          "/learn-earn/*",
+          "/event/*",
+          "/live",
+          "/economics-calendar",
+          "/notifications",
+          "/company-quarterlies",
+          "/nyc-advocacy",
+          "/nfl-training-camp",
+          "/nfl-career-challenge",
+          "/live_chat/room/*",
+          "/rewards",
+          "/wrapped",
+          "/wrapped/*",
+          "/highlight",
+          "/highlight/*"
+        ]
+      },
+      {
+        "appID": "M3934666G8.com.kalshi.mobile",
+        "paths": [
+          "/",
+          "/sign-in",
+          "/oauth/*",
+          "/account/banking",
+          "/reset-password",
+          "/markets/*",
+          "/events/*",
+          "/ideas/*",
+          "/social/*",
+          "/ssn-prefill/*",
+          "/aeropay/*",
+          "/account/referrals/*",
+          "/plaid/*",
+          "/explore/*",
+          "/braintree-payments/*",
+          "/account/*",
+          "/calendar",
+          "/portfolio",
+          "/portfolio/*",
+          "NOT /category/elections/midterms/ballot",
+          "NOT /category/elections/midterms/ballot/*",
+          "/category/*",
+          "/sign-up",
+          "/referrals/*",
+          "/t/*",
+          "/share/*",
+          "/sports/*",
+          "/milestone/*",
+          "/markets_by_ticker/*",
+          "/entity/*",
+          "/waitlist",
+          "/waitlist/*",
+          "/perps",
+          "/perps/*",
+          "/learn-earn",
+          "/learn-earn/*",
+          "/event/*",
+          "/live",
+          "/economics-calendar",
+          "/notifications",
+          "/company-quarterlies",
+          "/nyc-advocacy",
+          "/nfl-training-camp",
+          "/nfl-career-challenge",
+          "/live_chat/room/*",
+          "/rewards",
+          "/wrapped",
+          "/wrapped/*",
+          "/highlight",
+          "/highlight/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "M3934666G8.com.kalshi.mobile",
+      "M3934666G8.com.kalshi.mobile.v2"
+    ]
+  }
+}
+
+-- https://app-site-association.cdn-apple.com/a/v1/www.kalshi.com
+200 application/json 3024B location=None
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "M3934666G8.com.kalshi.mobile.demo",
+        "paths": [
+          "/",
+          "/sign-in",
+          "/oauth/*",
+          "/account/banking",
+          "/reset-password",
+          "/markets/*",
+          "/events/*",
+          "/ideas/*",
+          "/social/*",
+          "/ssn-prefill/*",
+          "/aeropay/*",
+          "/account/referrals/*",
+          "/plaid/*",
+          "/explore/*",
+          "/braintree-payments/*",
+          "/account/*",
+          "/calendar",
+          "/portfolio",
+          "/portfolio/*",
+          "NOT /category/elections/midterms/ballot",
+          "NOT /category/elections/midterms/ballot/*",
+          "/category/*",
+          "/sign-up",
+          "/referrals/*",
+          "/t/*",
+          "/share/*",
+          "/sports/*",
+          "/milestone/*",
+          "/markets_by_ticker/*",
+          "/entity/*",
+          "/waitlist",
+          "/waitlist/*",
+          "/perps",
+          "/perps/*",
+          "/learn-earn",
+          "/learn-earn/*",
+          "/event/*",
+          "/live",
+          "/economics-calendar",
+          "/notifications",
+          "/company-quarterlies",
+          "/nyc-advocacy",
+          "/nfl-training-camp",
+          "/nfl-career-challenge",
+          "/live_chat/room/*",
+          "/rewards",
+          "/wrapped",
+          "/wrapped/*",
+          "/highlight",
+          "/highlight/*"
+        ]
+      },
+      {
+        "appID": "M3934666G8.com.kalshi.mobile",
+        "paths": [
+          "/",
+          "/sign-in",
+          "/oauth/*",
+          "/account/banking",
+          "/reset-password",
+          "/markets/*",
+          "/events/*",
+          "/ideas/*",
+          "/social/*",
+          "/ssn-prefill/*",
+          "/aeropay/*",
+          "/account/referrals/*",
+          "/plaid/*",
+          "/explore/*",
+          "/braintree-payments/*",
+          "/account/*",
+          "/calendar",
+          "/portfolio",
+          "/portfolio/*",
+          "NOT /category/elections/midterms/ballot",
+          "NOT /category/elections/midterms/ballot/*",
+          "/category/*",
+          "/sign-up",
+          "/referrals/*",
+          "/t/*",
+          "/share/*",
+          "/sports/*",
+          "/milestone/*",
+          "/markets_by_ticker/*",
+          "/entity/*",
+          "/waitlist",
+          "/waitlist/*",
+          "/perps",
+          "/perps/*",
+          "/learn-earn",
+          "/learn-earn/*",
+          "/event/*",
+          "/live",
+          "/economics-calendar",
+          "/notifications",
+          "/company-quarterlies",
+          "/nyc-advocacy",
+          "/nfl-training-camp",
+          "/nfl-career-challenge",
+          "/live_chat/room/*",
+          "/rewards",
+          "/wrapped",
+          "/wrapped/*",
+          "/highlight",
+          "/highlight/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "M3934666G8.com.kalshi.mobile",
+      "M3934666G8.com.kalshi.mobile.v2"
+    ]
+  }
+}
+
+-- https://kalshi.com/.well-known/apple-app-site-association
+429 text/html; charset=utf-8 34222B location=None
+
+========== Android assetlinks ==========
+-- https://kalshi.com/.well-known/assetlinks.json
+429 text/html; charset=utf-8 34229B location=None
+-- DAL https://kalshi.com 200 {
+  "statements": [
+    {
+      "source": {
+        "web": {
+          "site": "https://kalshi.com."
+        }
+      },
+      "relation": "delegate_permission/common.handle_all_urls",
+      "target": {
+        "androidApp": {
+          "packageName": "com.kalshi.mobile",
+          "certificate": {
+            "sha256Fingerprint": "1D:13:92:95:28:67:4B:98:A8:22:BB:B1:9C:4C:D7:F1:82:96:3F:A5:A4:E5:E9:21:C7:E7:AF:1D:31:C0:C8:48"
+          }
+        }
+      }
+    },
+    {
+      "source": {
+        "web": {
+          "site": "https://kalshi.com."
+        }
+      },
+      "relation": "delegate_permission/common.handle_all_urls",
+      "target": {
+        "androidApp": {
+          "packageName": "com.kalshi.mobile.demo",
+          "certificate": {
+            "sha256Fingerprint": "F6:44:1A:AB:22:F3:54:AF:55:39:05:5A:55:5F:E4:0E:34:5C:5C:E0:56:B7:4E:21:93:02:D8:C1:E3:96:4C:41"
+          }
+        }
+      }
+    },
+    {
+      "source": {
+        "web": {
+          "site": "https://kalshi.com."
+        }
+      },
+      "relation": "delegate_permission/common.handle_all_urls",
+      "target": {
+        "androidApp": {
+          "packageName": "com.kalshi.mobile.demo",
+          "certificate": {
+            "sha256Fingerprint": "EE:16:9F:7F:15:C3:71:A8:05:68:1A:55:CD:E1:6D:71:A7:E2:EE:B4:01:4D:6A:47:DA:28:6E:16:2A:A9:55:59"
+          }
+        }
+      }
+    },
+    {
+      "source": {
+        "web": {
+          "site": "https://kalshi.com."
+        }
+      },
+      "relation": "delegate_permission/common.handle_all_urls",
+      "target": {
+        "androidApp": {
+          "packageName": "com.kalshi.app",
+          "certificate": {
+            "sha256Fingerprint": "1D:13:92:95:28:67:4B:98:A8:22:BB:B1:9C:4C:D7:F1:82:96:3F:A5:A4:E5:E9:21:C7:E7:AF:1D:31:C0:C8:48"
+          }
+        }
+      }
+    }
+  ],
+  "maxAge": "3538.448743422s"
+}
+
+-- DAL https://www.kalshi.com 200 {
+  "maxAge": "599.999999927s",
+  "debugString": "********************* ERRORS *********************\n* Error: unavailable: Redirect encountered while fetching statements from https://www.kalshi.com./.well-known/assetlinks.json (which is equivalent to 'https://www.kalshi.com/.well-known/assetlinks.json'): redirects are disallowed for security reasons (NOT_FOLLOWED_MAX_FORWARDS) [3] while fetching Web statements from https://www.kalshi.com./.well-known/assetlinks.json (which is equivalent to 'https://www.kalshi.com/.well-known/assetlinks.json') using download from the web (ID 1).\n",
+  "errorCode": [
+    "ERROR_CODE_REDIRECT"
+  ]
+}
+
+android packages: ['com.kalshi.mobile', 'com.kalshi.mobile.demo', 'com.kalshi.app']
+
+========== A live combo, a leg and its event ==========
+89 combo tickers on the first trades page
+skip KXMVECROSSCATEGORY-S2026FAEXM57V7YKFCZ2Z-7YWD5MTCW HTTPError('404 Client Error: Not Found for url: https://api.elections.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY
+skip KXMVECROSSCATEGORY-S2026WRKD3Z43QMW5CTOG-JEX5AQTRJ HTTPError('404 Client Error: Not Found for url: https://api.elections.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY
+{
+ "packages": [
+  "com.kalshi.mobile",
+  "com.kalshi.mobile.demo",
+  "com.kalshi.app"
+ ],
+ "combo": "KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH",
+ "combo_event": "KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D",
+ "legs": [
+  {
+   "event_ticker": "KXATPSETWINNER-26OCT23MEDATM-1",
+   "market_ticker": "KXATPSETWINNER-26OCT23MEDATM-1-MED",
+   "side": "yes"
+  },
+  {
+   "event_ticker": "KXBTC15M-26OCT230600",
+   "market_ticker": "KXBTC15M-26OCT230600-00",
+   "side": "no"
+  },
+  {
+   "event_ticker": "KXWTASETWINNER-26OCT23JOVSHN-1",
+   "market_ticker": "KXWTASETWINNER-26OCT23JOVSHN-1-JOV",
+   "side": "yes"
+  }
+ ],
+ "leg_names": [
+  "Daniil Medvedev",
+  "Target Price: $81,554.97",
+  "Iva Jovic"
+ ],
+ "collection": "KXMVECROSSCATEGORY-R",
+ "leg": "KXATPSETWINNER-26OCT23MEDATM-1-MED",
+ "leg_event": "KXATPSETWINNER-26OCT23MEDATM-1",
+ "leg_series": "KXATPSETWINNER"
+}
+
+========== chromium-combos-param: https://kalshi.com/combos?marketTicker=KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH ==========
+status 429 landed on https://kalshi.com/combos?marketTicker=KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH
+title 'Kalshi - Prediction Market for Trading the Future'
+leg names on the page: 1/3 ['Target Price: $81,554.97']
+  'Combo' x11
+  'combo' x0
+  'Buy' x0
+  'Yes' x0
+  'No' x12
+  'pays' x11
+  'Request' x0
+  'quote' x0
+  'Quote' x0
+  'Log in' x0
+  'Sign up' x0
+  'Open in app' x0
+  'Open app' x0
+  'Get the app' x0
+  'Download' x0
+meta: [
+"<meta name=\"twitter:card\" content=\"summary_large_image\">",
+"<meta name=\"twitter:title\" content=\"Kalshi - Prediction Market for Trading the Future\">",
+"<meta name=\"twitter:description\" content=\"Kalshi is a regulated exchange &amp; prediction market where you can trade on the outcome of real-world events. Buy and sell Event Contracts.\">",
+"<meta name=\"twitter:image\" content=\"https://kalshi.com/images/meta-og.png\">",
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"https://kalshi.com/blog/rss.xml\">"
+]
+anchors (63): ['/combos/15-min/15-min', '/combos/15-min/15-min/crypto', '/combos/baseball/pro-baseball', '/combos/baseball/pro-baseball/moneyline', '/combos/basketball/nba', '/combos/basketball/nba/moneyline', '/combos/boxing/boxing', '/combos/boxing/boxing/fights', '/combos/championship-w/championship-w', '/combos/championship-w/championship-w/moneyline', '/combos/cricket/mens-t20', '/combos/cricket/mens-t20/csa-pro20-cup', '/combos/crypto/crypto', '/combos/crypto/crypto/hourly', '/combos/esports/counter-strike-2', '/combos/esports/counter-strike-2/counter-strike-2', '/combos/football/nfl', '/combos/football/nfl/moneyline', '/combos/games/alaska-senate-winner/props', '/combos/games/aston-villa-vs-manchester-city/game-lines', '/combos/games/btc-price-today-at-6am-edt/props', '/combos/games/btc-up-or-down---15-minutes/props', '/combos/games/butterfield-bermuda-championship/props', '/combos/games/chi-bulls-at-mil-bucks/game-lines', '/combos/games/dolphins-vs-garden-route-badgers/props', '/combos/games/eth-price-today-at-6am-edt/props', '/combos/games/eth-up-or-down---15-minutes/props', '/combos/games/f1-united-states-grand-prix/game-lines', '/combos/games/ipswich-town-vs-nottingham-forest/game-lines', '/combos/games/jasmin-lucindo-vs-nicolle-caliari/props', '/combos/games/juergen-uldedaj-vs-blake-caparello/props', '/combos/games/kody-steele-vs-noah-gugnon/props', '/combos/games/lions-vs-limpopo-impalas/props', '/combos/games/mia-dolphins-at-ny-jets/game-lines', '/combos/games/michigan-senate-winner/props', '/combos/games/min-timberwolves-at-orl-magic/game-lines', '/combos/games/montreal-at-chicago/game-lines', '/combos/games/pit-steelers-at-nola-saints/game-lines', '/combos/games/shannon-ryan-vs-emma-dolan/props', '/combos/games/sp-price-today-at-10am-edt/props', '/combos/games/sp-price-today-at-11am-edt/props', '/combos/games/tampa-bay-at-colorado/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-1/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-2/game-lines', '/combos/games/themongolz-vs-aurora-gaming/props', '/combos/games/tyloo-vs-fut-esports/props', '/combos/games/villanova-at-notre-dame/game-lines', '/combos/golf/pga', '/combos/golf/pga/winner', '/combos/indices/hourlies', '/combos/indices/hourlies/s-p-500', '/combos/mma/mma', '/combos/mma/mma/fights', '/combos/nhl/nhl', '/combos/nhl/nhl/moneyline', '/combos/politics/politics', '/combos/politics/politics/senate', '/combos/racing/formula-1', '/combos/racing/formula-1/moneyline', '/combos/soccer/epl', '/combos/soccer/epl/moneyline', '/combos/tennis/atp-almaty']
+buttons: ['Search combos | ', ' | $10 pays $4,545\nCombo · NBA\nNo · GS Warriors win by over 3.5 points (vs MEM G', ' | $10 pays $2,632\nCombo · La Liga\nSantander to win (vs Espanyol)\n9 more\n$16,776', ' | $10 pays $4,000\nCombo · NFL\nBAL Ravens to win (vs CIN Bengals)\n6 more\n$3,800,', ' | $10 pays $389\nCombo · EPL\nChelsea to win (vs Tottenham)\n5 more\n$500,883 vol\n1', ' | $10 pays $5,882\nCombo · MLS\nChicago Fire to win (vs Atlanta)\n9 more\n$8,447,55', ' | $10 pays $1,220\nCombo · EFL Championship\nBirmingham to win (vs Cardiff)\n7 mor', ' | $10 pays $60\nCombo · Saudi Pro League\nAl Ahli Saudi to win (Al Ahli Saudi vs ', ' | $10 pays $253\nCombo · Serie A\nInter to win (vs Fiorentina)\n9 more\n$316,240 vo', ' | $10 pays $159\nCombo · NBA\nTyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Po', ' | $10 pays $170\nCombo · EPL\nArsenal to win (vs Everton)\n6 more\n$221,543 vol\n43', ' | 38%', ' | 63%', ' | 63%', ' | 38%', ' | 67%', ' | 34%', ' | 34%', ' | 67%', ' | 31%', ' | 70%', ' | 43%', ' | 58%', ' | 28%', ' | 73%', ' | 19%', ' | 82%', ' | 61%', ' | 40%', ' | 23%', ' | 78%', ' | 51%', ' | 50%', ' | 46%', ' | 55%', ' | 45%', ' | 56%', ' | 51%', ' | 50%', ' | 63%', ' | 38%', ' | 60%', ' | 42%', ' | 78%', ' | 24%', ' | 59%', ' | 42%', ' | 82%', ' | 20%', ' | 17%', ' | 84%', ' | 2%', ' | 99%', ' | 99%', ' | 2%', ' | 1%', ' | 100%', ' | Show 90 more', ' | 82%', ' | 20%', ' | 8%', ' | 93%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | Show 146 more', ' | 23%', ' | 79%', ' | 29%', ' | 73%', ' | 12%', ' | 9%', ' | 7%', ' | 5%', ' | 4%', ' | Show 113 more', ' | 44%']
+body: Combo builder | Football | Soccer | Basketball | Tennis | 15 min | Baseball | MMA | Crypto | Esports | Golf | Boxing | Cricket | Racing | Indices | Championship (W) | NHL | Politics | $10 pays $4,545 | Combo · NBA | No · GS Warriors win by over 3.5 points (vs MEM Grizzlies) | 9 more | $3,820,412 vol | 885 | $10 pays $2,632 | Combo · La Liga | Santander to win (vs Espanyol) | 9 more | $16,776,458 vol | 626 | $10 pays $4,000 | Combo · NFL | BAL Ravens to win (vs CIN Bengals) | 6 more | $3,800,081 vol | 275 | $10 pays $389 | Combo · EPL | Chelsea to win (vs Tottenham) | 5 more | $500,883 vol | 177 | $10 pays $5,882 | Combo · MLS | Chicago Fire to win (vs Atlanta) | 9 more | $8,447,552 vol | 99 | $10 pays $1,220 | Combo · EFL Championship | Birmingham to win (vs Cardiff) | 7 more | $404,907 vol | 98 | $10 pays $60 | Combo · Saudi Pro League | Al Ahli Saudi to win (Al Ahli Saudi vs Al-Khaleej) | 3 more | $13,101 vol | 65 | $10 pays $253 | Combo · Serie A | Inter to win (vs Fiorentina) | 9 more | $316,240 vol | 59 | $10 pays $159 | Combo · NBA | Tyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Points) | 9 more | $16,067 vol | 52 | $10 pays $170 | Combo · EPL | Arsenal to win (vs Everton) | 6 more | $221,543 vol | 43 | NFL | PIT Steelers vs NOLA Saints | Oct 25 @ 1:30PM | NOLA Saints | 38% | 63% | PIT Steelers | 63% | 38% | $216,278 vol | NFL | MIA Dolphins vs NY Jets | Oct 25 @ 5:00PM | NY Jets | 67% | 34% | MIA Dolphins | 34% | 67% | $187,136 vol | NFL | EPL | Nottingham Forest vs Ipswich Town | Oct 23 @ 7:00PM | Ipswich Town | 31% | 70% | Nottingham Forest | 43% | 58% | Tie | 28% | 73% | $94,923 vol | EPL | Manchester City vs Aston Villa | Oct 24 @ 11:30AM | Aston Villa | 19% | 82% | Manchester City | 61% | 40% | Tie | 23% | 78% | $257,383 vol | EPL | NBA | CHI Bulls vs MIL Bucks | Oct 23 @ 8:00PM | MIL Bucks | 51% | CHI Bulls | 50% | $151,867 vol | NBA | MIN Timberwolves vs ORL Magic | Oct 23 @ 11:00PM | ORL Magic | 46% | MIN Timberwolves | 55% | $278,089 vol | NBA | 15 min | BTC 15 min · $81,554.97 target | LIVE | Target Price: $81,554.97 | 45% | 56% | $695,043 vol | Crypto | ETH 15 min · $2,396.77 target | LIVE | Target Price: $2,396.77 | 51% | 50% | $25,661 vol | Crypto | Pro Baseball | Tampa Bay vs Milwaukee | Oct 24 @ 12:00AM | Milwaukee | 63% | Tampa Bay | 38% | $5,763,566 vol | Pro Baseball | Tampa Bay vs Milwaukee | Oct 25 @ 12:00AM | Milwaukee | 60% | Tampa Bay | 42% | $42,330 vol | Pro Baseball | MMA | Jasmin Lucindo vs Nicolle Caliari | Oct 24 @ 2:00PM | Jasmin Lucindo | 78% | Nicolle Caliari | 24% | $19,143 vol | 333 | Kody Steele vs Noah Gugnon | Oct 24 @ 2:20PM | Kody Steele | 59% | Noah Gugnon | 42% | $11,090 vol | 333 | Crypto | BTC price today at 6am EDT? | Oct 23 @ 9:00AM | $81,500 or above | 82% | 20% | $81,600 or above | 17% | 84% | $81,700 or above | 2% | 99% | $81,400 or above | 99% | 2% | $81,800 or above | 1% | 100% | Show 90 more | $592,731 vol | Cry
+share candidates [aria-label*='hare' i]: 0
+share candidates button:has-text('Share'): 0
+share candidates [data-testid*='share' i]: 0
+share candidates svg[aria-label*='share' i]: 0
+sheet box {'x': 17, 'y': 786, 'width': 324, 'height': 16}
+after opening the slip, leg names found: ['Daniil Medvedev', 'Target Price: $81,554.97', 'Iva Jovic'] of ['Daniil Medvedev', 'Target Price: $81,554.97', 'Iva Jovic']
+slip text: e | 55% | 46% | TB Lightning | 46% | 55% | $9,506 vol | NHL | Politics | Alaska Senate winner? | Nov 4 | Democratic party | 76% | Republican party | 26% | Michigan Senate winner? | Nov 3 | Abdul El-Sayed | 69% | Mike Rogers | 32% | 3 MARKETS COMBO | $10.00 pays — | Dialog |  | 3 MARKETS COMBO | $10.00 pays — | +$5.00 | Cost | $ | ATP ALMATY | Medvedev vs Atmane | Daniil Medvedev to win set 1 | CRYPTO | BTC 15 min | No · Target Price: $81,554.97 | WTA NINGBO | Jovic vs Shnaider | Iva Jovic to win set 1 | Log in
+slip buttons: ['Search combos | ', ' | $10 pays $4,545\nCombo · NBA\nNo · GS Warriors win by over 3.5 points (vs MEM G', ' | $10 pays $2,632\nCombo · La Liga\nSantander to win (vs Espanyol)\n9 more\n$16,776', ' | $10 pays $4,000\nCombo · NFL\nBAL Ravens to win (vs CIN Bengals)\n6 more\n$3,800,', ' | $10 pays $389\nCombo · EPL\nChelsea to win (vs Tottenham)\n5 more\n$500,883 vol\n1', ' | $10 pays $5,882\nCombo · MLS\nChicago Fire to win (vs Atlanta)\n9 more\n$8,447,55', ' | $10 pays $1,220\nCombo · EFL Championship\nBirmingham to win (vs Cardiff)\n7 mor', ' | $10 pays $60\nCombo · Saudi Pro League\nAl Ahli Saudi to win (Al Ahli Saudi vs ', ' | $10 pays $253\nCombo · Serie A\nInter to win (vs Fiorentina)\n9 more\n$316,240 vo', ' | $10 pays $159\nCombo · NBA\nTyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Po', ' | $10 pays $170\nCombo · EPL\nArsenal to win (vs Everton)\n6 more\n$221,543 vol\n43', ' | 38%', ' | 63%', ' | 63%', ' | 38%', ' | 67%', ' | 34%', ' | 34%', ' | 67%', ' | 31%', ' | 70%', ' | 43%', ' | 58%', ' | 28%', ' | 73%', ' | 19%', ' | 82%', ' | 61%', ' | 40%', ' | 23%']
+API calls while loading the combo slip: 
+  GET https://api.elections.kalshi.com/v1/events/KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D
+  GET https://api.elections.kalshi.com/v1/exchange/status
+  GET https://api.elections.kalshi.com/v1/live_data/batch?milestone_ids=6c37b5ce-9846-5564-81f9-3846c1693255
+  GET https://api.elections.kalshi.com/v1/milestones/?page_size=500&related_event_tickers=KXBOXING-26OCT23ULDEDACAPARE&related_event_tickers=KXBOXING-26OCT24RYANDOLAN&related_event_tickers=KXCS2GAME-26OCT240300MGLZAUR&related_
+  GET https://api.elections.kalshi.com/v1/location
+  GET https://api.elections.kalshi.com/v1/live_data/batch?milestone_ids=6c37b5ce-9846-5564-81f9-3846c1693255
+  GET https://api.elections.kalshi.com/v1/events/KXATPSETWINNER-26OCT23MEDATM-1
+  GET https://api.elections.kalshi.com/v1/events/KXBTC15M-26OCT230600
+  GET https://api.elections.kalshi.com/v1/events/KXWTASETWINNER-26OCT23JOVSHN-1
+  GET https://api.elections.kalshi.com/v1/milestones/?page_size=500&related_event_tickers=KXATPSETWINNER-26OCT23MEDATM-1&related_event_tickers=KXWTASETWINNER-26OCT23JOVSHN-1
+  GET https://googleads.g.doubleclick.net/pagead/viewthroughconversion/17181125865/?random=1792749330258&cv=11&fst=1792749330258&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecx
+  POST https://www.google.com/rmkt/collect/17181125865/?random=1792749330258&cv=11&fst=1792749330258&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dma
+  GET https://googleads.g.doubleclick.net/pagead/viewthroughconversion/16737159896/?random=1792749330286&cv=11&fst=1792749330286&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecx
+  POST https://www.google.com/rmkt/collect/16737159896/?random=1792749330286&cv=11&fst=1792749330286&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dma
+  GET https://googleads.g.doubleclick.net/pagead/viewthroughconversion/317520133/?random=1792749330294&cv=11&fst=1792749330294&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1
+  POST https://www.google.com/rmkt/collect/317520133/?random=1792749330294&cv=11&fst=1792749330294&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dma=0
+  POST https://analytics.google.com/g/collect?v=2&tid=G-R10JTCKS4W&gtm=45je6al1v872036552z89197087850za20gzb9197087850zd9197087850xf1&_p=1792749329650&_gaz=1&gcd=13l3l3l3l1l1&npa=0&_ng=1&dma=0&_eu=AAAAAGAC&cid=1111997587.179274
+  POST https://www.google.com/measurement/conversion?random=1792749330515&cv=11&tid=G-R10JTCKS4W&fst=1792749330515&fmt=8&en=page_view&gtm=45je6al1v872036552za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dma=0&tag_exp=1159
+  POST https://server-side-tagging-zhywnqwwdq-uc.a.run.app/g/collect?v=2&tid=G-R10JTCKS4W&gtm=45je6al1v872036552za20ozb9197087850zd9197087850xf1&_p=1792749329650&gcd=13l3l3l3l1l1&npa=0&_ng=1&dma=0&_eu=AAAAAGQC&_fplc=0&_prs=ok&c
+  POST https://ad.doubleclick.net/activity;src=15537244;type=unive0;cat=kalsh0;rcb=8;ord=8701916254782;npa=0;auiddc=1363150552.1792749330;uaa=arm;uab=64;uafvl=Not%253AA-Brand%3B8.0.0.0%7CChromium%3B156.0.8078.4%7CHeadlessChrome
+  GET https://15537244.fls.doubleclick.net/activityi;src=15537244;type=unive0;cat=kalsh0;rcb=8;ord=8701916254782;npa=0;auiddc=1363150552.1792749330;uaa=arm;uab=64;uafvl=Not%253AA-Brand%3B8.0.0.0%7CChromium%3B156.0.8078.4%7CHea
+  GET https://www.google.com/pagead/1p-user-list/17181125865/?random=1792749330258&cv=11&fst=1792746000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dm
+  GET https://www.google.com/pagead/1p-user-list/16737159896/?random=1792749330286&cv=11&fst=1792746000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dm
+  GET https://www.google.com/pagead/1p-user-list/317520133/?random=1792749330294&cv=11&fst=1792746000000&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6al1v9238495171za20ozb9197087850zd9197087850xecxf1&gcd=13l3l3l3l1l1&dma=
+  GET https://adservice.google.com/ddm/fls/z/src=15537244;type=unive0;cat=kalsh0;rcb=8;ord=8701916254782;npa=0;auiddc=*;uaa=arm;uab=64;uafvl=Not%253AA-Brand%3B8.0.0.0%7CChromium%3B156.0.8078.4%7CHeadlessChrome%3B156.0.8078.4;u
+  GET https://www.google.com/gmp/conversion/_dc_unique_id=5072096588282217978;_dc_ptd=ChAI8Ivs1gYQsuOyv970u4VDEh8AMw3lM3NjytZQ3YSLLbEWxcwT-anaVTCJlOoWET7N;_dc_time=1792749330;src=15537244;type=unive0;cat=kalsh0;rcb=8;ord=87019
+  GET https://www.googleadservices.com/pagead/conversion/17190576520/?random=1792749330984&cv=9&fst=1792749330984&num=1&npa=1&label=QHXYCKftmtoaEIjDjYVA&guid=ON&resp=GooglemKTybQhCsO&eid=375603261%2C466465925%2C512247839%2C658
+  GET https://googleads.g.doubleclick.net/pagead/viewthroughconversion/17190576520/?random=1926876823&cv=9&fst=1792749330984&num=1&npa=1&label=QHXYCKftmtoaEIjDjYVA&guid=ON&resp=GooglemKTybQhCsO&eid=375603261%2C466465925%2C5122
+  GET https://www.google.com/pagead/1p-conversion/17190576520/?random=1926876823&cv=9&fst=1792749330984&num=1&npa=1&label=QHXYCKftmtoaEIjDjYVA&guid=ON&resp=GooglemKTybQhCsO&eid=375603261%2C466465925%2C512247839%2C658953495&u_h
+  POST https://ad.doubleclick.net/activity;src=16637663;type=pagev0;cat=kalsh0;rcb=4;ord=6103642203372;npa=0;auiddc=1363150552.1792749330;u4=;u3=https%3A%2F%2Fkalshi.com%2Fcombos;uaa=arm;uab=64;uafvl=Not%253AA-Brand%3B8.0.0.0%7
+  GET https://www.google.com/gmp/conversion/_dc_unique_id=1338930990222912815;_dc_ptd=ChAI8Ivs1gYQsuOyv970u4VDEh8AMw3lM_y-wjOmAt2KQRUahmbiWhzP8VM1Ucox_g6g;_dc_time=1792749331;src=16637663;type=pagev0;cat=kalsh0;rcb=4;ord=61036
+  GET https://api.elections.kalshi.com/v1/live_data/batch?milestone_ids=6c37b5ce-9846-5564-81f9-3846c1693255
+  GET https://api.elections.kalshi.com/v1/live_data/batch?milestone_ids=6c37b5ce-9846-5564-81f9-3846c1693255
+
+========== chromium-mbt-combo: https://kalshi.com/markets_by_ticker/KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH ==========
+status 200 landed on https://kalshi.com/combos?marketTicker=KXMVECROSSCATEGORY-S2026SLAG2XAK7NMQXQ2D-PS6FNNNYH
+title 'Kalshi - Prediction Market for Trading the Future'
+leg names on the page: 1/3 ['Target Price: $81,554.97']
+  'Combo' x11
+  'combo' x0
+  'Buy' x0
+  'Yes' x0
+  'No' x12
+  'pays' x11
+  'Request' x0
+  'quote' x0
+  'Quote' x0
+  'Log in' x0
+  'Sign up' x0
+  'Open in app' x0
+  'Open app' x0
+  'Get the app' x0
+  'Download' x0
+meta: [
+"<meta name=\"twitter:card\" content=\"summary_large_image\">",
+"<meta name=\"twitter:title\" content=\"Kalshi - Prediction Market for Trading the Future\">",
+"<meta name=\"twitter:description\" content=\"Kalshi is a regulated exchange &amp; prediction market where you can trade on the outcome of real-world events. Buy and sell Event Contracts.\">",
+"<meta name=\"twitter:image\" content=\"https://kalshi.com/images/meta-og.png\">",
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"https://kalshi.com/blog/rss.xml\">"
+]
+anchors (63): ['/combos/15-min/15-min', '/combos/15-min/15-min/crypto', '/combos/baseball/pro-baseball', '/combos/baseball/pro-baseball/moneyline', '/combos/basketball/nba', '/combos/basketball/nba/moneyline', '/combos/boxing/boxing', '/combos/boxing/boxing/fights', '/combos/championship-w/championship-w', '/combos/championship-w/championship-w/moneyline', '/combos/cricket/mens-t20', '/combos/cricket/mens-t20/csa-pro20-cup', '/combos/crypto/crypto', '/combos/crypto/crypto/hourly', '/combos/esports/counter-strike-2', '/combos/esports/counter-strike-2/counter-strike-2', '/combos/football/nfl', '/combos/football/nfl/moneyline', '/combos/games/alaska-senate-winner/props', '/combos/games/aston-villa-vs-manchester-city/game-lines', '/combos/games/btc-price-today-at-6am-edt/props', '/combos/games/btc-up-or-down---15-minutes/props', '/combos/games/butterfield-bermuda-championship/props', '/combos/games/chi-bulls-at-mil-bucks/game-lines', '/combos/games/dolphins-vs-garden-route-badgers/props', '/combos/games/eth-price-today-at-6am-edt/props', '/combos/games/eth-up-or-down---15-minutes/props', '/combos/games/f1-united-states-grand-prix/game-lines', '/combos/games/ipswich-town-vs-nottingham-forest/game-lines', '/combos/games/jasmin-lucindo-vs-nicolle-caliari/props', '/combos/games/juergen-uldedaj-vs-blake-caparello/props', '/combos/games/kody-steele-vs-noah-gugnon/props', '/combos/games/lions-vs-limpopo-impalas/props', '/combos/games/mia-dolphins-at-ny-jets/game-lines', '/combos/games/michigan-senate-winner/props', '/combos/games/min-timberwolves-at-orl-magic/game-lines', '/combos/games/montreal-at-chicago/game-lines', '/combos/games/pit-steelers-at-nola-saints/game-lines', '/combos/games/shannon-ryan-vs-emma-dolan/props', '/combos/games/sp-price-today-at-10am-edt/props', '/combos/games/sp-price-today-at-11am-edt/props', '/combos/games/tampa-bay-at-colorado/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-1/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-2/game-lines', '/combos/games/themongolz-vs-aurora-gaming/props', '/combos/games/tyloo-vs-fut-esports/props', '/combos/games/villanova-at-notre-dame/game-lines', '/combos/golf/pga', '/combos/golf/pga/winner', '/combos/indices/hourlies', '/combos/indices/hourlies/s-p-500', '/combos/mma/mma', '/combos/mma/mma/fights', '/combos/nhl/nhl', '/combos/nhl/nhl/moneyline', '/combos/politics/politics', '/combos/politics/politics/senate', '/combos/racing/formula-1', '/combos/racing/formula-1/moneyline', '/combos/soccer/epl', '/combos/soccer/epl/moneyline', '/combos/tennis/atp-almaty', '/markets_by_ticker/kxmvecrosscategory-s2026slag2xak7nmqxq2d-ps6fnnnyh']
+buttons: ['Search combos | ', ' | $10 pays $4,545\nCombo · NBA\nNo · GS Warriors win by over 3.5 points (vs MEM G', ' | $10 pays $2,632\nCombo · La Liga\nSantander to win (vs Espanyol)\n9 more\n$16,776', ' | $10 pays $4,000\nCombo · NFL\nBAL Ravens to win (vs CIN Bengals)\n6 more\n$3,800,', ' | $10 pays $389\nCombo · EPL\nChelsea to win (vs Tottenham)\n5 more\n$500,883 vol\n1', ' | $10 pays $5,882\nCombo · MLS\nChicago Fire to win (vs Atlanta)\n9 more\n$8,447,55', ' | $10 pays $1,220\nCombo · EFL Championship\nBirmingham to win (vs Cardiff)\n7 mor', ' | $10 pays $60\nCombo · Saudi Pro League\nAl Ahli Saudi to win (Al Ahli Saudi vs ', ' | $10 pays $253\nCombo · Serie A\nInter to win (vs Fiorentina)\n9 more\n$316,240 vo', ' | $10 pays $159\nCombo · NBA\nTyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Po', ' | $10 pays $170\nCombo · EPL\nArsenal to win (vs Everton)\n6 more\n$221,543 vol\n43', ' | 38%', ' | 63%', ' | 63%', ' | 38%', ' | 67%', ' | 34%', ' | 34%', ' | 67%', ' | 31%', ' | 70%', ' | 43%', ' | 58%', ' | 28%', ' | 73%', ' | 19%', ' | 82%', ' | 61%', ' | 40%', ' | 23%', ' | 78%', ' | 51%', ' | 50%', ' | 46%', ' | 55%', ' | 45%', ' | 56%', ' | 51%', ' | 50%', ' | 63%', ' | 38%', ' | 60%', ' | 42%', ' | 78%', ' | 24%', ' | 59%', ' | 42%', ' | 82%', ' | 20%', ' | 17%', ' | 84%', ' | 2%', ' | 99%', ' | 99%', ' | 2%', ' | 1%', ' | 100%', ' | Show 90 more', ' | 82%', ' | 20%', ' | 8%', ' | 93%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | Show 146 more', ' | 23%', ' | 79%', ' | 29%', ' | 73%', ' | 12%', ' | 9%', ' | 7%', ' | 5%', ' | 4%', ' | Show 113 more', ' | 44%']
+body: Combo builder | Football | Soccer | Basketball | Tennis | 15 min | Baseball | MMA | Crypto | Esports | Golf | Boxing | Cricket | Racing | Indices | Championship (W) | NHL | Politics | $10 pays $4,545 | Combo · NBA | No · GS Warriors win by over 3.5 points (vs MEM Grizzlies) | 9 more | $3,820,412 vol | 885 | $10 pays $2,632 | Combo · La Liga | Santander to win (vs Espanyol) | 9 more | $16,776,458 vol | 626 | $10 pays $4,000 | Combo · NFL | BAL Ravens to win (vs CIN Bengals) | 6 more | $3,800,081 vol | 275 | $10 pays $389 | Combo · EPL | Chelsea to win (vs Tottenham) | 5 more | $500,883 vol | 177 | $10 pays $5,882 | Combo · MLS | Chicago Fire to win (vs Atlanta) | 9 more | $8,447,552 vol | 99 | $10 pays $1,220 | Combo · EFL Championship | Birmingham to win (vs Cardiff) | 7 more | $404,907 vol | 98 | $10 pays $60 | Combo · Saudi Pro League | Al Ahli Saudi to win (Al Ahli Saudi vs Al-Khaleej) | 3 more | $13,101 vol | 65 | $10 pays $253 | Combo · Serie A | Inter to win (vs Fiorentina) | 9 more | $316,240 vol | 59 | $10 pays $159 | Combo · NBA | Tyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Points) | 9 more | $16,067 vol | 52 | $10 pays $170 | Combo · EPL | Arsenal to win (vs Everton) | 6 more | $221,543 vol | 43 | NFL | PIT Steelers vs NOLA Saints | Oct 25 @ 1:30PM | NOLA Saints | 38% | 63% | PIT Steelers | 63% | 38% | $216,278 vol | NFL | MIA Dolphins vs NY Jets | Oct 25 @ 5:00PM | NY Jets | 67% | 34% | MIA Dolphins | 34% | 67% | $187,136 vol | NFL | EPL | Nottingham Forest vs Ipswich Town | Oct 23 @ 7:00PM | Ipswich Town | 31% | 70% | Nottingham Forest | 43% | 58% | Tie | 28% | 73% | $94,923 vol | EPL | Manchester City vs Aston Villa | Oct 24 @ 11:30AM | Aston Villa | 19% | 82% | Manchester City | 61% | 40% | Tie | 23% | 78% | $257,383 vol | EPL | NBA | CHI Bulls vs MIL Bucks | Oct 23 @ 8:00PM | MIL Bucks | 51% | CHI Bulls | 50% | $151,867 vol | NBA | MIN Timberwolves vs ORL Magic | Oct 23 @ 11:00PM | ORL Magic | 46% | MIN Timberwolves | 55% | $278,089 vol | NBA | 15 min | BTC 15 min · $81,554.97 target | LIVE | Target Price: $81,554.97 | 45% | 56% | $695,043 vol | Crypto | ETH 15 min · $2,396.77 target | LIVE | Target Price: $2,396.77 | 51% | 50% | $25,661 vol | Crypto | Pro Baseball | Tampa Bay vs Milwaukee | Oct 24 @ 12:00AM | Milwaukee | 63% | Tampa Bay | 38% | $5,763,566 vol | Pro Baseball | Tampa Bay vs Milwaukee | Oct 25 @ 12:00AM | Milwaukee | 60% | Tampa Bay | 42% | $42,330 vol | Pro Baseball | MMA | Jasmin Lucindo vs Nicolle Caliari | Oct 24 @ 2:00PM | Jasmin Lucindo | 78% | Nicolle Caliari | 24% | $19,143 vol | 333 | Kody Steele vs Noah Gugnon | Oct 24 @ 2:20PM | Kody Steele | 59% | Noah Gugnon | 42% | $11,090 vol | 333 | Crypto | BTC price today at 6am EDT? | Oct 23 @ 9:00AM | $81,500 or above | 82% | 20% | $81,600 or above | 17% | 84% | $81,700 or above | 2% | 99% | $81,400 or above | 99% | 2% | $81,800 or above | 1% | 100% | Show 90 more | $592,731 vol | Cry
+
+========== chromium-mbt-leg: https://kalshi.com/markets_by_ticker/KXATPSETWINNER-26OCT23MEDATM-1-MED ==========
+status 200 landed on https://kalshi.com/markets/kxatpsetwinner/atp-set-winner/kxatpsetwinner-26oct23medatm-1?op_market_ticker=KXATPSETWINNER-26OCT23MEDATM-1-MED&op_side=BUY
+title 'Daniil Medvedev vs Terence Atmane: Set 1 Winner ATP Odds & Predictions'
+leg names on the page: 1/3 ['Daniil Medvedev']
+  'Combo' x0
+  'combo' x0
+  'Buy' x0
+  'Yes' x5
+  'No' x6
+  'pays' x0
+  'Request' x0
+  'quote' x0
+  'Quote' x0
+  'Log in' x2
+  'Sign up' x4
+  'Open in app' x0
+  'Open app' x0
+  'Get the app' x0
+  'Download' x0
+meta: [
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"https://kalshi.com/blog/rss.xml\">",
+"<meta property=\"og:url\" content=\"https://kalshi.com/markets/kxatpsetwinner/atp-set-winner/kxatpsetwinner-26oct23medatm-1\">",
+"<meta property=\"og:image\" content=\"https://kalshi.com/api-app/preview/KXATPSETWINNER-26OCT23MEDATM-1?width=1200&amp;height=630\">",
+"<meta name=\"twitter:card\" content=\"summary_large_image\">",
+"<meta name=\"twitter:title\" content=\"Daniil Medvedev vs Terence Atmane: Set 1 Winner ATP Odds &amp; Predictions\">",
+"<meta name=\"twitter:description\" content=\"Track what Kalshi's markets predict for &quot;Daniil Medvedev vs Terence Atmane: Set 1 Winner&quot;, or trade it yourself.\">",
+"<meta name=\"twitter:image\" content=\"https://kalshi.com/api-app/preview/KXATPSETWINNER-26OCT23MEDATM-1?width=1200&amp;height=675\">",
+"<meta name=\"twitter:image:alt\" content=\"Daniil Medvedev vs Terence Atmane: Set 1 Winner ATP Odds &amp; Predictions\">",
+"<meta name=\"twitter:image:width\" content=\"1200\">",
+"<meta name=\"twitter:image:height\" content=\"675\">"
+]
+anchors (69): ['/combos/tennis/atp-almaty', '/markets/kxaleaguegame/australian-a-league-game/kxaleaguegame-26oct23brrper', '/markets/kxitfwmatch/itf-womens-match/kxitfwmatch-26oct22pasmix', '/markets/kxlnbelite2game/lnb-elite-2-game/kxlnbelite2game-26oct241400ascleh', '/markets/kxmlbgame/professional-baseball-game/kxmlbgame-26oct232000tbmil', '/markets/kxnflmostrecyds/pro-football-most-receiving-yards/kxnflmostrecyds-26oct25cleten', '/markets/kxnflmostrecyds/pro-football-most-receiving-yards/kxnflmostrecyds-26oct25denari', '/markets/kxnflmostrshyds/pro-football-most-rushing-yards/kxnflmostrshyds-26oct25cleten', '/markets/kxnflmostrshyds/pro-football-most-rushing-yards/kxnflmostrshyds-26oct25denari', '/markets/kxnflmostrshyds/pro-football-most-rushing-yards/kxnflmostrshyds-26oct25tbcar', '/markets/kxpgatour/pga-tour/kxpgatour-bubc26', '/markets/kxsb/super-bowl/kxsb-27', '/markets/kxwtamatch/wta-tennis-match/kxwtamatch-26oct23jovshn']
+buttons: ['Kalshi Pro | PRO', ' | MORE', ' | ', 'Menu | ', ' | ', ' | Log in', ' | Sign up', ' | ', ' | ', 'Add to watchlist | ', 'Menu | ', 'Open drawer | ', ' | Search', 'Switch event | ', ' | ', ' | ', ' | ', ' | Stats', ' | LIVE', ' | 1D', ' | 1W', ' | 1M', ' | ALL', ' | ', 'Switch event | ', ' | Yes\xa0 72¢', ' | No\xa0 32¢', ' | Yes\xa0 72¢', ' | No\xa0 32¢', ' | Yes\xa0 32¢', ' | No\xa0 69¢', ' | Yes\xa0 32¢', ' | No\xa0 69¢', ' | Spread', ' | Yes\xa0 19¢', ' | No\xa0 98¢', ' | Yes\xa0 19¢', ' | No\xa0 98¢', ' | Yes\xa0 27¢', ' | No\xa0 79¢', ' | Yes\xa0 27¢', ' | No\xa0 79¢', ' | Yes\xa0 83¢', ' | No\xa0 33¢', ' | Yes\xa0 83¢', ' | No\xa0 33¢', ' | Exact Match Score', ' | Set Winner', ' | Total Games', ' | Show more', ' | BUY', ' | SELL', ' | DOLLARS', ' | YES 72¢', ' | NO 32¢', ' | 3.5% Interest', ' | Sign up to trade', 'Close | ', ' | Continue with Google', ' | Continue with Apple', ' | Sign up with Email']
+body: Log in | Sign up | Trending | Midterms | Elections | Politics | Sports | Culture | Crypto | Commodities | Climate | Economics | Mentions | Finance | Tech & Science | Predict | Live | 140 | Search | Social | ATP | Daniil Medvedev vs Terence Atmane: Set 1 Winner | Stats | Medvedev | 68% | Atmane | 32% | + $92 | + $20 | $14,871 vol | LIVE | 1D | 1W | 1M | ALL | COMBO | 20 | Daniil Medvedev | 68% | Yes  72¢ | No  32¢ | Terence Atmane | 32% | Yes  32¢ | No  69¢ | Spread | Daniil Medvedev -7.5 games | Yes  19¢ | No  98¢ | Daniil Medvedev -4.5 games | Yes  27¢ | No  79¢ | Daniil Medvedev -1.5 games | Yes  83¢ | No  33¢ | Exact Match Score | Set Winner | Total Games |  | Important information: If the match does not occur (signaled by a ball being played) due to a player injury, walkover, forfeiture, or any other cancellation (all before the match starts), the market will resolve to a fair price in accordance with the rules. If a retirement occurs, all markets that can be unconditionally settled based on play already completed will resolve accordingly. Any markets that cannot be unconditionally settled will resolve to Fair Market Price. |  | NEW MARKETS | TB Buccaneers vs CAR Panthers: Most Rushing Yards | CLE Browns vs TEN Titans: Most Rushing Yards | DEN Broncos vs ARI Cardinals: Most Rushing Yards | CLE Browns vs TEN Titans: Most Receiving Yards | DEN Broncos vs ARI Cardinals: Most Receiving Yards | Asc Denain Voltaire Ph vs Basket Le Havre | Show more | RELATED MARKETS | Butterfield Bermuda Championship Winner | Game 1: Tampa Bay vs Milwaukee | Jovic vs Shnaider | Passola vs Mi | Brisbane vs Perth | 2027 NFL Champion | RELATED TOPICS | Other | Baseball | Basketball | Boxing | Chess | Cities | SPORTS | NFL Power Rankings | The Market's College Football Top 25 | MIN Vikings | NOLA Saints | PHI Eagles | CAR Panthers | PRODUCT | Kalshi Pro | Perpetual Futures | Markets | Incentive program | Institutions | API & developers | COMPANY | About | Kalshi Research | Blog | Careers | Policy Center | Brand Kit | HELP | Help Center | FAQ | Fee schedule | Trading hours | Regulatory | Trust Center | © 2026 Kalshi Inc. · All rights reserved | Privacy | Data Terms of Service | Trading Prohibitions | FAQ for Finance Professionals | Trading on Kalshi involves risk and may not be appropriate for all. Members risk losing their cost to enter any transaction, including fees. You should carefully consider whether trading on Kalshi is appropriate for you in light of your investment experience and financial resources. Any trading decisions you make are solely your responsibility and at your own risk. Information is provided for convenience only on an "AS IS" basis. Past performance is not necessarily indicative of 
+share candidates [aria-label*='hare' i]: 1
+   click ERR TimeoutError('Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator("[aria-label*=\'hare\' i]").first\n    - locator resolved to <span aria-label="Share" data-state="closed" clas
+share candidates button:has-text('Share'): 0
+share candidates [data-testid*='share' i]: 0
+share candidates svg[aria-label*='share' i]: 0
+
+========== chromium-combos-list: https://kalshi.com/combos ==========
+status 200 landed on https://kalshi.com/combos
+title 'Kalshi - Prediction Market for Trading the Future'
+leg names on the page: 1/3 ['Target Price: $81,554.97']
+  'Combo' x11
+  'combo' x0
+  'Buy' x0
+  'Yes' x0
+  'No' x12
+  'pays' x10
+  'Request' x0
+  'quote' x0
+  'Quote' x0
+  'Log in' x0
+  'Sign up' x0
+  'Open in app' x0
+  'Open app' x0
+  'Get the app' x0
+  'Download' x0
+meta: [
+"<meta name=\"twitter:card\" content=\"summary_large_image\">",
+"<meta name=\"twitter:title\" content=\"Kalshi - Prediction Market for Trading the Future\">",
+"<meta name=\"twitter:description\" content=\"Kalshi is a regulated exchange &amp; prediction market where you can trade on the outcome of real-world events. Buy and sell Event Contracts.\">",
+"<meta name=\"twitter:image\" content=\"https://kalshi.com/images/meta-og.png\">",
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"https://kalshi.com/blog/rss.xml\">"
+]
+anchors (63): ['/combos/15-min/15-min', '/combos/15-min/15-min/crypto', '/combos/baseball/pro-baseball', '/combos/baseball/pro-baseball/moneyline', '/combos/basketball/nba', '/combos/basketball/nba/moneyline', '/combos/boxing/boxing', '/combos/boxing/boxing/fights', '/combos/championship-w/championship-w', '/combos/championship-w/championship-w/moneyline', '/combos/cricket/mens-t20', '/combos/cricket/mens-t20/csa-pro20-cup', '/combos/crypto/crypto', '/combos/crypto/crypto/hourly', '/combos/esports/counter-strike-2', '/combos/esports/counter-strike-2/counter-strike-2', '/combos/football/nfl', '/combos/football/nfl/moneyline', '/combos/games/alaska-senate-winner/props', '/combos/games/aston-villa-vs-manchester-city/game-lines', '/combos/games/btc-price-today-at-6am-edt/props', '/combos/games/btc-up-or-down---15-minutes/props', '/combos/games/butterfield-bermuda-championship/props', '/combos/games/chi-bulls-at-mil-bucks/game-lines', '/combos/games/dolphins-vs-garden-route-badgers/props', '/combos/games/eth-price-today-at-6am-edt/props', '/combos/games/eth-up-or-down---15-minutes/props', '/combos/games/f1-united-states-grand-prix/game-lines', '/combos/games/ipswich-town-vs-nottingham-forest/game-lines', '/combos/games/jasmin-lucindo-vs-nicolle-caliari/props', '/combos/games/juergen-uldedaj-vs-blake-caparello/props', '/combos/games/kody-steele-vs-noah-gugnon/props', '/combos/games/lions-vs-limpopo-impalas/props', '/combos/games/mia-dolphins-at-ny-jets/game-lines', '/combos/games/michigan-senate-winner/props', '/combos/games/min-timberwolves-at-orl-magic/game-lines', '/combos/games/montreal-at-chicago/game-lines', '/combos/games/pit-steelers-at-nola-saints/game-lines', '/combos/games/shannon-ryan-vs-emma-dolan/props', '/combos/games/sp-price-today-at-10am-edt/props', '/combos/games/sp-price-today-at-11am-edt/props', '/combos/games/tampa-bay-at-colorado/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-1/game-lines', '/combos/games/tampa-bay-vs-milwaukee-game-2/game-lines', '/combos/games/themongolz-vs-aurora-gaming/props', '/combos/games/tyloo-vs-fut-esports/props', '/combos/games/villanova-at-notre-dame/game-lines', '/combos/golf/pga', '/combos/golf/pga/winner', '/combos/indices/hourlies', '/combos/indices/hourlies/s-p-500', '/combos/mma/mma', '/combos/mma/mma/fights', '/combos/nhl/nhl', '/combos/nhl/nhl/moneyline', '/combos/politics/politics', '/combos/politics/politics/senate', '/combos/racing/formula-1', '/combos/racing/formula-1/moneyline', '/combos/soccer/epl', '/combos/soccer/epl/moneyline', '/combos/tennis/atp-almaty', '/markets/kxatpsetwinner/atp-set-winner/kxatpsetwinner-26oct23medatm-1?op_market_ticker=KXATPSETWINNER-26OCT23MEDATM-1-MED&op_side=BUY']
+buttons: ['Search combos | ', ' | $10 pays $4,545\nCombo · NBA\nNo · GS Warriors win by over 3.5 points (vs MEM G', ' | $10 pays $2,632\nCombo · La Liga\nSantander to win (vs Espanyol)\n9 more\n$16,776', ' | $10 pays $4,000\nCombo · NFL\nBAL Ravens to win (vs CIN Bengals)\n6 more\n$3,800,', ' | $10 pays $389\nCombo · EPL\nChelsea to win (vs Tottenham)\n5 more\n$500,883 vol\n1', ' | $10 pays $5,882\nCombo · MLS\nChicago Fire to win (vs Atlanta)\n9 more\n$8,447,55', ' | $10 pays $1,220\nCombo · EFL Championship\nBirmingham to win (vs Cardiff)\n7 mor', ' | $10 pays $60\nCombo · Saudi Pro League\nAl Ahli Saudi to win (Al Ahli Saudi vs ', ' | $10 pays $253\nCombo · Serie A\nInter to win (vs Fiorentina)\n9 more\n$316,240 vo', ' | $10 pays $159\nCombo · NBA\nTyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Po', ' | $10 pays $170\nCombo · EPL\nArsenal to win (vs Everton)\n6 more\n$221,543 vol\n43', ' | 38%', ' | 63%', ' | 63%', ' | 38%', ' | 67%', ' | 34%', ' | 34%', ' | 67%', ' | 31%', ' | 70%', ' | 43%', ' | 58%', ' | 28%', ' | 73%', ' | 19%', ' | 82%', ' | 61%', ' | 40%', ' | 23%', ' | 78%', ' | 51%', ' | 50%', ' | 46%', ' | 55%', ' | 45%', ' | 56%', ' | 51%', ' | 50%', ' | 63%', ' | 38%', ' | 60%', ' | 42%', ' | 78%', ' | 24%', ' | 59%', ' | 42%', ' | 82%', ' | 20%', ' | 17%', ' | 84%', ' | 2%', ' | 99%', ' | 99%', ' | 2%', ' | 1%', ' | 100%', ' | Show 90 more', ' | 82%', ' | 20%', ' | 8%', ' | 93%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | 1%', ' | 100%', ' | Show 146 more', ' | 23%', ' | 79%', ' | 29%', ' | 73%', ' | 12%', ' | 9%', ' | 7%', ' | 5%', ' | 4%', ' | Show 113 more', ' | 44%']
+body: Combo builder | Football | Soccer | Basketball | Tennis | 15 min | Baseball | MMA | Crypto | Esports | Golf | Boxing | Cricket | Racing | Indices | Championship (W) | NHL | Politics | $10 pays $4,545 | Combo · NBA | No · GS Warriors win by over 3.5 points (vs MEM Grizzlies) | 9 more | $3,820,412 vol | 885 | $10 pays $2,632 | Combo · La Liga | Santander to win (vs Espanyol) | 9 more | $16,776,458 vol | 626 | $10 pays $4,000 | Combo · NFL | BAL Ravens to win (vs CIN Bengals) | 6 more | $3,800,081 vol | 275 | $10 pays $389 | Combo · EPL | Chelsea to win (vs Tottenham) | 5 more | $500,883 vol | 177 | $10 pays $5,882 | Combo · MLS | Chicago Fire to win (vs Atlanta) | 9 more | $8,447,552 vol | 99 | $10 pays $1,220 | Combo · EFL Championship | Birmingham to win (vs Cardiff) | 7 more | $404,907 vol | 98 | $10 pays $60 | Combo · Saudi Pro League | Al Ahli Saudi to win (Al Ahli Saudi vs Al-Khaleej) | 3 more | $13,101 vol | 65 | $10 pays $253 | Combo · Serie A | Inter to win (vs Fiorentina) | 9 more | $316,240 vol | 59 | $10 pays $159 | Combo · NBA | Tyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Points) | 9 more | $16,067 vol | 52 | $10 pays $170 | Combo · EPL | Arsenal to win (vs Everton) | 6 more | $221,543 vol | 43 | NFL | PIT Steelers vs NOLA Saints | Oct 25 @ 1:30PM | NOLA Saints | 38% | 63% | PIT Steelers | 63% | 38% | $216,278 vol | NFL | MIA Dolphins vs NY Jets | Oct 25 @ 5:00PM | NY Jets | 67% | 34% | MIA Dolphins | 34% | 67% | $187,136 vol | NFL | EPL | Nottingham Forest vs Ipswich Town | Oct 23 @ 7:00PM | Ipswich Town | 31% | 70% | Nottingham Forest | 43% | 58% | Tie | 28% | 73% | $94,923 vol | EPL | Manchester City vs Aston Villa | Oct 24 @ 11:30AM | Aston Villa | 19% | 82% | Manchester City | 61% | 40% | Tie | 23% | 78% | $257,383 vol | EPL | NBA | CHI Bulls vs MIL Bucks | Oct 23 @ 8:00PM | MIL Bucks | 51% | CHI Bulls | 50% | $151,867 vol | NBA | MIN Timberwolves vs ORL Magic | Oct 23 @ 11:00PM | ORL Magic | 46% | MIN Timberwolves | 55% | $278,089 vol | NBA | 15 min | BTC 15 min · $81,554.97 target | LIVE | Target Price: $81,554.97 | 45% | 56% | $695,043 vol | Crypto | ETH 15 min · $2,396.77 target | LIVE | Target Price: $2,396.77 | 51% | 50% | $25,661 vol | Crypto | Pro Baseball | Tampa Bay vs Milwaukee | Oct 24 @ 12:00AM | Milwaukee | 63% | Tampa Bay | 38% | $5,763,566 vol | Pro Baseball | Tampa Bay vs Milwaukee | Oct 25 @ 12:00AM | Milwaukee | 60% | Tampa Bay | 42% | $42,330 vol | Pro Baseball | MMA | Jasmin Lucindo vs Nicolle Caliari | Oct 24 @ 2:00PM | Jasmin Lucindo | 78% | Nicolle Caliari | 24% | $19,143 vol | 333 | Kody Steele vs Noah Gugnon | Oct 24 @ 2:20PM | Kody Steele | 59% | Noah Gugnon | 42% | $11,090 vol | 333 | Crypto | BTC price today at 6am EDT? | Oct 23 @ 9:00AM | $81,500 or above | 82% | 20% | $81,600 or above | 17% | 84% | $81,700 or above | 2% | 99% | $81,400 or above | 99% | 2% | $81,800 or above | 1% | 100% | Show 90 more | $592,731 vol | Cry
+after tapping the first popular combo: https://kalshi.com/combos
+   body: Combo builder | Football | Soccer | Basketball | Tennis | 15 min | Baseball | MMA | Crypto | Esports | Golf | Boxing | Cricket | Racing | Indices | Championship (W) | NHL | Politics | $10 pays $4,545 | Combo · NBA | No · GS Warriors win by over 3.5 points (vs MEM Grizzlies) | 9 more | $3,820,412 vol | 885 | $10 pays $2,632 | Combo · La Liga | Santander to win (vs Espanyol) | 9 more | $16,776,458 vol | 626 | $10 pays $4,000 | Combo · NFL | BAL Ravens to win (vs CIN Bengals) | 6 more | $3,800,081 vol | 275 | $10 pays $389 | Combo · EPL | Chelsea to win (vs Tottenham) | 5 more | $500,883 vol | 177 | $10 pays $5,882 | Combo · MLS | Chicago Fire to win (vs Atlanta) | 9 more | $8,447,552 vol | 99 | $10 pays $1,220 | Combo · EFL Championship | Birmingham to win (vs Cardiff) | 7 more | $404,907 vol | 98 | $10 pays $60 | Combo · Saudi Pro League | Al Ahli Saudi to win (Al Ahli Saudi vs Al-Khaleej) | 3 more | $13,101 vol | 65 | $10 pays $253 | Combo · Serie A | Inter to win (vs Fiorentina) | 9 more | $316,240 vol | 59 | $10 pays $159 | Combo · NBA | Tyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Points) | 9 more | $16,067 vol | 52 | $10 pays $170 | Combo · EPL | Arsenal to win (vs Everton) | 6 more | $221,543 vol | 43 | NFL | PIT Steelers vs NOLA Saints | Oct 25 @ 1:30PM | NOLA Saints | 38% | 63% | PIT Steelers | 63% | 38% | $216,278 vol | NFL | MIA Dolphins vs NY Jets | Oct 25 @ 5:00PM | NY Jets | 67% | 34% | MIA Dolphins | 34% | 67% | $187,136 vol | NFL | EPL | Nottingham Forest vs Ipswich Town | Oct 23 @ 7:00PM | Ipswich Town | 31% | 70% | Nottingham Forest | 43% | 58% | Tie | 28% | 73% | $94,923 vol | EPL | Manchester City vs Aston Villa | Oct 24 @ 11:30AM | Aston Villa | 19% | 82% | Manchester City | 61% | 40% | Tie
+   buttons: ['Search combos | ', ' | $10 pays $4,545\nCombo · NBA\nNo · GS Warriors win by over 3.5 points (vs MEM G', ' | $10 pays $2,632\nCombo · La Liga\nSantander to win (vs Espanyol)\n9 more\n$16,776', ' | $10 pays $4,000\nCombo · NFL\nBAL Ravens to win (vs CIN Bengals)\n6 more\n$3,800,', ' | $10 pays $389\nCombo · EPL\nChelsea to win (vs Tottenham)\n5 more\n$500,883 vol\n1', ' | $10 pays $5,882\nCombo · MLS\nChicago Fire to win (vs Atlanta)\n9 more\n$8,447,55', ' | $10 pays $1,220\nCombo · EFL Championship\nBirmingham to win (vs Cardiff)\n7 mor', ' | $10 pays $60\nCombo · Saudi Pro League\nAl Ahli Saudi to win (Al Ahli Saudi vs ', ' | $10 pays $253\nCombo · Serie A\nInter to win (vs Fiorentina)\n9 more\n$316,240 vo', ' | $10 pays $159\nCombo · NBA\nTyler Herro: 15+ points (CHI Bulls vs MIL Bucks: Po', ' | $10 pays $170\nCombo · EPL\nArsenal to win (vs Everton)\n6 more\n$221,543 vol\n43', ' | 38%', ' | 63%', ' | 63%', ' | 38%', ' | 67%', ' | 34%', ' | 34%', ' | 67%', ' | 31%', ' | 70%', ' | 43%', ' | 58%', ' | 28%', ' | 73%', ' | 19%', ' | 82%', ' | 61%', ' | 40%', ' | 23%', ' | 78%', ' | 51%', ' | 50%', ' | 46%', ' | 55%', ' | 45%', ' | 56%', ' | 51%', ' | 50%', ' | 63%']
+share candidates [aria-label*='hare' i] 0
+share candidates button:has-text('Share') 0
+
+========== Saving the JS the pages loaded ==========
+saved 266 of 266 JS files
