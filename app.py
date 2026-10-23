@@ -189,8 +189,16 @@ def _depth():
     st.session_state.depth_req = st.session_state.cev.depth
 
 
+def _quote():
+    st.session_state.quote_req = st.session_state.cev.quote
+
+
 @st.fragment
 def table_view():
+    go = st.session_state.pop("quote_req", None)
+    if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
+        st.switch_page(PAGES[2], query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
+                                               "n": f"{go['n']:g}"})
     min_bet, window = st.session_state.min_bet, st.session_state.window
     src = get_source()
     notes, error = [], None
@@ -262,6 +270,7 @@ def table_view():
         on_window_change=_sync("window"),
         on_refresh_change=_refresh,
         on_depth_change=_depth,
+        on_quote_change=_quote,
     )
 
 
@@ -318,6 +327,9 @@ def combo_page() -> None:
             "- **Hide thin** hides combos with a leg whose spread is wide or whose top of book is small, since "
             "its mid isn't a reliable price. Set the cutoffs with the gear icon; thin quotes show in yellow with *.\n"
             "- **Full book** (book icon on an open bet) walks each leg's whole orderbook for the bet's size.\n"
+            "- **Bet in Kalshi** (on an open bet) opens that combo in the Kalshi app, or in the combo builder on "
+            "kalshi.com if the app isn't installed. Kalshi quotes it fresh, so check the price still beats the fair "
+            "odds before you buy. **Quote it** checks the live price on the Quote page instead.\n"
             "- **Flags**: THIN see Hide thin · IN BAND the price "
             "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
             "over +200%, usually a stale book.\n"

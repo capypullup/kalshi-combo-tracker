@@ -1,5 +1,5 @@
 // Combo EV table: filters, sorting and expansion all run in the browser, so they're
-// instant. Only min bet, window, refresh and "load full book" go back to Python.
+// instant. Only min bet, window, refresh, "load full book" and "Quote it" go back to Python.
 
 const MIN_EV = [0, 5, 10, 20, 50];
 const MIN_QK = [0.1, 0.2, 0.5, 1, 2];
@@ -11,9 +11,12 @@ const REFRESH_TIMEOUT = 60000;  // ms without an answer before the refresh butto
 const RULE = "────────────";
 const STORE = "cev-ui-v1";
 const LOGO = "__LOGO__";  // app.py puts the CapyEV logo (capyev.svg) here
+// Kalshi's app opens these links; its website puts the combo in its bet slip. Same as links.bet_url (tested).
+const betUrl = (ticker) => `https://kalshi.com/markets_by_ticker/${encodeURIComponent(ticker)}`;
 
 const ICON_BOOK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z"/><path d="M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z"/></svg>';
 const ICON_CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>';
+const ICON_OUT = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
 const ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 const ICON_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 
@@ -262,12 +265,17 @@ function detailHtml(S, data, r) {
       <span class="bk">${isNum(r.cb) || isNum(r.ca) ? `combo bid ${cents(r.cb)}<br>combo ask ${cents(r.ca)}` : "no resting<br>combo orders"}</span>
       <button class="btn" data-act="depth" title="Load full leg orderbooks">${ICON_BOOK}</button>
       <button class="btn" data-act="ticker" title="Copy combo ticker">${ICON_CLIP}</button>
-      <button class="btn primary" data-act="card">Copy bet card</button>
+      <button class="btn" data-act="card">Copy bet card</button>
     </div>
+    <div class="actions go">
+      <a class="btn primary" href="${esc(betUrl(r.ticker))}" target="_blank" rel="noopener">Bet in Kalshi ${ICON_OUT}</a>
+      <button class="btn" data-act="quote" title="Get a live quote on the Quote page">Quote it</button>
+    </div>
+    ${r.side === "no" ? '<div class="sidenote">This bet is <b>NO</b> on the combo. Check the side in Kalshi before you buy.</div>' : ""}
   </div>`;
 }
 
-export { betCard };  // for tests/test_table_js.py
+export { betCard, betUrl };  // for tests/test_table_js.py
 
 export default function (component) {
   const { parentElement, setStateValue, setTriggerValue } = component;
@@ -480,6 +488,7 @@ export default function (component) {
         case "depth": return r && ctxNow.setTriggerValue("depth", r.id);
         case "ticker": return r && copyText(r.ticker, el, "Ticker copied ✓");
         case "card": return r && copyText(betCard(S, r), el, "Bet card copied 🧋");
+        case "quote": return r && ctxNow.setTriggerValue("quote", { t: r.ticker, side: r.side, p: r.price, n: r.n });
       }
     });
   }
