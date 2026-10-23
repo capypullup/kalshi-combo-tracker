@@ -51,6 +51,7 @@ from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
+from combo_tracker import tools_view  # noqa: E402
 from combo_tracker.rfq import RfqBook  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
@@ -599,14 +600,22 @@ def quote_page() -> None:
         )
 
 
+# ---------- Tools page ----------
+def tools_page() -> None:
+    nav()
+    tools_view.render()
+
+
 HOME = st.Page(home_page, title="Home", default=True)
 COMBOS = st.Page(combo_page, title="Combos", url_path="combos")
 BETTORS = st.Page(bettors_page, title="Bettors", url_path="bettors")
 QUOTE = st.Page(quote_page, title="Quote", url_path="quote")
+TOOLS = st.Page(tools_page, title="Tools", url_path="tools")
 # The tabs either side of the capybara (Home) button, left to right.
 NAV_TABS = [(COMBOS, "Combos", ":material/format_list_bulleted:"),
             (BETTORS, "Bettors", ":material/groups:"),
-            (QUOTE, "Quote", ":material/request_quote:")]
-current = st.navigation([HOME, COMBOS, BETTORS, QUOTE], position="hidden")
+            (QUOTE, "Quote", ":material/request_quote:"),
+            (TOOLS, "Tools", ":material/build:")]
+current = st.navigation([HOME, COMBOS, BETTORS, QUOTE, TOOLS], position="hidden")
 st.session_state.page = current.title  # nav() lights this page's tab
 current.run()
