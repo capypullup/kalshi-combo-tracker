@@ -23,10 +23,13 @@ def row(ticker="KXMVECOMBO-1", price=0.20, count=3000):
 
 
 TIERS = alerts.parse_tiers("1000:10,500:20")
+OFF = alerts.parse_tiers("off")
 
 
 def test_tiers():
     assert TIERS == [(500, 0.20), (1000, 0.10)]
+    assert OFF == [] and alerts.min_ev_for(5000, OFF) is None
+    assert alerts.parse_tiers(alerts.PREGAME_TIERS)[0] == (50, 1.0)
     assert alerts.min_ev_for(499, TIERS) is None
     assert alerts.min_ev_for(700, TIERS) == 0.20
     assert alerts.min_ev_for(1000, TIERS) == 0.10
@@ -39,25 +42,40 @@ def test_pick_filters_on_size_tier_ev_thin_and_sent():
     mid_size = row("KXMVECOMBO-4", price=0.26)  # $780 at +15%: under the $500 tier's 20%
     big = row("KXMVECOMBO-5", price=0.26, count=4000)  # $1,040 at +15%: clears the $1k tier's 10%
     assert good["ev_pct_mid"] > 0.49
-    assert [r["ticker"] for r in alerts.pick([small, bad, mid_size, big, good], TIERS, set())] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
-    assert alerts.pick([good], TIERS, {alerts.key(good)}) == []
+    assert [r["ticker"] for r in alerts.pick([small, bad, mid_size, big, good], TIERS, OFF, set())] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
+    assert alerts.pick([good], TIERS, OFF, {alerts.key(good)}) == []
     good["leg_detail"][0]["spread"] = 0.05
-    assert alerts.pick([good], TIERS, set()) == []
-    assert alerts.pick([good], TIERS, set(), skip_thin=False) == [good]
+    assert alerts.pick([good], TIERS, OFF, set()) == []
+    assert alerts.pick([good], TIERS, OFF, set(), skip_thin=False) == [good]
 
 
 def test_pick_leaves_out_crypto_legs():
     good = row()
-    assert alerts.pick([good], TIERS, set()) == [good]
+    assert alerts.pick([good], TIERS, OFF, set()) == [good]
     good["leg_detail"][1]["ticker"] = "KXBTCD-26OCT2117-T108000"
-    assert alerts.pick([good], TIERS, set()) == []
-    assert alerts.pick([good], TIERS, set(), skip_series=()) == [good]
+    assert alerts.pick([good], TIERS, OFF, set()) == []
+    assert alerts.pick([good], TIERS, OFF, set(), skip_series=()) == [good]
+
+
+def test_live_bets_use_the_live_tiers():
+    good = row()  # $600 at +50%, legs' games not on the schedule and settling far off: pregame
+    live = alerts.parse_tiers("500:40")
+    assert alerts.pick([good], OFF, live, set()) == []
+    good["leg_detail"][0]["hours_to_start"] = -0.5  # game started
+    assert alerts.pick([good], OFF, live, set()) == [good]
+    assert alerts.pick([good], TIERS, OFF, set()) == []
+    assert alerts.title(good).startswith("LIVE +50% EV")
+
+
+def test_summary_has_mid_and_crx_ev_multiple_and_units():
+    s = alerts.summary(row())
+    assert s.startswith("MID +50% · 3.33x · ") and " | CRX +" in s and s.endswith("u")
 
 
 def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
-    assert msg["title"] == "+50% EV · $600 YES 2-leg combo"
+    assert msg["title"] == "PREGAME +50% EV · $600 YES 2-leg combo"
     assert msg["click"] == "https://kalshi.com/markets_by_ticker/KXMVECOMBO-1"
     assert "$600 @ 5.0x (+400) → $3,000" in msg["message"]
     assert "YES Hawks (KXNBAGAME-26OCT21ATLORL)" in msg["message"]
@@ -68,8 +86,8 @@ def test_message_has_card_link_and_louder_ping_for_bigger_edges():
 
 def test_telegram_message_bolds_title_and_adds_buttons():
     msg = alerts.telegram_message(row(price=0.18), "42", app_url="https://capyev.streamlit.app")
-    head = msg["text"].split("\n")[0]
-    assert head == "🔥 +67% EV · $540 YES 2-leg combo"
+    head = "\n".join(msg["text"].split("\n")[:2])
+    assert head.startswith("🔥 PREGAME +67% EV · $540 YES 2-leg combo\nMID +67% · ")
     assert msg["entities"][0]["length"] == len(head) + 1  # the emoji is two UTF-16 units
     assert [b["text"] for b in msg["reply_markup"]["inline_keyboard"][0]] == ["Bet in Kalshi", "Quote it"]
 

@@ -11,7 +11,7 @@ import time
 
 import requests
 
-from .format import bet_card, fmt_odds
+from .format import bet_card, fmt_mult, fmt_odds, fmt_units, units
 from .links import bet_url
 from .view import is_live
 
@@ -33,10 +33,19 @@ def ev_of(row: dict, basis: str = "mid") -> float | None:
     return row["ev_pct_mid"] if basis == "mid" else row["ev_pct_crx"]
 
 
+# Bet size floor : min EV %. Pregame edges are the ones worth betting, so small pregame bets
+# only need a big edge; live edges are mostly lines moving under a stale book, so live bars are higher.
+PREGAME_TIERS = "50:100,500:20,1000:10"
+LIVE_TIERS = "50:200,500:100,1000:50"
+
+
 def parse_tiers(text: str) -> list[tuple[float, float]]:
-    """'500:20,1000:10' -> [(500, 0.20), (1000, 0.10)]: bets of $500+ need +20% EV, $1,000+ need +10%."""
+    """'500:20,1000:10' -> [(500, 0.20), (1000, 0.10)]: bets of $500+ need +20% EV, $1,000+ need +10%.
+    'off' (or nothing) means no tiers, so nothing of that kind alerts."""
     tiers = []
     for part in text.split(","):
+        if part.strip().lower() in ("", "off"):
+            continue
         stake, ev = part.split(":")
         tiers.append((float(stake), float(ev) / 100))
     return sorted(tiers)
@@ -53,12 +62,12 @@ def skipped(row: dict, series: tuple[str, ...] = SKIP_SERIES) -> bool:
     return any(l["ticker"].startswith(series) for l in row["leg_detail"])
 
 
-def pick(rows: list[dict], tiers: list[tuple[float, float]], sent: set[str], basis: str = "mid",
-         skip_thin: bool = True, skip_series: tuple[str, ...] = SKIP_SERIES) -> list[dict]:
-    """Bets that clear their size tier's EV bar, not alerted yet, best first. Thin leg books and
-    combos with a crypto leg are left out."""
+def pick(rows: list[dict], pregame: list[tuple[float, float]], live: list[tuple[float, float]], sent: set[str],
+         basis: str = "mid", skip_thin: bool = True, skip_series: tuple[str, ...] = SKIP_SERIES) -> list[dict]:
+    """Bets that clear their size tier's EV bar (pregame or live tiers), not alerted yet, best first.
+    Thin leg books and combos with a crypto leg are left out."""
     def wanted(r):
-        bar = min_ev_for(r["stake"], tiers)
+        bar = min_ev_for(r["stake"], live if is_live(r) else pregame)
         return (bar is not None and (ev_of(r, basis) or -1) > bar and key(r) not in sent
                 and not (skip_thin and thin(r)) and not skipped(r, skip_series))
     return sorted(filter(wanted, rows), key=lambda r: ev_of(r, basis), reverse=True)
@@ -78,15 +87,25 @@ def tier(ev: float) -> tuple[int, str, str]:
 
 
 def title(row: dict, basis: str = "mid") -> str:
-    """'+812% EV · $1,250 YES 4-leg combo', the line a lock screen shows."""
-    return (f"{ev_of(row, basis) * 100:+.0f}% EV · ${row['stake']:,.0f} {row['side'].upper()} "
-            f"{row['legs']}-leg combo")
+    """'PREGAME +812% EV · $1,250 YES 4-leg combo', the line a lock screen shows."""
+    return (f"{'LIVE' if is_live(row) else 'PREGAME'} {ev_of(row, basis) * 100:+.0f}% EV · ${row['stake']:,.0f} "
+            f"{row['side'].upper()} {row['legs']}-leg combo")
+
+
+def summary(row: dict) -> str:
+    """'MID +812% · 1.26x · 20u | CRX +640% · 1.28x · 15u': EV, fair multiple and Kelly units at both prices."""
+    def part(name, ev, fair, kelly):
+        if ev is None or fair is None:
+            return f"{name} n/a"
+        return f"{name} {ev * 100:+.0f}% · {fmt_mult(fair)} · {fmt_units(units(kelly))}"
+    return (f"{part('MID', row['ev_pct_mid'], row['fair_mid'], row['kelly_mid'])} | "
+            f"{part('CRX', row['ev_pct_crx'], row['fair_crx'], row['kelly_crx'])}")
 
 
 def body(row: dict) -> str:
     price = row["price"]
     mult = f"{1 / price:.1f}x" if price else "?"
-    notes = [f"{row['minutes_ago']:.0f} min ago", "LIVE" if is_live(row) else "pregame"]
+    notes = [f"{row['minutes_ago']:.0f} min ago"]
     if row["same_game_legs"]:
         notes.append("same game")
     if thin(row):
@@ -94,6 +113,7 @@ def body(row: dict) -> str:
     if (row["ev_pct_mid"] or 0) > 2:
         notes.append("check the book, +200% edges are often stale")
     return "\n".join([
+        summary(row),
         f"${row['stake']:,.0f} @ {mult} ({fmt_odds(price)}) → ${row['max_payout']:,.0f}",
         " · ".join(notes),
         "",
@@ -118,10 +138,11 @@ def message(row: dict, topic: str, basis: str = "mid", app_url: str | None = Non
 
 
 def telegram_message(row: dict, chat_id: str, basis: str = "mid", app_url: str | None = None) -> dict:
-    """sendMessage JSON: bold title line, the body, and link buttons under it."""
+    """sendMessage JSON: the title and summary lines in bold, the rest of the body, and link buttons under it."""
     emoji = tier(ev_of(row, basis))[2]
-    head = f"{emoji} {title(row, basis)}"
-    return {"chat_id": chat_id, "text": f"{head}\n{body(row)}", "entities": [{"type": "bold", "offset": 0, "length": len(head.encode("utf-16-le")) // 2}],
+    head = f"{emoji} {title(row, basis)}\n{summary(row)}"
+    text = f"{emoji} {title(row, basis)}\n{body(row)}"  # body() opens with the summary line
+    return {"chat_id": chat_id, "text": text, "entities": [{"type": "bold", "offset": 0, "length": len(head.encode("utf-16-le")) // 2}],
             "link_preview_options": {"is_disabled": True},
             "reply_markup": {"inline_keyboard": [[{"text": label, "url": url} for label, url in buttons(row, app_url)]]}}
 

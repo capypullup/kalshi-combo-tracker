@@ -65,13 +65,21 @@ Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or C
 
 ## Notification bot
 
-`scripts/alert_bot.py` sends big +EV combo bets to your phone: **$500–1k bets above +20% EV MID** and **$1k+ bets above +10%**, leaving out combos with a thin leg book (a leg spread over 3¢ or under 50 contracts at the top) and combos with a crypto leg (BTC, ETH, SOL, XRP, DOGE and other crypto price markets; the list is `SKIP_SERIES` in `combo_tracker/alerts.py`), as a Telegram message from your own bot (free, no daily cap) or through [ntfy](https://ntfy.sh) (free, no account, but about 250 messages a day). It runs on GitHub Actions (`.github/workflows/alerts.yml`), so it keeps going while the Streamlit app sleeps.
+`scripts/alert_bot.py` sends +EV combo bets to your phone, with separate bars for pregame and live bets (EV MID):
 
-- Each alert leads with what your lock screen shows, e.g. `🚀 +812% EV · $1,250 YES 4-leg combo`, then bet → payout, how long ago, LIVE or pregame, a same-game warning and the bet card, with a **Bet in Kalshi** button (and **Quote it** if `APP_URL` is set). The emoji grows with the edge: 🟢 under +50%, 🔥 +50%, 💰 +100%, 🚀 +500%; on ntfy the bigger ones also ring louder. 
+| Bet size | Pregame | Live |
+|---|---|---|
+| $50–500 | +100% | +200% |
+| $500–1k | +20% | +100% |
+| $1k+ | +10% | +50% |
+
+Live bars are higher because most live edges are lines moving under a stale book. It leaves out combos with a thin leg book (a leg spread over 3¢ or under 50 contracts at the top) and combos with a crypto leg (BTC, ETH, SOL, XRP, DOGE and other crypto price markets; the list is `SKIP_SERIES` in `combo_tracker/alerts.py`), as a Telegram message from your own bot (free, no daily cap) or through [ntfy](https://ntfy.sh) (free, no account, but about 250 messages a day). It runs on GitHub Actions (`.github/workflows/alerts.yml`), so it keeps going while the Streamlit app sleeps.
+
+- Each alert opens with two bold lines: what your lock screen shows, e.g. `🚀 PREGAME +812% EV · $1,250 YES 4-leg combo`, and a summary of EV, fair multiple and Kelly units at mid and crossing the spread, e.g. `MID +812% · 1.26x · 20u | CRX +640% · 1.28x · 15u`. Then bet → payout, how long ago, a same-game warning and the bet card, with a **Bet in Kalshi** button (and **Quote it** if `APP_URL` is set). The emoji grows with the edge: 🟢 under +50%, 🔥 +50%, 💰 +100%, 🚀 +500%; on ntfy the bigger ones also ring louder. 
 - One alert per combo and side. It checks for new trades every minute and alerts bets with a fill in the last 5 minutes (20 minutes when a run starts); each run hands the list of what it sent to the next, so nothing repeats.
 - Telegram setup: in Telegram, message **@BotFather**, send `/newbot` and pick any name; it replies with a token. Add it as the repository secret `TELEGRAM_BOT_TOKEN` (Settings → Secrets and variables → Actions → New repository secret), open your new bot and send it any message, then start the bot (Actions → Notification bot → Run workflow). Its first message tells you your chat ID; add that as `TELEGRAM_CHAT_ID` too.
 - ntfy instead: install the ntfy app, subscribe to a topic name nobody would guess, and add it as the secret `NTFY_TOPIC`.
-- Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_TIERS` (bet size:min EV %, default `500:20,1000:10`; add `5000:5` for another tier), `ALERT_SKIP_THIN` (`0` to get thin books too), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
+- Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_TIERS_PREGAME` and `ALERT_TIERS_LIVE` (bet size:min EV %, defaults `50:100,500:20,1000:10` and `50:200,500:100,1000:50`; add `5000:5` for another tier, or `off` to turn one kind off), `ALERT_SKIP_THIN` (`0` to get thin books too), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
 - Each run watches for about 5h50m (GitHub's limit is 6 h), and the hourly schedule queues the next run behind it. To pause it: Actions → Notification bot → ⋯ → Disable workflow. GitHub turns schedules off in a repo with no commits for 60 days; re-enable it on the same page.
 
 ## Run it

@@ -1,10 +1,12 @@
 """Notification bot: push every combo bet over $X with EV above Y% to your phone.
 
 Runs a loop for ALERT_MINUTES (the GitHub workflow restarts it, see .github/workflows/alerts.yml):
-pull the newest combo trades every minute, score the big bets against the leg books, and
-send each new one that clears its size tier (ALERT_TIERS, "500:20,1000:10" = $500+ bets need
-+20% EV, $1,000+ need +10%) and has no thin leg book (ALERT_SKIP_THIN=0 keeps those) to your
-Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) or ntfy topic (NTFY_TOPIC). With
+pull the newest combo trades every minute, score the bets against the leg books, and send each
+new one that clears its size tier to your
+Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) or ntfy topic (NTFY_TOPIC). Pregame and live
+bets have their own tiers (ALERT_TIERS_PREGAME, ALERT_TIERS_LIVE: "50:100,500:20" = $50+ bets need
++100% EV, $500+ need +20%; "off" turns one kind off). Thin leg books are left out (ALERT_SKIP_THIN=0
+keeps them), and so are combos with a crypto leg. With
 neither set (or DRY_RUN=1) it prints the alerts instead. ALERT_SENT_FILE keeps what was
 sent, so the next run doesn't repeat it.
 
@@ -30,9 +32,10 @@ def setting(name: str, default: str = "") -> str:
     return os.environ.get(name, "").strip() or default
 
 
-tiers = alerts.parse_tiers(setting("ALERT_TIERS", "500:20,1000:10"))
+pregame = alerts.parse_tiers(setting("ALERT_TIERS_PREGAME", alerts.PREGAME_TIERS))
+live = alerts.parse_tiers(setting("ALERT_TIERS_LIVE", alerts.LIVE_TIERS))
 skip_thin = setting("ALERT_SKIP_THIN", "1") != "0"
-min_bet = tiers[0][0]
+min_bet = min(stake for stake, _ in pregame + live)
 basis = setting("ALERT_EV_BASIS", "mid").lower()  # "mid" or "crx" (crossing the spread)
 minutes = float(setting("ALERT_MINUTES", "350"))
 every = float(setting("ALERT_EVERY", "60"))
@@ -47,8 +50,11 @@ if setting("DRY_RUN", "0") != "1":
         sender = alerts.Telegram(setting("TELEGRAM_BOT_TOKEN"), setting("TELEGRAM_CHAT_ID") or None)
     elif setting("NTFY_TOPIC"):
         sender = alerts.Ntfy(setting("NTFY_TOPIC"))
-rules = ", ".join(f"${stake:,.0f}+ at {ev * 100:+.0f}%" for stake, ev in tiers)
-print(f"EV {basis.upper()}: {rules}{', no thin books' if skip_thin else ''} · every {every:.0f}s for {minutes:.0f} min · "
+def rules(tiers):
+    return ", ".join(f"${stake:,.0f}+ at {ev * 100:+.0f}%" for stake, ev in tiers) or "off"
+
+
+print(f"EV {basis.upper()} pregame: {rules(pregame)} · live: {rules(live)}{' · no thin books' if skip_thin else ''} · every {every:.0f}s for {minutes:.0f} min · "
       f"{type(sender).__name__ if sender else 'dry run (printing only)'}", flush=True)
 
 # ticker|side -> when it was sent; kept 12 hours
@@ -68,9 +74,13 @@ while time.time() < deadline:
     start = time.time()
     try:
         col.poll()
-        snap = scorer.score(col.window(window), min_stake=min_bet, max_bets=5000)
+        trades = col.window(window)
+        if ok:  # after start-up, only score combos with a fill in the last few minutes
+            recent = {t["ticker"] for t in col.window(fresh)}
+            trades = [t for t in trades if t["ticker"] in recent]
+        snap = scorer.score(trades, min_stake=min_bet, max_bets=5000)
         rows = snap.rows if not ok else [r for r in snap.rows if r["minutes_ago"] <= fresh]
-        hits = alerts.pick(rows, tiers, set(sent), basis, skip_thin)
+        hits = alerts.pick(rows, pregame, live, set(sent), basis, skip_thin)
         for row in hits:
             if sender:
                 sender.send(row, basis, app_url)
