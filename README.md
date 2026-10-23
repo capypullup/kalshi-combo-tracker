@@ -49,6 +49,17 @@ A fill in the feed means someone got that price, not that you still can. The QUO
 - The combo's book, its newest fills, and each leg's book now, with EV at the price and at the best price available now. Watch re-checks every 5 s.
 - **Get quote** (needs the API key above) sends a real RFQ for $10–$500, lists makers' quotes as they arrive with price incl. fee, odds, size, maker code and EV MID/CROSS, and cancels the RFQ after 45 s. It never accepts a quote. This is the one place the app sends signed write requests (create/delete your own RFQ).
 
+## Notification bot
+
+`scripts/alert_bot.py` sends every combo bet of at least **$500** with **EV MID above 10%** to your phone, as a Telegram message from your own bot (free, no daily cap) or through [ntfy](https://ntfy.sh) (free, no account, but about 250 messages a day). It runs on GitHub Actions (`.github/workflows/alerts.yml`), so it keeps going while the Streamlit app sleeps.
+
+- Each alert leads with what your lock screen shows, e.g. `🚀 +812% EV · $1,250 YES 4-leg combo`, then bet → payout, how long ago, LIVE or pregame, same-game / thin-book warnings and the bet card, with a **Bet in Kalshi** button (and **Quote it** if `APP_URL` is set). The emoji grows with the edge: 🟢 under +50%, 🔥 +50%, 💰 +100%, 🚀 +500%; on ntfy the bigger ones also ring louder. On a busy night the defaults send a few alerts a minute, so raise `ALERT_MIN_EV` or `ALERT_MIN_BET` if that's too many.
+- One alert per combo and side. It checks for new trades every minute and alerts bets with a fill in the last 5 minutes (20 minutes when a run starts); each run hands the list of what it sent to the next, so nothing repeats.
+- Telegram setup: in Telegram, message **@BotFather**, send `/newbot` and pick any name; it replies with a token. Add it as the repository secret `TELEGRAM_BOT_TOKEN` (Settings → Secrets and variables → Actions → New repository secret), open your new bot and send it any message, then start the bot (Actions → Notification bot → Run workflow). Its first message tells you your chat ID; add that as `TELEGRAM_CHAT_ID` too.
+- ntfy instead: install the ntfy app, subscribe to a topic name nobody would guess, and add it as the secret `NTFY_TOPIC`.
+- Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_MIN_BET` (dollars, default 500), `ALERT_MIN_EV` (percent, default 10), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
+- Each run watches for about 5h50m (GitHub's limit is 6 h), and the hourly schedule queues the next run behind it. To pause it: Actions → Notification bot → ⋯ → Disable workflow. GitHub turns schedules off in a repo with no commits for 60 days; re-enable it on the same page.
+
 ## Run it
 
 ```bash
@@ -57,6 +68,7 @@ streamlit run app.py            # live data
 DEMO=1 streamlit run app.py     # made-up data, no network needed
 python scripts/live_check.py 15 100   # print the top combos from the last 15 min, bets ≥ $100
 python scripts/live_bettors.py 12 400 # one small pass of the Bettors tracker
+DRY_RUN=1 ALERT_MINUTES=5 python scripts/alert_bot.py  # print alerts for 5 min instead of sending
 pytest -q
 ```
 
@@ -79,6 +91,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/view.py`: the compact rows the table receives
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
+- `combo_tracker/alerts.py`: which bets the notification bot sends and how the alerts read
 - `combo_tracker/quote.py` + `quote_view.py`: the Quote page (live check, RFQs)
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page
