@@ -53,8 +53,10 @@ class Collector:
         self.last_poll_seconds: float | None = None
         self.after_poll = after_poll  # e.g. pre-score the default view so page loads hit warm caches
         self.trades_scanned = 0
+        self.poll_started: float | None = None  # when the latest finished poll began
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._wake = threading.Event()  # poll_now() cuts the wait between polls short
 
     # ---- collection ----
     def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False) -> None:
@@ -72,7 +74,7 @@ class Collector:
 
     def poll(self) -> None:
         start = time.time()
-        now = datetime.now(timezone.utc)
+        now = datetime.fromtimestamp(start, timezone.utc)
         if self.covered_to is None:
             self.covered_to = now
             self._scan(now - self.initial_backfill, progress=True)
@@ -82,6 +84,7 @@ class Collector:
             self._scan(self.covered_to - timedelta(seconds=5))
             self.covered_to = now
         self._prune(now)
+        self.poll_started = start
         self.last_poll_seconds = time.time() - start
 
     def extend_backfill(self) -> None:
@@ -102,15 +105,21 @@ class Collector:
 
     def run_forever(self) -> None:
         while not self._stop.is_set():
+            self._wake.clear()
             try:
                 self.poll()
                 if self.after_poll:
                     self.after_poll(self)
-                self.extend_backfill()
+                if not self._wake.is_set():  # a refresh tap goes before more history
+                    self.extend_backfill()
                 self.last_error = None
             except Exception as exc:  # keep collecting through API hiccups
                 self.last_error = repr(exc)
-            self._stop.wait(self.poll_seconds)
+            self._wake.wait(self.poll_seconds)
+
+    def poll_now(self) -> None:
+        """Poll as soon as the current step finishes instead of waiting out the minute."""
+        self._wake.set()
 
     def start(self) -> "Collector":
         if self._thread is None:
@@ -121,6 +130,7 @@ class Collector:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
 
     # ---- reads ----
     def window(self, minutes: int) -> list[dict]:

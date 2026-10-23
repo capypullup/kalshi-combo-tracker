@@ -7,6 +7,7 @@ const MIN_BET = [5, 10, 50, 100, 500];
 const WINDOWS = [[15, "15m"], [60, "1h"], [180, "3h"]];
 const KELLY = [[1, "Full"], [0.5, "½"], [0.25, "¼"], [0.125, "⅛"]];
 const PAGE = 100;
+const REFRESH_TIMEOUT = 45000;  // ms without an answer before the refresh button gives up
 const RULE = "────────────";
 const STORE = "cev-ui-v1";
 
@@ -18,10 +19,11 @@ const ICON_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" s
 function loadUi() {
   const base = { minEv: 0, minQk: null, indep: false, basis: "mid", phase: null, q: "", minBet: null, window: null,
                  hideThin: false, thinSpread: 3, thinSize: 50,
-                 sort: "time", dir: -1, kelly: 0.25, unitPct: 1, open: null, show: PAGE, settings: false, seen: null };
+                 sort: "time", dir: -1, kelly: 0.25, unitPct: 1, open: null, show: PAGE, settings: false, seen: null,
+                 refreshing: null, lastTap: null, refreshNote: null };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
-    return { ...base, ...saved, q: "", open: null, show: PAGE, settings: false, seen: null };
+    return { ...base, ...saved, q: "", open: null, show: PAGE, settings: false, seen: null, refreshing: null, lastTap: null, refreshNote: null };
   } catch (e) {
     return base;
   }
@@ -29,7 +31,7 @@ function loadUi() {
 
 function saveUi(S) {
   try {
-    const { q, open, show, settings, seen, ...keep } = S;
+    const { q, open, show, settings, seen, refreshing, lastTap, refreshNote, ...keep } = S;
     localStorage.setItem(STORE, JSON.stringify(keep));
   } catch (e) { /* private mode etc. */ }
 }
@@ -43,8 +45,8 @@ function odds(p) {
   return o > 0 ? `+${o}` : `${o}`;
 }
 const pct = (x) => (isNum(x) ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : "–");
-// Table cells drop the decimal on four-digit edges so they fit a phone column.
-const pctShort = (x) => (isNum(x) && Math.abs(x) >= 10 ? `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%` : pct(x));
+// Table cells drop the decimal from 10% up so edges fit a phone column.
+const pctShort = (x) => (isNum(x) && Math.abs(x) >= 0.1 ? `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%` : pct(x));
 function ago(ms) {
   const m = Math.max(0, (Date.now() - ms) / 60000);
   return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
@@ -52,14 +54,14 @@ function ago(ms) {
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
-// Short forms for the table: $692, $3,712, $17k, $1.2M · 17.0k contracts · 4.58x
+// Short forms for the table: $692, $3,712, $17k, $1.2M · 3.2k contracts · 4.58x
 function money0(x) {
   if (!isNum(x)) return "–";
   const a = Math.abs(x);
   const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}k` : Math.round(a).toLocaleString();
   return `${x < 0 ? "-" : ""}$${s}`;
 }
-const qtyShort = (n) => (n >= 1e4 ? `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k` : qty(n));
+const qtyShort = (n) => (n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : qty(n));
 function mult(p) {
   if (!isNum(p) || p <= 0) return "–";
   const m = 1 / p;
@@ -161,6 +163,8 @@ function visibleRows(S, data) {
   const key = {
     time: (r) => r.t,
     stake: (r) => r.stake,
+    om: (r) => (isNum(r.fm) && r.fm > 0 ? 1 / r.fm : -Infinity),
+    oc: (r) => (isNum(r.fc) && r.fc > 0 ? 1 / r.fc : -Infinity),
     evm: (r) => (isNum(r.evm) ? r.evm : -Infinity),
     evc: (r) => (isNum(r.evc) ? r.evc : -Infinity),
     legs: (r) => r.L,
@@ -198,11 +202,13 @@ function shell(root) {
       <div class="note" data-ref="note"></div>
     </div>
     <div class="grid thead">
-      <button data-sort="time">TIME<span class="clock" data-ref="clock"></span></button>
-      <button data-sort="legs">SIDE<span class="clock">LEGS</span></button>
-      <button data-sort="stake">BET</button>
-      <button class="r" data-sort="evm">EV MID</button>
-      <button class="r" data-sort="evc">EV CROSS</button>
+      <button data-sort="time"><span class="t">TIME</span><span class="u" data-ref="clock"></span></button>
+      <button data-sort="legs"><span class="t">SIDE</span><span class="u">LEGS</span></button>
+      <button data-sort="stake"><span class="t">BET</span></button>
+      <button class="r" data-sort="om"><span class="t">MID</span><span class="u">ODDS</span></button>
+      <button class="r" data-sort="oc"><span class="t">CROSS</span><span class="u">ODDS</span></button>
+      <button class="r" data-sort="evm"><span class="t">EV</span><span class="u">MID</span></button>
+      <button class="r" data-sort="evc"><span class="t">EV</span><span class="u">CROSS</span></button>
     </div>
     <div data-ref="rows"></div>
     <div class="toast"></div>`;
@@ -215,14 +221,16 @@ function chips(values, current, fmt, act) {
 function rowHtml(S, data, r) {
   const tm = new Date(r.t).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
   const evCell = (ev, k) => `<div class="r"><div class="ev ${isNum(ev) ? (ev > 0 ? "pos" : "neg") : ""}">${pctShort(ev)}</div><div class="sub">${fmtU(units(S, k))}</div></div>`;
+  // Fair odds from the leg books, as a multiplier with American odds under it.
+  const oddsCell = (p) => `<div class="r"><div class="od">${mult(p)}</div><div class="sub">${isNum(p) && p > 0 && p < 1 ? odds(p) : "–"}</div></div>`;
   const open = S.open === r.id;
   return `<div class="row ${open ? "open" : ""}" data-id="${esc(r.id)}">
     <div class="grid" data-act="toggle">
       <div class="time"><b>${esc(tm)}</b><div class="sub"><span data-t="${r.t}">${ago(r.t)}</span>${r.live ? '<span class="lvdot" title="A game in this combo has started"></span>' : ""}</div></div>
       <div class="side ${r.side}">${r.side.toUpperCase()}<div class="sub legs ${r.sg ? "sg" : ""}">${r.L}L/${r.G}G</div></div>
-      <div class="price"><b>${money0(r.stake)}</b> <span class="x">@</span> <span class="m">${mult(r.price)}</span> <span class="x">→</span> <b>${money0(r.n)}</b>
-        <div class="sub">${odds(r.price)} · ${qtyShort(r.n)} × ${priceCents(r.price)}</div></div>
-      ${evCell(r.evm, r.km)}${evCell(r.evc, r.kc)}
+      <div class="price"><b>${money0(r.stake)}</b> <span class="x">@</span> <span class="m">${mult(r.price)}</span><span class="pay"> <span class="x">→</span> <b>${money0(r.n)}</b></span>
+        <div class="sub">${odds(r.price)} · ${qtyShort(r.n)}×${priceCents(r.price)}</div></div>
+      ${oddsCell(r.fm)}${oddsCell(r.fc)}${evCell(r.evm, r.km)}${evCell(r.evc, r.kc)}
     </div>
     ${open ? detailHtml(S, data, r) : ""}
   </div>`;
@@ -248,7 +256,7 @@ function detailHtml(S, data, r) {
   }
   return `<div class="detail">
     ${legs}
-    <div class="facts">Bet <b>${money(r.stake)}</b> · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Fair MID <b>${odds(r.fm)}</b> · CRX <b>${odds(r.fc)}</b> · net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
+    <div class="facts">Bet <b>${money(r.stake)}</b> · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Fair MID <b>${mult(r.fm)}</b> (${odds(r.fm)}) · CRX <b>${mult(r.fc)}</b> (${odds(r.fc)}) · net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
       · resolves in ${hrs}${flags}${deepLine}</div>
     <div class="actions">
       <span class="bk">${isNum(r.cb) || isNum(r.ca) ? `combo bid ${cents(r.cb)}<br>combo ask ${cents(r.ca)}` : "no resting<br>combo orders"}</span>
@@ -290,7 +298,7 @@ export default function (component) {
     root.querySelectorAll(".thead [data-sort]").forEach((b) => {
       const on = b.dataset.sort === S.sort;
       b.classList.toggle("on", on);
-      b.dataset.arrow = on ? (S.dir < 0 ? " ↓" : " ↑") : "";
+      b.querySelector(".t").dataset.arrow = on ? (S.dir < 0 ? "↓" : "↑") : "";
     });
     $("settings").classList.toggle("open", S.settings);
     $("kelly").value = String(S.kelly);
@@ -346,10 +354,11 @@ export default function (component) {
     const D = window.__cevCtx.data;
     const updated = new Date(D.updated);
     const ageMin = (Date.now() - updated.getTime()) / 60000;
-    $("updated").textContent = `${D.demo ? "demo · " : ""}updated ${ago(D.updated) === "now" ? "just now" : ago(D.updated) + " ago"}`;
+    $("updated").textContent = `${D.demo ? "demo · " : ""}${S.refreshing ? "refreshing…" : `updated ${ago(D.updated) === "now" ? "just now" : ago(D.updated) + " ago"}`}`;
     $("clock").textContent = updated.toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
     root.querySelector(".dot").classList.toggle("stale", ageMin > 5 || !!D.error);
-    $("note").textContent = [D.error, D.note].filter(Boolean).join(" ");
+    root.querySelector('[data-act="refresh"]').classList.toggle("spin", !!S.refreshing);
+    $("note").textContent = [D.error, S.refreshNote, D.note].filter(Boolean).join(" ");
   }
 
   // Scores update in the background; the page only changes when you tap refresh or a
@@ -369,6 +378,12 @@ export default function (component) {
     if (S.window !== null && S.window !== data.window) setStateValue("window", S.window);
   }
 
+  // The refresh icon spins until Python echoes the tap back with the new scores.
+  if (isNum(data.refreshed) && data.refreshed === S.lastTap) {
+    S.refreshing = null;
+    S.refreshNote = null;
+  }
+
   // Every refresh shows the newest bets first; combo edges die fast.
   if (S.seen !== data.updated) {
     S.seen = data.updated;
@@ -378,6 +393,7 @@ export default function (component) {
   }
 
   root._paint = () => { paintControls(); paintMeta(); paintRows(); };
+  root._paintMeta = paintMeta;
   root._loadMore = loadMore;
   root._paintRows = paintRows;
   root._paintControls = paintControls;
@@ -429,7 +445,19 @@ export default function (component) {
         case "toggle": return update(() => { S.open = S.open === row.dataset.id ? null : row.dataset.id; }, true);
         case "minBet": S.minBet = +v; saveUi(S); return ctxNow.setStateValue("min_bet", +v);
         case "window": S.window = +v; saveUi(S); return ctxNow.setStateValue("window", +v);
-        case "refresh": return ctxNow.setTriggerValue("refresh", Date.now());
+        case "refresh": {
+          if (S.refreshing && Date.now() - S.refreshing < 5000) return;  // one tap is enough
+          const tap = (S.refreshing = S.lastTap = Date.now());
+          S.refreshNote = null;
+          el._paintMeta();
+          setTimeout(() => {
+            if (S.refreshing !== tap) return;
+            S.refreshing = null;
+            S.refreshNote = "Refresh got no answer. Pull down to reload the page.";
+            el._paintMeta();
+          }, REFRESH_TIMEOUT);
+          return ctxNow.setTriggerValue("refresh", tap);
+        }
         case "depth": return r && ctxNow.setTriggerValue("depth", r.id);
         case "ticker": return r && copyText(r.ticker, el, "Ticker copied");
         case "card": return r && copyText(betCard(S, r), el, "Bet card copied");

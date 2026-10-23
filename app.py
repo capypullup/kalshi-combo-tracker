@@ -6,7 +6,8 @@ Offline demo: DEMO=1 streamlit run app.py
 The table itself is a small custom component (combo_tracker/ui). Filters, sorting,
 expanding a bet and copying its card all run in the browser. Scoring runs in a
 background worker; the page only reads its latest results when the min bet or
-window changes, on refresh, and to load a bet's full orderbooks.
+window changes, on refresh (which asks the worker for a fresh poll and score
+first), and to load a bet's full orderbooks.
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
 MAX_BETS = 600  # newest bets scored per view
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
+REFRESH_WAIT = 30  # seconds the refresh button waits for new scores before saying Kalshi is slow
 
 st.set_page_config(page_title="Combo EV", page_icon="🎯", layout="wide", initial_sidebar_state="collapsed")
 st.html(
@@ -105,7 +107,7 @@ def get_source() -> SimpleNamespace:
     scorer = Scorer(client)
     collector = Collector(client, max_window_minutes=MAX_WINDOW)
     board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS)
-    collector.after_poll = lambda col: board.refresh()
+    collector.after_poll = lambda col: board.refresh(trades_as_of=col.poll_started)
     collector.start()
     return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
 
@@ -132,10 +134,21 @@ def _sync(name: str):
 
 
 def _refresh():
-    # The worker keeps scores fresh; tapping refresh just shows its latest results.
+    """Refresh button: poll Kalshi now and re-score this view in the background.
+
+    The table keeps showing the current bets meanwhile; refresh_watch() swaps in
+    the new ones when they're ready.
+    """
+    src = get_source()
+    view = (st.session_state.window, st.session_state.min_bet)
     st.session_state.deep = {}
-    if DEMO:
-        get_source().board.refresh(force=True)
+    st.session_state.refresh_req = {"since": src.board.request(*view), "view": view, "tap": st.session_state.cev.refresh,
+                                    "done": False, "slow": False, "error": None}
+    if src.collector is not None:
+        src.collector.poll_now()  # the worker scores the view right after this poll
+    else:  # demo: no collector, so score on a thread of its own the same way
+        threading.Thread(target=src.board.refresh, daemon=True).start()
+    st.rerun()  # a full run, so refresh_watch() starts checking
 
 
 def _depth():
@@ -167,6 +180,18 @@ def table_view():
     if snap and snap.bets_over_min > snap.bets_scored:
         notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
+    # The browser spins the refresh icon until `refreshed` echoes its tap. Until then the
+    # table's data stays exactly as it was, so a rerun resends almost nothing.
+    asked = st.session_state.get("refresh_req")
+    if asked and (asked["done"] or asked["view"] != (window, min_bet)):
+        st.session_state.refreshed = asked["tap"]
+        if asked["view"] == (window, min_bet) and snap and snap.fetched_at.timestamp() < asked["since"]:
+            if asked["error"]:
+                error = error or f"Refresh failed: {asked['error']}"[:200]
+            elif asked["slow"]:
+                notes.append("Kalshi is slow right now, so these are still the earlier scores. "
+                             "Tap ↻ again in a minute.")
+
     deep = {k: v for k, v in st.session_state.deep.items() if time.time() - v["at"] < DEEP_TTL}
     depth_error = None
     req = st.session_state.pop("depth_req", None)
@@ -191,6 +216,7 @@ def table_view():
             "trades": snap.combo_trades_seen if snap else 0, "scored": len(packed["rows"]),
             "updated": int((snap.fetched_at if snap else datetime.now(timezone.utc)).timestamp() * 1000),
             "note": " ".join(notes), "error": error, "deep": deep, "depthError": depth_error,
+            "refreshed": st.session_state.get("refreshed"),
         },
         default={"min_bet": min_bet, "window": window},
         on_min_bet_change=_sync("min_bet"),
@@ -198,6 +224,25 @@ def table_view():
         on_refresh_change=_refresh,
         on_depth_change=_depth,
     )
+
+
+def refresh_watch() -> None:
+    """After a refresh tap, check for the new scores every second, then rerun the page once to show them."""
+    req = st.session_state.get("refresh_req")
+    if req and not req["done"]:
+        _watch_refresh()
+
+
+@st.fragment(run_every=1)
+def _watch_refresh() -> None:
+    req = st.session_state.get("refresh_req")
+    if req and not req["done"]:
+        done, failure = get_source().board.done(*req["view"], since=req["since"])
+        moved = req["view"] != (st.session_state.window, st.session_state.min_bet)
+        if not (done or moved or time.time() - req["since"] > REFRESH_WAIT):
+            return
+        req.update(done=True, error=failure, slow=not done)
+    st.rerun()  # a full run shows the new scores and stops this timer
 
 
 def nav() -> None:
@@ -231,9 +276,14 @@ def combo_page() -> None:
             "- **Flags**: THIN see HIDE THIN · IN BAND the price "
             "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
             "over +200%, usually a stale book.\n"
+            "- **MID ODDS / CROSS ODDS** show the fair prices behind EV MID and EV CROSS as odds: the multiplier a "
+            "fair bet would pay, with American odds under it. Compare them with the multiplier the bettor got.\n"
+            "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
+            "a few seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
             "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
             "Kalshi's trade feed has no bettor ID, so these bets are anonymous (the Bettors page covers public profiles)."
         )
+    refresh_watch()
 
 
 # ---------- Bettors page ----------

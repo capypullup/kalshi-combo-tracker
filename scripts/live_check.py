@@ -89,6 +89,19 @@ stage("background pass (Board.refresh)", lambda: board.refresh(force=True))
 t0 = time.time()
 board.get(lookback, min_stake)
 print(f"     a page read after that took {(time.time() - t0) * 1000:.0f} ms")
+
+
+def tap_refresh():
+    """What the refresh button sets off: a poll, then this view re-scored with fresh leg quotes."""
+    since = board.request(lookback, min_stake)
+    col.poll()
+    board.refresh(trades_as_of=col.poll_started)
+    return board.done(lookback, min_stake, since)
+
+
+reqs = client.requests_made
+answer = stage("refresh tap (poll + re-score with fresh quotes)", tap_refresh)
+print(f"     answered (done, error): {answer} · {client.requests_made - reqs} requests")
 if snap.rows:
     reqs = client.requests_made
     deep = stage("open one card (full depth)", lambda: scorer.rescore_with_depth(snap.rows[0], col.window(lookback)))
