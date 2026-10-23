@@ -30,10 +30,29 @@ def ev_of(row: dict, basis: str = "mid") -> float | None:
     return row["ev_pct_mid"] if basis == "mid" else row["ev_pct_crx"]
 
 
-def pick(rows: list[dict], min_stake: float, min_ev: float, sent: set[str], basis: str = "mid") -> list[dict]:
-    """Bets of at least `min_stake` dollars with EV above `min_ev` (0.10 = 10%) not alerted yet, best first."""
-    hits = [r for r in rows if r["stake"] >= min_stake and (ev_of(r, basis) or -1) > min_ev and key(r) not in sent]
-    return sorted(hits, key=lambda r: ev_of(r, basis), reverse=True)
+def parse_tiers(text: str) -> list[tuple[float, float]]:
+    """'500:20,1000:10' -> [(500, 0.20), (1000, 0.10)]: bets of $500+ need +20% EV, $1,000+ need +10%."""
+    tiers = []
+    for part in text.split(","):
+        stake, ev = part.split(":")
+        tiers.append((float(stake), float(ev) / 100))
+    return sorted(tiers)
+
+
+def min_ev_for(stake: float, tiers: list[tuple[float, float]]) -> float | None:
+    """The EV bar for a bet this size (the biggest tier it reaches), or None when it's under every tier."""
+    reached = [ev for floor, ev in tiers if stake >= floor]
+    return reached[-1] if reached else None
+
+
+def pick(rows: list[dict], tiers: list[tuple[float, float]], sent: set[str], basis: str = "mid",
+         skip_thin: bool = True) -> list[dict]:
+    """Bets that clear their size tier's EV bar, not alerted yet, best first. Thin leg books are left out."""
+    def wanted(r):
+        bar = min_ev_for(r["stake"], tiers)
+        return (bar is not None and (ev_of(r, basis) or -1) > bar and key(r) not in sent
+                and not (skip_thin and thin(r)))
+    return sorted(filter(wanted, rows), key=lambda r: ev_of(r, basis), reverse=True)
 
 
 def thin(row: dict) -> bool:

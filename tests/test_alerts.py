@@ -22,14 +22,28 @@ def row(ticker="KXMVECOMBO-1", price=0.20, count=3000):
     return score_bet(bet, {"mve_selected_legs": LEGS}, markets, books, now=NOW)
 
 
-def test_pick_filters_on_size_ev_and_sent():
+TIERS = alerts.parse_tiers("1000:10,500:20")
+
+
+def test_tiers():
+    assert TIERS == [(500, 0.20), (1000, 0.10)]
+    assert alerts.min_ev_for(499, TIERS) is None
+    assert alerts.min_ev_for(700, TIERS) == 0.20
+    assert alerts.min_ev_for(1000, TIERS) == 0.10
+
+
+def test_pick_filters_on_size_tier_ev_thin_and_sent():
     good = row()  # $600 at 0.20 vs fair 0.30: +50%
     small = row("KXMVECOMBO-2", count=1000)  # $200
     bad = row("KXMVECOMBO-3", price=0.29)  # +3%
+    mid_size = row("KXMVECOMBO-4", price=0.26)  # $780 at +15%: under the $500 tier's 20%
+    big = row("KXMVECOMBO-5", price=0.26, count=4000)  # $1,040 at +15%: clears the $1k tier's 10%
     assert good["ev_pct_mid"] > 0.49
-    assert [r["ticker"] for r in alerts.pick([small, bad, good], 500, 0.10, set())] == ["KXMVECOMBO-1"]
-    assert alerts.pick([good], 500, 0.10, {alerts.key(good)}) == []
-    assert alerts.pick([good], 500, 0.60, set()) == []
+    assert [r["ticker"] for r in alerts.pick([small, bad, mid_size, big, good], TIERS, set())] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
+    assert alerts.pick([good], TIERS, {alerts.key(good)}) == []
+    good["leg_detail"][0]["spread"] = 0.05
+    assert alerts.pick([good], TIERS, set()) == []
+    assert alerts.pick([good], TIERS, set(), skip_thin=False) == [good]
 
 
 def test_message_has_card_link_and_louder_ping_for_bigger_edges():
