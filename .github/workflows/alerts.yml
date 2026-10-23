@@ -1,0 +1,45 @@
+name: Notification bot
+# Always-on alerts: each run watches for ~5h50m, and the hourly schedule queues the next
+# run behind it (one running + one waiting), so there's no gap between runs.
+# Change the thresholds in Settings → Secrets and variables → Actions → Variables:
+#   ALERT_MIN_BET (dollars, default 500), ALERT_MIN_EV (percent, default 10),
+#   ALERT_EV_BASIS (mid or crx, default mid), APP_URL (your CapyEV link, adds a Quote it button).
+# Needs the secret NTFY_TOPIC (your ntfy topic name). Without it, it only prints.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  push:  # TEMP: dry-run test from the PR branch
+    branches: [claude/project-thread-4wagdi]
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to run
+        default: "350"
+      dry_run:
+        description: Print alerts instead of sending (1 = yes)
+        default: "0"
+
+concurrency:
+  group: alert-bot
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests
+      - run: python scripts/alert_bot.py
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ALERT_MIN_BET: ${{ vars.ALERT_MIN_BET }}
+          ALERT_MIN_EV: ${{ vars.ALERT_MIN_EV }}
+          ALERT_EV_BASIS: ${{ vars.ALERT_EV_BASIS }}
+          APP_URL: ${{ vars.APP_URL }}
+          ALERT_MINUTES: ${{ inputs.minutes || (github.event_name == 'push' && '8') || '350' }}
+          DRY_RUN: ${{ inputs.dry_run || (github.event_name == 'push' && '1') || '0' }}
