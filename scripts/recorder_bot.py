@@ -24,7 +24,6 @@ needs it too), APP_URL (adds a Quote it button to alerts).
 python scripts/recorder_bot.py
 """
 
-import json
 import os
 import sys
 import threading

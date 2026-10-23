@@ -45,12 +45,14 @@ def _reload_if_deployed() -> None:
 _reload_if_deployed()
 
 from combo_tracker import activity  # noqa: E402  (after the reload check)
+from combo_tracker import financial  # noqa: E402
 from combo_tracker.bettors import BettorTracker  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book, demo_store  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
-from combo_tracker.pipeline import Board, Scorer  # noqa: E402
+from combo_tracker.keys import find_secret, kalshi_auth  # noqa: E402
+from combo_tracker.pipeline import Board, Scorer, TradesUnavailable  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
 from combo_tracker import recorder  # noqa: E402
@@ -61,9 +63,14 @@ DEMO = os.environ.get("DEMO") == "1"
 SCORE_SECONDS = 120  # how often the background worker re-scores the views people have open
 DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
 MAX_BETS = 600  # newest bets scored per view
+MIN_BETS = (5, 10, 50, 100, 500)  # the Min bet choices on Combos (MIN_BET in ui/table.js)
+DEFAULT_VIEW = (60, 50)  # Combos opens on the last hour, bets of $50+
+HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keeps scored
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
 REFRESH_WAIT = 45  # seconds the refresh button waits for new scores before saying Kalshi is slow
+STALE_SECONDS = 600  # a page opened on scores older than this (the app sat idle) brews fresh ones
+TRADES_WAIT = 60  # seconds a page waits for the collector's first poll after start-up or an idle pause
 
 UI = Path(__file__).parent / "combo_tracker" / "ui"
 LOGO = (UI / "capyev.svg").read_text()  # a capybara sipping boba
@@ -204,17 +211,20 @@ def get_source() -> SimpleNamespace:
     """
     if DEMO:
         client = DemoClient(n_trades=1500)  # enough rows to exercise endless scroll
-        scorer = Scorer(client)
+        scorer = Scorer(client, hide=financial.is_financial)
         trades_for = lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m))  # noqa: E731
         return SimpleNamespace(scorer=scorer, trades_for=trades_for, collector=None,
-                               board=Board(scorer, trades_for, max_bets=MAX_BETS))
+                               board=Board(scorer, trades_for, max_bets=MAX_BETS, default_view=HOME_VIEW,
+                                           keep=(DEFAULT_VIEW,)))
     _stop_collectors()
-    client = KalshiClient()
-    scorer = Scorer(client)
+    client = KalshiClient(max_workers=8)  # a new filter's lookups go out 8 at a time
+    scorer = Scorer(client, hide=financial.is_financial)  # Kenny bets sports: no crypto or gold legs
     # Load the newest 15 minutes first; older history fills in a poll at a time.
     collector = Collector(client, max_window_minutes=MAX_WINDOW, initial_backfill_minutes=15)
-    board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS)
+    board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS, default_view=HOME_VIEW,
+                  keep=(DEFAULT_VIEW,), wait_for_trades=TRADES_WAIT)
     collector.after_poll = lambda col: board.refresh(trades_as_of=col.poll_started)
+    collector.after_error = lambda col: board.poll_failed()
     collector.start()
     return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
 
@@ -233,8 +243,8 @@ def with_depth(ticker: str, side: str, lookback: int) -> dict:
 
 
 # ---------- State the browser sends back ----------
-st.session_state.setdefault("min_bet", 100)
-st.session_state.setdefault("window", 60)
+st.session_state.setdefault("min_bet", DEFAULT_VIEW[1])
+st.session_state.setdefault("window", DEFAULT_VIEW[0])
 st.session_state.setdefault("deep", {})
 
 
@@ -272,10 +282,39 @@ def _quote():
     st.session_state.quote_req = st.session_state.cev.quote
 
 
+def _touch_combos(board) -> None:
+    """Keep the Combos view open so the worker keeps it fresh, and the other Min bets at its window,
+    so switching is instant. Before the phone's saved filter has come in (the page's first run),
+    the other Min bets are held for 5 minutes only, in case it's another window."""
+    window, min_bet = st.session_state.window, st.session_state.min_bet
+    board.touch(window, min_bet)
+    for other in MIN_BETS:
+        board.touch(window, other, hold=None if st.session_state.get("table_ran") else 300)
+    st.session_state.table_ran = True
+
+
+def _brew(view: tuple[int, float], message: str):
+    """The view's scores and an error, brewing them first if there are none yet or they're old
+    (the app sat idle). If brewing fails, the old scores stay up with the error."""
+    board = get_source().board
+    snap = board.peek(*view)
+    if snap is not None and time.time() - snap.fetched_at.timestamp() <= STALE_SECONDS:
+        return snap, None
+    try:
+        with st.spinner(message):
+            return board.get(*view, max_age=STALE_SECONDS), None
+    except TradesUnavailable:
+        return snap, "Kalshi is slow to send the latest trades, so these are the last scores. Tap ↻ in a minute."
+    except Exception as exc:
+        if snap is None:
+            raise
+        return snap, f"Couldn't update the scores: {exc}"[:200]
+
+
 @st.fragment
 def table_view():
     go = st.session_state.pop("quote_req", None)
-    if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
+    if go:  # "Bet in CapyEV" on an open bet: check and quote it on the Quote page (quote_view reads these params)
         st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
                                                "n": f"{go['n']:g}"})
@@ -287,13 +326,10 @@ def table_view():
     pinned = st.session_state.get("pinned")
     snap = pinned["snap"] if pinned and pinned["view"] == (window, min_bet) else None
     try:
-        if snap is None:
-            snap = src.board.peek(window, min_bet)
-            if snap is None:  # first look at this min bet / window; afterwards it updates in the background
-                with st.spinner("Brewing scores for this filter… 🧋"):
-                    snap = src.board.get(window, min_bet)
+        if snap is None:  # first look at this filter; afterwards the worker keeps it fresh
+            snap, error = _brew((window, min_bet), "Brewing scores for this filter… 🧋")
             st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
-        src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
+        _touch_combos(src.board)
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
@@ -304,8 +340,9 @@ def table_view():
             notes.append(f"Still loading history: {covered:.0f} of {window} min so far.")
         if collector.last_error:
             error = error or _poll_error(collector.last_error)
-    if snap and snap.bets_over_min > snap.bets_scored:
-        notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
+    if snap and snap.bets_over_min > MAX_BETS:
+        about = "about " if getattr(snap, "over_min_estimated", False) else ""  # pinned before a deploy: no field
+        notes.append(f"Showing the newest {snap.bets_scored:,} of {about}{snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
     # The browser spins the refresh icon until `refreshed` echoes its tap. Until then the
     # table's data stays exactly as it was, so a rerun resends almost nothing.
@@ -378,8 +415,11 @@ def _watch_refresh() -> None:
 
 @st.fragment(run_every=60)
 def _heartbeat() -> None:
-    """Tells the background workers a page is open, so they keep polling Kalshi (see activity.py)."""
+    """Tells the background workers a page is open, so they keep polling Kalshi (see activity.py),
+    and keeps an open Combos filter scored while you read it."""
     activity.seen()
+    if st.session_state.get("page") == COMBOS.title and st.session_state.get("table_ran"):
+        _touch_combos(get_source().board)
 
 
 def nav() -> None:
@@ -403,9 +443,12 @@ def combo_page() -> None:
 
     with st.expander("How EV, units and flags work"):
         st.markdown(
-            "- Each bet leads with **EV mid / EV cross**. **EV mid** multiplies each leg's mid price to get a fair "
-            "price, then EV = fair ÷ price paid − 1. That assumes the legs are independent. **EV cross** prices each "
-            "leg by crossing the spread (its bid). It's the conservative number.\n"
+            "- Each card's top line is the bet @ the multiplier it got (bets of $500+ in cyan), its Kelly units and "
+            "**EV mid / EV cross**; under them, the fair multipliers behind the two EVs (mid / cross, the one the "
+            "switch picks brighter) and the clock time it was bet. **EV mid** multiplies each leg's mid price to "
+            "get a fair price, then EV = fair ÷ price paid − 1 (on the card, multiplier paid ÷ fair multiplier − 1). "
+            "That assumes the legs are independent. **EV cross** "
+            "prices each leg by crossing the spread (its bid). It's the conservative number.\n"
             "- The **EV Mid / Cross** switch picks which one is big, colors the bet, and drives Min EV, Min QK and the "
             "EV and QK sorts; the other figure gets a red chip when it's negative (a green one when it's positive "
             "on a red pill). The green brightens as the edge grows, on the same scale as Home: a pale wash under "
@@ -425,14 +468,15 @@ def combo_page() -> None:
             "- **Sort** by Newest (every refresh starts here), EV, Bet $ or QK. Tap the lit one again to flip it.\n"
             "- **Tags**: NO the bettor took NO on the combo · SG two legs on the same game · ⚠ THIN see Hide thin · "
             "IN BAND the price sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · "
-            "CHECK an edge of +200% or more, usually a stale book. On the right: the bet, the multiplier and American "
-            "odds it got, and what it pays; bets of $500+ show in cyan.\n"
+            "CHECK an edge of +200% or more, usually a stale book. Then the leagues and legs; when the line is tight, "
+            "leagues show as their emoji, or are left to the open bet.\n"
             "- **Open a bet** to see its legs, and the multiplier the bettor paid next to the fair ones behind EV mid "
             "and EV cross (with American odds and units).\n"
-            "- **Bet in Kalshi** (on an open bet) opens that combo in the Kalshi app, or in the combo builder on "
-            "kalshi.com if the app isn't installed. Kalshi quotes it fresh, so check the price still beats the fair "
-            "odds before you buy. **Quote it** checks the live price on the Quote page instead. The book icon walks "
-            "each leg's whole orderbook for the bet's size.\n"
+            "- **Bet in CapyEV** (on an open bet) opens it on the Quote page, which asks makers for quotes at your "
+            "Kelly size and bets the best quote once you confirm (needs your Kalshi key and TRADE_PIN). **kalshi.com** opens "
+            "Kalshi's combo builder in your browser with the combo in the slip; the Kalshi app can't open a combo "
+            "from a link, and it only buys YES on a combo. Either way the price is quoted fresh, so check it still beats the fair odds. The book "
+            "icon walks each leg's whole orderbook for the bet's size.\n"
             "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
             "10–15 seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
             "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
@@ -442,7 +486,6 @@ def combo_page() -> None:
 
 
 # ---------- Home page ----------
-HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keeps scored
 
 
 def _home_refresh():
@@ -463,16 +506,13 @@ def _home_quote():
 @st.fragment
 def home_view():
     go = st.session_state.pop("quote_req", None)
-    if go:  # "Quote" on a card: check it on the Quote page
+    if go:  # "Bet in CapyEV" on a card: check and quote it on the Quote page
         st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}", "n": f"{go['n']:g}"})
     src = get_source()
     error = None
     try:
-        snap = src.board.peek(*HOME_VIEW)
-        if snap is None:
-            with st.spinner("Brewing the best bets… 🧋"):
-                snap = src.board.get(*HOME_VIEW)
+        snap, error = _brew(HOME_VIEW, "Brewing the best bets… 🧋")
         src.board.touch(*HOME_VIEW)
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
@@ -518,8 +558,9 @@ def home_page() -> None:
             "- The **u** figure is Kelly units to bet, at the settings you pick on the Combos tab (gear icon: Kelly "
             "and unit size, plus its Mid / Cross switch). The defaults are ¼ Kelly on EV mid and 1u = 1% of "
             "bankroll.\n"
-            "- **Bet in Kalshi** opens the combo in Kalshi's app (or its combo builder on the web). Kalshi quotes it "
-            "fresh, so make sure the price still beats the fair odds. **Quote** checks the live price here first.\n"
+            "- **Bet in CapyEV** gets makers' quotes on the Quote page and bets the best one once you confirm. **kalshi.com** "
+            "opens the combo in Kalshi's combo builder in your browser (the Kalshi app can't open a combo from a "
+            "link). Either way it's quoted fresh, so make sure the price still beats the fair odds.\n"
             "- Tap a card for all its legs. The Combos tab has every bet, with more filters and the full book."
         )
 
@@ -530,18 +571,21 @@ BETTOR_TABS = ["Whales", "Tennis", "Live", "Profiles"]
 DEFAULT_VARIANT = {"Whales": "a:all", "Tennis": "t:30"}
 
 
+def _secrets() -> tuple[dict, str | None]:
+    """The app's secrets (read on every call: Streamlit reloads them when they're edited)."""
+    try:
+        return st.secrets.to_dict(), None
+    except Exception as exc:  # no secrets, or the secrets aren't valid TOML
+        if "No secrets" in str(exc):
+            return {}, None
+        return {}, f"the app's secrets couldn't be read, so check them for a typo ({exc})"[:240]
+
+
 def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
     """The API key from Streamlit secrets or the environment, and why it couldn't be used, if so."""
-    try:
-        secrets = dict(st.secrets)
-    except Exception as exc:  # no secrets, or the secrets aren't valid TOML
-        secrets = {}
-        if "No secrets" not in str(exc):
-            return None, f"the app's secrets couldn't be read ({exc})"[:200]
-    try:
-        return KalshiAuth.from_env(secrets), None
-    except Exception as exc:
-        return None, f"the private key couldn't be read ({exc})"[:200]
+    secrets, problem = _secrets()
+    auth, missing = kalshi_auth(secrets)
+    return auth, (None if auth else problem or missing)
 
 
 class _Fixed:
@@ -818,26 +862,22 @@ def _leg_pool(scorer, max_age: float = 900):
 
 
 def _secret(name: str) -> str | None:
-    try:
-        value = st.secrets.get(name)
-    except Exception:  # no secrets file
-        value = None
-    if value is None:
-        value = os.environ.get(name)
-    return (str(value).strip() or None) if value is not None else None  # blank counts as not set
+    """A secret, found the same forgiving way as the Kalshi key; blank counts as not set."""
+    return find_secret(_secrets()[0], name)
 
 
 def quote_page() -> None:
     nav()
     src = get_source()
-    view = (st.session_state.get("window", 60), st.session_state.get("min_bet", 100))
-    snap = src.board.peek(*view) or src.board.peek(60, 100)  # the worker always keeps 60 min / $100 scored
+    view = (st.session_state.get("window", DEFAULT_VIEW[0]), st.session_state.get("min_bet", DEFAULT_VIEW[1]))
+    snap = src.board.peek(*view) or src.board.peek(*DEFAULT_VIEW) or src.board.peek(*HOME_VIEW)  # always scored
     if snap is None:
         with st.spinner("Loading recent bets…"):
             snap = src.board.get(*view)
     rows = sorted(snap.rows, key=lambda r: r["last_time"], reverse=True) if snap else []
     client = src.scorer.client if DEMO else quote_client()  # the demo's bets only exist in its own client
     auth, problem = (None, None) if DEMO else _kalshi_auth()
+    problem = f"Quotes are off: {problem}." if problem else None
     pool = (lambda: (client.leg_markets, client.events)) if DEMO else _leg_pool(src.scorer)
     quote_view.render(client, rows, starts=src.scorer.starts, auth=auth, demo=DEMO, pool=pool,
                       scored_at=snap.fetched_at if snap else None, pin=_secret("TRADE_PIN"), auth_problem=problem)
@@ -862,8 +902,8 @@ def quote_page() -> None:
             "- **Add legs**: makers price whole combos, not legs, so adding a near-certain leg on another game "
             "sometimes lowers the price by less than the leg's odds. Pick legs, quote the bigger combo, and compare "
             "EV with the original's quotes.\n"
-            "- **Bet in Kalshi** opens the combo's slip in the Kalshi app (or on kalshi.com) to bet it there. Check the "
-            "side in the slip for a NO bet."
+            "- **Bet on kalshi.com** opens Kalshi's combo builder in your browser with this combo in the slip (the "
+            "Kalshi app can't open a combo from a link). kalshi.com only buys YES on a combo, so bet a NO here."
         )
 
 

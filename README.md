@@ -16,7 +16,7 @@ EV CRX +3568.4% (fair -363 / 1.28x) · 19u
 
 ## Home and the tab bar
 
-The app opens on **Home**, a phone-first list of the best bets right now: combos of $100+ from the last hour whose fair price beats what was paid, best EV (cross) first. Each card shows EV mid / EV cross in a green badge that deepens with the edge (a pale tint under +10%, solid neon with a 🔥 from about +200%), the leagues, start time or LIVE, the bet, its legs, and big **Bet in Kalshi** and **Quote** buttons. Pre-match / Live / All, Min EV and Min bet filter it.
+The app opens on **Home**, a phone-first list of the best bets right now: combos of $100+ from the last hour whose fair price beats what was paid, best EV (cross) first. Each card shows EV mid / EV cross in a green badge that deepens with the edge (a pale tint under +10%, solid neon with a 🔥 from about +200%), the leagues, start time or LIVE, the bet, its legs, and big **Bet in CapyEV** and **kalshi.com** buttons. Pre-match / Live / All, Min EV and Min bet filter it.
 
 Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app: Combos and Bettors on the left, the cyan capybara button (Home) in the middle, the rest on the right. Tabs are listed in `NAV_TABS` in `app.py`.
 
@@ -26,8 +26,10 @@ Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
 - The page is a black and cyan table with rounded type and pill-shaped controls, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (Mid odds / Cross odds, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
 - Toggles at the top: **Min EV**, **Min QK** (Kelly units) and **Min bet** chips, a **Window** (15m, 1h, 3h), **Indep. only** to hide same-game combos, **Mid / Cross** to pick which EV the minimums use, **Hide thin** to drop combos with an unreliable leg book, **Pregame / Live**, and a search box for leg names. The gear icon sets the Kelly fraction, unit size and what counts as thin (default: a leg spread over 3¢ or under 50 contracts at the top of book). Your choices are remembered on your phone.
-- The list scrolls endlessly and shows the newest bets first after every refresh (the app scores the newest 600 bets in each view). Tap a column header to sort differently, or a row to open it: each leg with its odds, bid / ask (`*` marks a thin book) and LIVE or its start time, fair odds, net EV after fees, flags, a book button that walks the full leg orderbooks at the bet's size, and **Copy bet card**.
-- **Bet in Kalshi** on an open bet opens that exact combo in the Kalshi app, ready to buy. It links to `kalshi.com/markets_by_ticker/<combo ticker>`, a path Kalshi's iOS and Android apps open; without the app, kalshi.com opens its combo builder with the combo in the bet slip. Kalshi quotes it fresh, so compare its price with the fair odds before you buy (a NO bet gets a reminder to check the side). **Quote it** opens the Quote page with the bet filled in.
+- Min bet starts at $50. Combos with a crypto, commodity or other financial leg (Bitcoin, gold, oil, stock indices, FX) are hidden everywhere in the app. Kalshi's own event category decides (Crypto, Commodities, Financials), with a list of known series (`combo_tracker/financial.py`) until a series' events have been seen.
+- The list scrolls endlessly and shows the newest bets first after every refresh (the app scores the newest 600 bets in each view, after hiding financial ones). Tap a column header to sort differently, or a row to open it: each leg with its odds, bid / ask (`*` marks a thin book) and LIVE or its start time, fair odds, net EV after fees, flags, a book button that walks the full leg orderbooks at the bet's size, and **Copy bet card**.
+- **Bet in CapyEV** on an open bet opens the Quote page with the bet filled in: it asks makers for quotes at your Kelly size and bets the best quote once you confirm (see Quote below).
+- **kalshi.com** opens Kalshi's combo builder in your browser with that exact combo in the bet slip, via `kalshi.com/combos?marketTicker=<combo ticker>`, the link Kalshi's own shared combos use. The Kalshi app can't load a combo from a link: iOS hands `kalshi.com/markets_by_ticker/*` links to the app, which opens without the combo, and the app doesn't claim `/combos`, so this link stays in the browser (sign in to kalshi.com there once). Kalshi quotes it fresh, so compare its price with the fair odds before you buy (kalshi.com only buys YES on a combo, so a NO bet gets a reminder to use Bet in CapyEV).
 - Flags: `SG` same-game legs (correlated), `THIN` a thin leg book, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%. LIVE uses each game's scheduled start from Kalshi's public schedule (`/milestones`); a combo is live once any leg's game has started (red dot in the row). Legs Kalshi doesn't schedule count as live within 3h of their expected settlement.
 
 All data comes from Kalshi's free public API. No API key is needed.
@@ -47,13 +49,13 @@ The **Bettors** tab is about who is behind the combo bets, starting with whales 
 
 ### API key for RFQ matching and the recorder
 
-Create a key on Kalshi (Account & security → API keys, with read and write access) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. Both must come from the same Kalshi key: a key ID from one key with the private key of another gets `INCORRECT_API_KEY_SIGNATURE`. The Quote page's **API key check** shows the app's key ID ending and public-key fingerprint, and whether Kalshi accepts it for reading and trading.
+Create a key on Kalshi (Account & security → API keys, with read and write access) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. Both must come from the same Kalshi key: a key ID from one key with the private key of another gets `INCORRECT_API_KEY_SIGNATURE`. Put them above any `[section]` line (in TOML, everything after one belongs to that section; the app still finds them there, and in other capitals). The app reads secrets as they're saved, so no reboot is needed; if one is missing or misnamed, the Bettors and Quote pages say which. The Quote page's **API key check** shows the app's key ID ending and public-key fingerprint, and whether Kalshi accepts it for reading and trading.
 
 Add a third secret, `TRADE_PIN` (a passphrase or 6+ digits), to bet from the Quote page. The app is public, so once it's set, quotes and bets ask for the PIN; a phone stays unlocked for 30 days, and more than 8 wrong PINs in an hour lock it for everyone.
 
 ## Quote page
 
-Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or Copy ticker, then the big **Paste ticker** button). A ticker, a CapyEV `/quote?t=TICKER&side=yes&p=0.25&n=100` link or a Kalshi `markets_by_ticker` link all work.
+Built for copying a bet from the Combos page: open a bet, tap **Bet in CapyEV** (or Copy ticker, then the big **Paste ticker** button). A ticker, a CapyEV `/quote?t=TICKER&side=yes&p=0.25&n=100` link or a Kalshi `combos?marketTicker=` or `markets_by_ticker` link all work.
 
 - **Verdict**: LIVE when the combo's own orderbook has resting orders at or under the price, or the same side filled at that price in the last 90 s (the picked bet's own fills don't count); LIKELY when the newest fill was at the price a few minutes ago; MOVED when newer fills are worse; STALE when nothing has filled since.
 - **Since HH:MM**: fair odds and EV when CapyEV scored the bet vs now, and which legs moved. A +EV line from two minutes ago can be gone.
@@ -61,7 +63,7 @@ Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or C
 - **Quotes** (needs the API key): pasting a combo sends a real RFQ at your size, in units (1u = $1,000 and ¼ Kelly by default, editable under Sizing; the Kelly size at the best price now is preselected). Quotes list the odds after your fee, cost, EV MID/CROSS and Kelly units at that price. RFQs hide your ID from makers and close after 45 s. Kalshi allows one open request per combo, so if you have one open on the same combo (its slip in the Kalshi app, say), it's closed first.
 - **Bet** (needs `TRADE_PIN`) takes the best quote after a confirm step that shows its EV: you buy at the maker's price for the quoted size, the maker confirms within 3 s, and the page shows the fill. If Kalshi stops answering mid-bet, the page says the bet may have gone through: check the Kalshi app before betting again. One bet is capped at 3u.
 - **Add legs**: near-certain legs (80–98.5%, tight books) on other games, by sport, from legs people combined in the last 15 minutes. Pick some and quote the bigger combo next to the original: makers price whole combos, so an extra leg sometimes costs less than its odds.
-- **Bet in Kalshi** opens the combo's slip in the Kalshi app.
+- **Bet on kalshi.com** opens Kalshi's combo builder in your browser with the combo in the slip.
 
 ## Notification bot
 
@@ -73,13 +75,13 @@ Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or C
 | $500–1k | +20% | +100% |
 | $1k+ | +10% | +50% |
 
-Live bars are higher because most live edges are lines moving under a stale book. It leaves out combos with a thin leg book (a leg spread over 3¢ or under 50 contracts at the top) and combos with a crypto leg (BTC, ETH, SOL, XRP, DOGE and other crypto price markets; the list is `SKIP_SERIES` in `combo_tracker/alerts.py`), as a Telegram message from your own bot (free, no daily cap) or through [ntfy](https://ntfy.sh) (free, no account, but about 250 messages a day). It runs on GitHub Actions (`.github/workflows/alerts.yml`), so it keeps going while the Streamlit app sleeps.
+Live bars are higher because most live edges are lines moving under a stale book. It leaves out combos with a thin leg book (a leg spread over 3¢ or under 50 contracts at the top), same-game combos (their legs aren't independent, so the fair price is off), combos of more than 5 legs or across 3+ leagues, and combos with a crypto, commodity or other financial leg (BTC, gold, oil, stock indices; see `combo_tracker/financial.py`), as a Telegram message from your own bot (free, no daily cap) or through [ntfy](https://ntfy.sh) (free, no account, but about 250 messages a day). It runs on GitHub Actions (`.github/workflows/alerts.yml`), so it keeps going while the Streamlit app sleeps.
 
-- Each alert opens with two bold lines: what your lock screen shows, e.g. `🚀 PREGAME +812% EV · $1,250 YES 4-leg combo`, and a summary of EV, fair multiple and Kelly units at mid and crossing the spread, e.g. `MID +812% · 1.26x · 20u | CRX +640% · 1.28x · 15u`. Then bet → payout, how long ago, a same-game warning and the bet card, with a **Bet in Kalshi** button (and **Quote it** if `APP_URL` is set). The emoji grows with the edge: 🟢 under +50%, 🔥 +50%, 💰 +100%, 🚀 +500%; on ntfy the bigger ones also ring louder. 
+- Each alert opens with two bold lines: what your lock screen shows, e.g. `🚀 PREGAME +812% EV · $1,250 YES 4-leg combo`, and a summary of EV, fair multiple and Kelly units at mid and crossing the spread, e.g. `MID +812% · 1.26x · 20u | CRX +640% · 1.28x · 15u`. Then bet → payout, how long ago, a same-game warning (when `ALERT_SKIP_SAME_GAME=0`) and the bet card, with a **Bet in Kalshi** button (and **Quote it** if `APP_URL` is set). The emoji grows with the edge: 🟢 under +50%, 🔥 +50%, 💰 +100%, 🚀 +500%; on ntfy the bigger ones also ring louder. 
 - One alert per combo and side. It checks for new trades every minute and alerts bets with a fill in the last 5 minutes (20 minutes when a run starts); each run hands the list of what it sent to the next, so nothing repeats.
 - Telegram setup: in Telegram, message **@BotFather**, send `/newbot` and pick any name; it replies with a token. Add it as the repository secret `TELEGRAM_BOT_TOKEN` (Settings → Secrets and variables → Actions → New repository secret), open your new bot and send it any message, then start the bot (Actions → Notification bot → Run workflow). Its first message tells you your chat ID; add that as `TELEGRAM_CHAT_ID` too.
 - ntfy instead: install the ntfy app, subscribe to a topic name nobody would guess, and add it as the secret `NTFY_TOPIC`.
-- Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_TIERS_PREGAME` and `ALERT_TIERS_LIVE` (bet size:min EV %, defaults `50:100,500:20,1000:10` and `50:200,500:100,1000:50`; add `5000:5` for another tier, or `off` to turn one kind off), `ALERT_SKIP_THIN` (`0` to get thin books too), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
+- Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_TIERS_PREGAME` and `ALERT_TIERS_LIVE` (bet size:min EV %, defaults `50:100,500:20,1000:10` and `50:200,500:100,1000:50`; add `5000:5` for another tier, or `off` to turn one kind off), `ALERT_SKIP_THIN` (`0` to get thin books too), `ALERT_SKIP_SAME_GAME` (`0` to get same-game combos too), `ALERT_MAX_LEGS` and `ALERT_MAX_LEAGUES` (defaults `5` and `2`, `off` for no cap; leagues as the app labels them, so ATP and WTA count as two), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
 - Each run watches for about 5h50m (GitHub's limit is 6 h), and the hourly schedule queues the next run behind it. To pause it: Actions → Notification bot → ⋯ → Disable workflow. GitHub turns schedules off in a repo with no commits for 60 days; re-enable it on the same page.
 
 ## Tail bot
@@ -111,7 +113,9 @@ pytest -q
 2. Go to https://share.streamlit.io, sign in with GitHub, click **Create app**, pick this repo, and set the main file to `app.py`.
 3. Open the URL it gives you on your phone and use **Add to Home Screen**.
 
-A background worker pulls new combo trades every minute and re-scores the filters people have open every 2 minutes, so the page never waits on Kalshi and doesn't change while you're reading it. Tap ↻ to refresh now: the worker pulls the newest trades and leg quotes and re-scores your filter first, and the icon spins until the new bets are in (10–15 seconds on a busy night; the table stays usable meanwhile). The header says how old the scores are. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
+A background worker pulls new combo trades every minute and re-scores the filters people have open every 2 minutes, so the page never waits on Kalshi and doesn't change while you're reading it. Tap ↻ to refresh now: the worker pulls the newest trades and leg quotes and re-scores your filter first, and the icon spins until the new bets are in (10–15 seconds on a busy night; the table stays usable meanwhile). The header says how old the scores are. The worker also keeps every Min bet at your window scored, so switching between $5 and $500 is instant; a new window takes a few seconds the first time. Nobody looking means no Kalshi calls: after 5 minutes without an open page the worker pauses. When you come back after a while, the page brews fresh scores (it loads the last 15 minutes of trades first, which takes 10–40 seconds depending on how busy Kalshi is) rather than showing old ones; older history fills in over the next few minutes. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
+
+Kalshi's public API needs no key but limits reads per IP: the trade feed and the event list take about 5 calls a second each, the market lookups 25 or more. `combo_tracker/client.py` paces every client in the app under one shared limit and those two routes under their own, so the app doesn't get rate limited (HTTP 429).
 
 ## Layout
 
@@ -119,7 +123,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/orderbook.py`: per-leg book math (bid/ask/mid, depth, walking the book)
 - `combo_tracker/engine.py`: groups fills into bets and computes fair prices, EV, Kelly and flags
 - `combo_tracker/format.py`: the text bet card
-- `combo_tracker/links.py`: the link that opens a market in Kalshi's app
+- `combo_tracker/links.py`: the link that puts a market in a Kalshi bet slip (kalshi.com's combo builder for a combo)
 - `combo_tracker/pipeline.py`: one refresh, end to end
 - `combo_tracker/view.py`: the compact rows the table receives
 - `combo_tracker/home.py`: the Home page's picks and cards
@@ -127,6 +131,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
 - `combo_tracker/recorder.py`: the recorder's store (whales, tennis bettors, starred bettors), its tables, the encrypted data branch and tags
 - `combo_tracker/alerts.py`: which bets the notification bot sends and how the alerts read
+- `combo_tracker/financial.py`: which legs are crypto, commodities or other financial markets (hidden in the app and alerts)
 - `combo_tracker/tail.py`: the tail bot's memory of matched bets, finding a friend's code, and its messages
 - `combo_tracker/quote.py` + `quote_view.py` + `ui/paste.js`: the Quote page (live check, RFQs, betting, extra legs)
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)

@@ -137,6 +137,6 @@ def test_messages():
     tail = Tail("Sam")
     plain = tail.plain_bet_message(match("f"), "42")
     assert plain["text"].startswith("👥 Sam bet $20 YES") and plain["chat_id"] == "42"
-    assert "markets_by_ticker/KXMVECOMBO-A" in plain["reply_markup"]["inline_keyboard"][0][0]["url"]
+    assert "/combos?marketTicker=KXMVECOMBO-A" in plain["reply_markup"]["inline_keyboard"][0][0]["url"]
     peek = tail.peek_message("KXMVECOMBO-A", "42")
     assert peek["disable_notification"] and "Not a bet yet" in peek["text"]

@@ -270,6 +270,7 @@ class BettorTracker:
         self.history_ttl = history_ttl
 
         self.lock = threading.Lock()
+        self._rfq_lock = threading.Lock()  # any session's run can attach RFQ matching (use_key)
         self.feed: list[tuple[float, str, float, str]] = []  # (ts, nickname, stake, ticker), named sides only
         self.feed_newest: dict[str, float] = {}
         self.feed_oldest: float | None = None
@@ -682,6 +683,15 @@ class BettorTracker:
                     self.errors.append(repr(exc)[:200])
             self._wake.wait(max(1.0, min(60.0, next_cycle - time.time())))
             self._wake.clear()
+
+    def use_key(self, auth, make_book) -> None:
+        """Start RFQ matching with `auth`, or switch the running book to it. Pages call this on every
+        run, so a key saved after the app started works without a reboot."""
+        with self._rfq_lock:
+            if self.rfq is None:
+                self.rfq = make_book(auth).start()
+            elif self.rfq.client.auth is not auth:
+                self.rfq.client.auth = auth  # the stream signs its next reconnect with it
 
     def start(self) -> "BettorTracker":
         if self._thread is None:

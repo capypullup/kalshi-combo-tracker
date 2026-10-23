@@ -12,14 +12,22 @@ def book(bid, ask, size=500):
     return {"yes_dollars": [[f"{bid:.4f}", f"{size:.2f}"]], "no_dollars": [[f"{1 - ask:.4f}", f"{size:.2f}"]]}
 
 
-def row(ticker="KXMVECOMBO-1", price=0.20, count=3000):
+def row(ticker="KXMVECOMBO-1", price=0.20, count=3000, legs=None):
     trade = {"trade_id": ticker, "ticker": ticker, "taker_side": "yes", "taker_outcome_side": "yes",
              "yes_price_dollars": f"{price:.4f}", "no_price_dollars": f"{1 - price:.4f}",
              "count_fp": f"{count:.2f}", "created_time": "2026-10-21T11:55:00Z"}
     bet = build_bets([trade])[0]
     books = {"A": book(0.49, 0.51), "B": book(0.59, 0.61)}  # fair mid 0.5 * 0.6 = 0.30
     markets = {"A": {"yes_sub_title": "Hawks"}, "B": {"yes_sub_title": "Seahawks"}}
-    return score_bet(bet, {"mve_selected_legs": LEGS}, markets, books, now=NOW)
+    if legs:  # the first two legs priced like A and B, the rest at 0.99, so the fair price stays about 0.30
+        for i, l in enumerate(legs):
+            books[l["market_ticker"]] = book(0.49, 0.51) if i == 0 else book(0.59, 0.61) if i == 1 else book(0.985, 0.995)
+            markets[l["market_ticker"]] = {"yes_sub_title": l["market_ticker"]}
+    return score_bet(bet, {"mve_selected_legs": legs or LEGS}, markets, books, now=NOW)
+
+
+def leg(event, market):
+    return {"event_ticker": event, "market_ticker": market, "side": "yes"}
 
 
 TIERS = alerts.parse_tiers("1000:10,500:20")
@@ -57,6 +65,36 @@ def test_pick_leaves_out_crypto_legs():
     assert alerts.pick([good], TIERS, OFF, set(), skip_series=()) == [good]
 
 
+def test_pick_leaves_out_same_game_legs():
+    same = row(legs=[leg("KXNBAGAME-26OCT21ATLORL", "KXNBAGAME-26OCT21ATLORL-ATL"),
+                     leg("KXNBAPTS-26OCT21ATLORL", "KXNBAPTS-26OCT21ATLORL-ATLTYOUNG11-25")])
+    assert same["same_game_legs"] == 1 and same["ev_pct_mid"] > 0.4
+    assert alerts.pick([same], TIERS, OFF, set()) == []
+    assert alerts.pick([same], TIERS, OFF, set(), skip_same_game=False) == [same]
+    tennis = row(legs=[leg("KXATPMATCH-26OCT23STRBER", "KXATPMATCH-26OCT23STRBER-STR"),
+                       leg("KXATPSETWINNER-26OCT23STRBER-2", "KXATPSETWINNER-26OCT23STRBER-2-STR")])  # match + set 2
+    assert tennis["same_game_legs"] == 1 and alerts.pick([tennis], TIERS, OFF, set()) == []
+    races = row(legs=[leg("SENATEGA-26", "SENATEGA-26-D"), leg("SENATENC-26", "SENATENC-26-D")])  # two Senate races
+    assert races["same_game_legs"] == 0 and alerts.pick([races], TIERS, OFF, set()) == [races]
+
+
+def test_pick_leaves_out_combos_over_five_legs_or_two_leagues():
+    nba = [leg(f"KXNBAGAME-26OCT21G{i}", f"KXNBAGAME-26OCT21G{i}-H{i}") for i in range(6)]
+    five, six = row("KXMVECOMBO-5", legs=nba[:5]), row("KXMVECOMBO-6", legs=nba)  # NBA only
+    two = row("KXMVECOMBO-2", legs=nba[:1] + [leg("KXNFLGAME-26OCT21SEADEN", "KXNFLGAME-26OCT21SEADEN-SEA")])
+    three = row("KXMVECOMBO-3", legs=nba[:1] + [
+        leg("KXNFLGAME-26OCT21SEADEN", "KXNFLGAME-26OCT21SEADEN-SEA"), leg("KXNHLGAME-26OCT21BOSNYR", "KXNHLGAME-26OCT21BOSNYR-BOS")])
+    bets = [five, six, two, three]
+    assert [r["legs"] for r in bets] == [5, 6, 2, 3]
+    assert [alerts.leagues(r) for r in bets] == [1, 1, 2, 3]
+    assert all(r["ev_pct_mid"] > 0.4 and not r["same_game_legs"] for r in bets)
+    picked = lambda **kw: {r["ticker"] for r in alerts.pick(bets, TIERS, OFF, set(), **kw)}  # noqa: E731
+    assert picked() == {"KXMVECOMBO-5", "KXMVECOMBO-2"}
+    assert picked(max_legs=None, max_leagues=None) == {r["ticker"] for r in bets}
+    assert picked(max_legs=6, max_leagues=3) == {r["ticker"] for r in bets}
+    assert picked(max_legs=None) == {"KXMVECOMBO-5", "KXMVECOMBO-6", "KXMVECOMBO-2"}
+
+
 def test_live_bets_use_the_live_tiers():
     good = row()  # $600 at +50%, legs' games not on the schedule and settling far off: pregame
     live = alerts.parse_tiers("500:40")
@@ -76,7 +114,7 @@ def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
     assert msg["title"] == "PREGAME +50% EV · $600 YES 2-leg combo"
-    assert msg["click"] == "https://kalshi.com/markets_by_ticker/KXMVECOMBO-1"
+    assert msg["click"] == "https://kalshi.com/combos?marketTicker=KXMVECOMBO-1"
     assert "$600 @ 5.0x (+400) → $3,000" in msg["message"]
     assert "YES Hawks (KXNBAGAME-26OCT21ATLORL)" in msg["message"]
     assert [a["label"] for a in msg["actions"]] == ["Bet in Kalshi", "Quote it"]

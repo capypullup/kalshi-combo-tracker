@@ -107,3 +107,31 @@ def test_history_stops_at_known_trades():
     client.social_trades = lambda *a, **k: calls.append(k) or real(*a, **k)
     tracker.refresh_history(p, force=True)
     assert len(p.fills) == first and len(calls) == 1
+
+
+def test_use_key_starts_one_rfq_book_across_sessions_and_switches_keys():
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    started = []
+
+    class Book:
+        def __init__(self, auth):
+            self.client = SimpleNamespace(auth=auth)
+
+        def start(self):
+            time.sleep(0.01)  # a real start spins up threads, so another session's run gets in
+            started.append(self)
+            return self
+
+    tracker = BettorTracker(DemoClient())
+    old, new = object(), object()
+    runs = [threading.Thread(target=tracker.use_key, args=(old, Book)) for _ in range(8)]
+    for t in runs:
+        t.start()
+    for t in runs:
+        t.join()
+    assert len(started) == 1 and tracker.rfq is started[0] and tracker.rfq.client.auth is old
+    tracker.use_key(new, Book)
+    assert len(started) == 1 and tracker.rfq.client.auth is new

@@ -20,7 +20,8 @@ def run_js(tmp_path, names: str, expr: str) -> str:
     module = tmp_path / "table.mjs"
     module.write_text(TABLE_JS.read_text())
     script = f"import {{ {names} }} from {json.dumps(module.as_uri())};process.stdout.write({expr});"
-    env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}  # toLocaleString: "+2,460%"
+    # toLocaleString: "+2,460%"; clock times: a zone with no daylight saving, so day sums hold anywhere
+    env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
     return subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True,
                           check=True, env=env).stdout
 
@@ -46,7 +47,10 @@ def test_js_bet_card_matches_python(tmp_path):
 def test_js_bet_link_matches_python(tmp_path):
     ticker = "KXMVECROSSCATEGORY-S2026L76DQIJNMS46XWZS-NRA3G3JTU"
     assert run_js(tmp_path, "betUrl", f"betUrl({json.dumps(ticker)})") == bet_url(ticker)
-    assert bet_url(ticker) == f"https://kalshi.com/markets_by_ticker/{ticker}"
+    assert bet_url(ticker) == f"https://kalshi.com/combos?marketTicker={ticker}"
+    leg = "KXNBAGAME-26OCT21ATLORL-ATL"  # a single market keeps its page link
+    assert run_js(tmp_path, "betUrl", f"betUrl({json.dumps(leg)})") == bet_url(leg)
+    assert bet_url(leg) == f"https://kalshi.com/markets_by_ticker/{leg}"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -85,9 +89,26 @@ def test_js_pills_that_read_the_same_look_the_same(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_js_starts_in(tmp_path):
-    expr = "JSON.stringify([-1, 0.5, 25.5, 160.5, 600].map((m) => startsIn(Date.now() + m * 60000)))"
-    assert json.loads(run_js(tmp_path, "startsIn", expr)) == ["starting", "in 1m", "in 25m", "in 2h40", "in 10h"]
+def test_js_times_read_as_clock_times(tmp_path):
+    """Bets show the clock time they were placed, and pre-match bets when their first game starts."""
+    now = "new Date(2026, 9, 23, 12, 0).getTime()"  # a Friday, noon local time
+    expr = (f"JSON.stringify([[-1, 0.5, 25.5, 160.5, 600, 1500, 8 * 1440].map((m) => startsIn({now} + m * 60000, {now})), "
+            f"[clock({now} - 4 * 60000, {now}), clock({now} - 13 * 3600000, {now})]])")
+    starts, clocks = json.loads(run_js(tmp_path, "clock, startsIn", expr).replace("\u202f", " "))
+    assert starts == ["starting", "starts in 1m", "starts in 25m", "starts 2:40 PM", "starts 10:00 PM", "starts Sat 1:00 PM",
+                      "starts Oct 31 12:00 PM"]  # a week out shows the date, so it can't read as this week
+    assert clocks == ["11:56 AM", "Thu 11:00 PM"]
+    # 6 calendar days count, though it's under 6 x 24h: Thursday would read as yesterday
+    late = "new Date(2026, 9, 23, 23, 0).getTime()"
+    expr = f"startsIn(new Date(2026, 9, 29, 22, 0).getTime(), {late})"
+    assert run_js(tmp_path, "startsIn", expr).replace("\u202f", " ") == "starts Oct 29 10:00 PM"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_js_card_stakes_keep_three_figures_up_to_100k(tmp_path):
+    expr = "JSON.stringify([692, 3712.4, 9999.4, 9999.5, 12400, 25049, 99949, 99950, 250400, 1234567].map(money0))"
+    assert json.loads(run_js(tmp_path, "money0", expr)) == \
+        ["$692", "$3,712", "$9,999", "$10.0k", "$12.4k", "$25.0k", "$99.9k", "$100k", "$250k", "$1.2M"]
 
 
 ROWS = [  # what the filters and sorts look at, for a handful of bets
