@@ -210,6 +210,12 @@ def get_source() -> SimpleNamespace:
     return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
 
 
+def _poll_error(err: str) -> str:
+    if "429" in err:
+        return "Kalshi is rate limiting us for a moment, so the list is slowing down and will catch up by itself."
+    return f"Last Kalshi poll failed, retrying: {err[:150]}"
+
+
 @st.cache_data(ttl=DEPTH_SECONDS, show_spinner=False)
 def with_depth(ticker: str, side: str, lookback: int) -> dict:
     """Re-score one bet against the full orderbook of each leg (list rows use top of book)."""
@@ -288,7 +294,7 @@ def table_view():
         if covered < window - 1:
             notes.append(f"Still loading history: {covered:.0f} of {window} min so far.")
         if collector.last_error:
-            error = error or f"Last Kalshi poll failed, retrying: {collector.last_error[:150]}"
+            error = error or _poll_error(collector.last_error)
     if snap and snap.bets_over_min > snap.bets_scored:
         notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
@@ -455,7 +461,7 @@ def home_view():
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
     if src.collector is not None and src.collector.last_error:
-        error = error or f"Last Kalshi poll failed, retrying: {src.collector.last_error[:150]}"
+        error = error or _poll_error(src.collector.last_error)
     req = st.session_state.get("home_req")
     home_cards(
         key="home",

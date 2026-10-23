@@ -206,3 +206,13 @@ def test_refresh_end_to_end_with_the_demo_feed():
     col.stop()
     assert board.done(60, 100, since) == (True, None)
     assert board.peek(60, 100) is not first and board.peek(60, 100).rows
+
+
+def test_clients_share_one_rate_limit_and_429_pause():
+    from combo_tracker import client as kc
+    a, b = kc.KalshiClient(rate_per_sec=10), kc.KalshiClient(rate_per_sec=10)
+    assert a.limiter.parent is b.limiter.parent is kc.SHARED_LIMITER
+    before = kc.SHARED_LIMITER.next_at
+    a.limiter.pause(2)
+    assert kc.SHARED_LIMITER.next_at >= before and kc.SHARED_LIMITER.next_at > kc.time.monotonic() + 1
+    kc.SHARED_LIMITER.next_at = 0.0  # don't slow the other tests down
