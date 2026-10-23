@@ -470,6 +470,7 @@ def build_view(store: Store, now: float | None = None, max_rows: int = MAX_ROWS,
         bets = sorted(mine, key=lambda b: -b["t"])
         row = {"code": code, "name": info.get("name"), "pa": info.get("pa"), "p30": info.get("p30"),
                "seen": int((info.get("first") or now) * 1000), "w": store.is_whale(code), "tg": store.is_tagged(code),
+               "big": info.get("big"),  # ever, locks included (the summaries' `big` is per period and setting)
                **sums, "recent": [recent_bet(b) for b in bets[:RECENT]]}
         rows.append(row)
         by_row[code] = row
@@ -683,16 +684,18 @@ class Feed:
 
 
 def pack_view(view: dict | None, variant: str = "a:all", open_code: str | None = None, tags=()) -> dict:
-    """What bettors.js needs for a table: each bettor with the one summary asked for, plus the open one's bets.
+    """What ranks.js needs for a table: each bettor with the one summary asked for, plus the open one's bets.
 
     `variant` is scope (a all bets, t tennis; a+ with 95¢+ bets, whales only) and period, e.g. "t:30".
+    `tags` are the app's stars (shared file plus this session); the recorder's own list may be minutes
+    old, so it isn't mixed in, or an unstarred bettor would stay starred until the next save.
     """
     rows, detail = [], None
-    tags = set(tags) | set((view or {}).get("tags") or [])
+    tags = set(tags)
     for r in (view or {}).get("rows") or []:
         s = r.get(variant) or r.get(variant.replace("+", "")) or r.get("a:all")
         rows.append({"code": r["code"], "name": r.get("name"), "pa": r.get("pa"), "p30": r.get("p30"), "seen": r.get("seen"),
-                     "w": r.get("w"), "tg": r["code"] in tags or (r.get("name") or "") in tags, "s": s})
+                     "w": r.get("w"), "big": r.get("big"), "tg": r["code"] in tags or (r.get("name") or "") in tags, "s": s})
         if open_code and r["code"] == open_code:
             detail = {"code": open_code, "recent": r.get("recent") or []}
     base = {k: (view or {}).get(k) for k in ("saved", "since", "coverage", "whale_min", "track_min", "tennis_min",
@@ -702,7 +705,7 @@ def pack_view(view: dict | None, variant: str = "a:all", open_code: str | None =
 
 def pack_live(view: dict | None, tags=()) -> dict:
     """The live bets with each bettor's 30-day record alongside, for the Live tab."""
-    tags = set(tags) | set((view or {}).get("tags") or [])
+    tags = set(tags)
     rows = {r["code"]: r for r in (view or {}).get("rows") or []}
     out = []
     for b in (view or {}).get("live") or []:
@@ -752,17 +755,23 @@ class GitHubTags:
             resp.raise_for_status()
 
     def toggle(self, tag: str) -> set[str]:
-        """Star or unstar one code or nickname. Returns the tags afterwards."""
+        """Star an unstarred code or nickname, or unstar a starred one. Returns the tags afterwards."""
+        return self.set(tag, None)
+
+    def set(self, tag: str, on: bool | None) -> set[str]:
+        """Star (on) or unstar (off) one code or nickname; None flips it. Returns the tags afterwards.
+        Two taps can't undo each other by accident: the state asked for is what's written."""
         if not valid_tag(tag):
             raise ValueError("a star is a bettor's code or Kalshi nickname")
         with self.lock:
             tags, sha = self.read()
-            if tag in tags:
-                tags.discard(tag)
-            elif len(tags) >= MAX_TAGS:
+            if on is None:
+                on = tag not in tags
+            if on == (tag in tags):
+                return tags  # already so
+            if on and len(tags) >= MAX_TAGS:
                 raise ValueError(f"at most {MAX_TAGS} stars; unstar someone first")
-            else:
-                tags.add(tag)
+            tags.add(tag) if on else tags.discard(tag)
             if sha is None:
                 self._ensure_branch()
             content = json.dumps({"tags": sorted(tags)}, indent=1).encode()

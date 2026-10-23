@@ -189,7 +189,7 @@ export default function (component) {
           tags.has(v) ? tags.delete(v) : tags.add(v);
           try { localStorage.setItem(TAGS, JSON.stringify([...tags])); } catch (err) { /* ignore */ }
           update(() => {});
-          return ctx.setTriggerValue("tag", { id: v, at: Date.now() });
+          return ctx.setTriggerValue("tag", { id: v, on: tags.has(v), at: Date.now() });
         }
       }
     });

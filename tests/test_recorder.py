@@ -137,6 +137,7 @@ def test_view_rows_live_and_packing():
     assert packed["variant"] == "t:30" and packed["detail"]["code"] == TENNIS_PRO and len(packed["detail"]["recent"]) == 6
     by = {r["code"]: r for r in packed["rows"]}
     assert by[WHALE]["tg"] and by[WHALE]["s"]["n"] == 0 and by[TENNIS_PRO]["s"]["n"] == 6
+    assert by[WHALE]["big"] >= 5000 and not by[TENNIS_PRO]["tg"]  # stars are the app's, not the recorder's list
     assert pack_view(view, "a+:7")["rows"][0]["s"]  # whales have it; others fall back to the plain variant
     lv = pack_live(view, tags=[TENNIS_PRO])
     assert len(lv["live"]) == 3 and all("t30" in b and "name" in b for b in lv["live"])
@@ -274,6 +275,10 @@ def test_github_tags_refuses_junk_and_too_many():
     with pytest.raises(ValueError):
         gh.toggle("one.more")
     assert "u1" not in gh.toggle("u1") and gh.session.puts == 1  # unstarring always works
+    gh = recorder.GitHubTags("t", session=_Session(["u1"]))
+    assert gh.set("u1", True) == {"u1"} and gh.session.puts == 0  # already starred: nothing to write
+    assert gh.set("u1", False) == set() and gh.session.puts == 1
+    assert gh.set("u2", None) == {"u1", "u2"} and gh.session.puts == 2  # None flips (the fake file still holds u1)
 
 
 def test_fetch_and_push_files_keep_a_lease(tmp_path):

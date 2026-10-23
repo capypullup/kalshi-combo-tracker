@@ -554,7 +554,7 @@ class _Fixed:
         return self.data
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)  # may be first called from a callback, where nothing should draw
 def bettor_feeds() -> SimpleNamespace:
     """Where the Bettors page reads from: the recorder's files on the bettor-data branch (see
     combo_tracker/recorder.py), opened with the app's Kalshi key, plus the starred bettors."""
@@ -563,8 +563,8 @@ def bettor_feeds() -> SimpleNamespace:
         view = build_view(demo_store(client))
         rows = pack_bettors(demo_tracker().snapshot.rows)
         profiles = {"saved": view["saved"], "rows": rows, "live": [], "status": "idle"}
-        return SimpleNamespace(view=_Fixed(view), profiles=_Fixed(profiles), tags_feed=_Fixed({"tags": []}), tags=None,
-                               problem=None)
+        return SimpleNamespace(view=_Fixed(view), profiles=_Fixed(profiles), tags_feed=_Fixed({"tags": view["tags"]}),
+                               tags=None, problem=None)
     auth, problem = _kalshi_auth()
     secret = _secret("BETTOR_DATA_KEY")
     if auth is None and not secret and not problem:
@@ -583,7 +583,7 @@ def demo_tracker() -> BettorTracker:
     return tracker
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)  # may be first called from a callback, where nothing should draw
 def get_bettors() -> BettorTracker:
     """A small tracker for the names you type on the Profiles tab: it loads only their histories
     (the recorder follows the busiest public tennis names around the clock)."""
@@ -612,20 +612,28 @@ def _tags_shared() -> bool:
     return quote_view._unlocked(pin, auth.key_id if auth is not None else "demo")
 
 
-def _toggle_tag(tag: str) -> None:
+def _set_tag(tag: str, on: bool | None) -> None:
+    """Star (on) or unstar a bettor; None flips it. The state asked for is what's kept, so a tap on a
+    stale page can't undo the last one."""
     if not recorder.valid_tag(tag):
         return
     feeds = bettor_feeds()
     local = st.session_state.setdefault("local_tags", set())
+    if on is None:
+        on = tag not in _tags()
     if _tags_shared():
         try:
-            feeds.tags.toggle(tag)
-            feeds.tags_feed.get(force=True)
+            tags = feeds.tags.set(tag, on)
+            with feeds.tags_feed.lock:  # the raw file on GitHub lags a few minutes; we know the answer
+                feeds.tags_feed.data, feeds.tags_feed.fetched_at, feeds.tags_feed.error = {"tags": sorted(tags)}, time.time(), None
             local.discard(tag)
             return
         except Exception as exc:
-            st.session_state.tag_error = f"Couldn't save the star on GitHub: {exc!r}"[:160]
-    local.symmetric_difference_update({tag})
+            st.session_state.tag_error = f"Couldn't save the star on GitHub: {type(exc).__name__}: {exc}"[:160]
+    if on:  # (a statement: a bare conditional expression here would be st.write'n by Streamlit's magic)
+        local.add(tag)
+    else:
+        local.discard(tag)
 
 
 def _rank_event(name: str):
@@ -634,11 +642,11 @@ def _rank_event(name: str):
         if value is None:
             return
         if name == "view":
-            st.session_state[f"rk_variant_{st.session_state.get('bt_tab', 'Whales')}"] = value
+            st.session_state[f"rk_variant_{st.session_state.get('bt_tab') or 'Whales'}"] = value
         elif name == "open":
             st.session_state.rk_open = value
         elif name == "tag":
-            _toggle_tag(value["id"])
+            _set_tag(value["id"], value.get("on"))
         elif name == "quote":
             st.session_state.quote_req = value
         elif name == "refresh":
@@ -652,7 +660,7 @@ def _live_event(name: str):
         if value is None:
             return
         if name == "tag":
-            _toggle_tag(value["id"])
+            _set_tag(value["id"], value.get("on"))
         elif name == "quote":
             st.session_state.quote_req = value
         elif name == "refresh":
@@ -663,11 +671,12 @@ def _live_event(name: str):
 
 
 def _track():
-    name = getattr(st.session_state.bt, "track", None)
+    value = getattr(st.session_state.bt, "track", None)
+    name, add = (value.get("name"), value.get("add")) if isinstance(value, dict) else (value, False)
     if name:
         get_bettors().add(name)
-        if _tags_shared() and name not in _tags():  # the recorder follows starred names too
-            _toggle_tag(name)
+        if add and _tags_shared() and name not in _tags():  # a name added here: the recorder follows it too
+            _set_tag(name, True)
 
 
 def _go_quote() -> None:
@@ -712,7 +721,9 @@ def bettors_view():
         profiles = feeds.profiles.get() or {}
         error, note = _data_note(feeds, view)
         data = pack_live(view, tags=tags)
-        data["live"] = sorted(data["live"] + [{**b, "c": None, "tg": b.get("name") in tags} for b in profiles.get("live") or []],
+        seen = {b["id"] for b in data["live"]}  # a named code who is also a tracked profile: the code's copy has the record
+        data["live"] = sorted(data["live"] + [{**b, "c": None, "tg": b.get("name") in tags}
+                                              for b in profiles.get("live") or [] if b["id"] not in seen],
                               key=lambda b: -b["t"])
         live_table(key="lv", data={**data, "demo": DEMO, "error": error, "note": note},
                    on_tag_change=_live_event("tag"), on_quote_change=_live_event("quote"), on_refresh_change=_live_event("refresh"))

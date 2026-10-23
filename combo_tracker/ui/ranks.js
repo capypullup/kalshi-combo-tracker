@@ -76,15 +76,15 @@ export const label = (r) => r.name || `#${r.code.slice(0, 8)}`;
 const tagged = (r, tags) => !!r.tg || tags.has(r.code) || (r.name && tags.has(r.name));
 
 // The rows that pass the filters, sorted. Each row carries one summary `s` (the scope, period and
-// 95¢+ setting Python was asked for). On Whales only whales show, and only those whose biggest bet in
-// that summary clears the chosen size; on Tennis anyone with tennis bets in the period.
+// 95¢+ setting Python was asked for). On Whales only whales show, and only those whose biggest bet
+// ever (r.big, locks included) clears the chosen size; on Tennis anyone with tennis bets in the period.
 export function visibleRows(tab, S, D, tags = new Set()) {
   const q = S.q.trim().toLowerCase().replace(/^[@#]/, "");
   const least = tab === "whales" ? Math.max(S.size || 0, D.whale_min || 0) : 0;
   const rows = D.rows.filter((r) => {
     const s = r.s;
     if (!s || !(s.n > 0)) return false;
-    if (tab === "whales" && !(r.w && s.big >= least)) return false;
+    if (tab === "whales" && !(r.w && Math.max(r.big || 0, s.big || 0) >= least)) return false;
     if (S.only === "tagged" && !tagged(r, tags)) return false;
     if (S.only === "named" && !r.name) return false;
     if (S.minN !== null && !(s.n >= S.minN)) return false;
@@ -307,7 +307,11 @@ export default function (component) {
           return S.open && ask("open", S.open);
         case "refresh": return ctx.setTriggerValue("refresh", Date.now());
         case "quote": return ctx.setTriggerValue("quote", { t: b.dataset.tk, side: b.dataset.s, p: +b.dataset.p, n: +b.dataset.n });
-        case "tag": toggleLocalTag(v); update(() => {}, true); return ctx.setTriggerValue("tag", { id: v, at: Date.now() });
+        case "tag": {
+          const on = toggleLocalTag(v).has(v);
+          update(() => {}, true);
+          return ctx.setTriggerValue("tag", { id: v, on, at: Date.now() });
+        }
         case "copy": return copyText(v, `${b.dataset.what} copied ✓`, el);
       }
     });

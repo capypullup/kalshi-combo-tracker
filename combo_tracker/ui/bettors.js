@@ -265,8 +265,8 @@ export default function (component) {
         case "more": return update(() => { S.show += PAGE; }, true);
         case "toggle": return update(() => { S.open = S.open === row.dataset.id ? null : row.dataset.id; }, true);
         case "refresh": return ctx.setTriggerValue("refresh", Date.now());
-        case "track": update(() => { S.q = ""; S.open = v; }); return ctx.setTriggerValue("track", v);
-        case "reload": return row && ctx.setTriggerValue("track", row.dataset.id);
+        case "track": update(() => { S.q = ""; S.open = v; }); return ctx.setTriggerValue("track", { name: v, add: true });
+        case "reload": return row && ctx.setTriggerValue("track", { name: row.dataset.id, add: false });
         case "copy": return row && copyName(row.dataset.id, el);
       }
     });
