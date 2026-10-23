@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from .sports import league_of
+
 LIVE_HOURS = 3  # without a scheduled start, a leg settling within this many hours counts as in progress
 
 
@@ -41,11 +43,15 @@ def is_live(r: dict) -> bool:
 
 
 def slim_legs(r: dict) -> list[dict]:
-    """Per leg: side, name, event, mid/bid/ask, spread, smaller top-of-book size, live, start."""
-    return [{"s": l["side"], "n": l["leg"], "e": l["event_title"], "m": num(l["mid"]), "b": num(l["bid"]),
-             "a": num(l["ask"]), "sp": num(l["spread"], 4), "z": num(min(l["top_bid_size"], l["top_ask_size"]), 0),
-             "lv": leg_live(l), "st": int(l["start"].timestamp() * 1000) if l.get("start") else None}
-            for l in r["leg_detail"]]
+    """Per leg: side, name, event, mid/bid/ask, spread, smaller top-of-book size, live, start, league, sport."""
+    out = []
+    for l in r["leg_detail"]:
+        league, sport = league_of(l["ticker"])
+        out.append({"s": l["side"], "n": l["leg"], "e": l["event_title"], "m": num(l["mid"]), "b": num(l["bid"]),
+                    "a": num(l["ask"]), "sp": num(l["spread"], 4), "z": num(min(l["top_bid_size"], l["top_ask_size"]), 0),
+                    "lv": leg_live(l), "st": int(l["start"].timestamp() * 1000) if l.get("start") else None,
+                    "lg": league, "spt": sport})
+    return out
 
 
 def slim(r: dict) -> dict:
@@ -62,7 +68,7 @@ def slim(r: dict) -> dict:
 
 
 def pack(rows: list[dict]) -> dict:
-    """Slim rows with each leg and event name sent once; the table looks them up in `strs`.
+    """Slim rows with each leg, event, league and sport name sent once; the table looks them up in `strs`.
 
     Leg and event titles repeat across hundreds of combos, so this roughly halves the
     data a phone downloads on every refresh.
@@ -76,7 +82,7 @@ def pack(rows: list[dict]) -> dict:
     for r in rows:
         s = slim(r)
         del s["id"]  # ticker|side, rebuilt in the browser
-        s["legs"] = [{**l, "n": ref(l["n"]), "e": ref(l["e"])} for l in s["legs"]]
+        s["legs"] = [{**l, **{k: ref(l[k]) for k in ("n", "e", "lg", "spt")}} for l in s["legs"]]
         out.append(s)
     return {"rows": out, "strs": list(index)}
 
