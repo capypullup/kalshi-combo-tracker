@@ -1,19 +1,12 @@
 name: Phone speed probe
-# Loads the live app like a phone (scripts/phone_probe.py) and prints load and tab-switch times,
-# plus what Streamlit Cloud draws over the tab bar. Run it from the Actions tab with your app's URL.
+# Loads the app like a phone (scripts/phone_probe.py) and prints first-load and tab-switch times,
+# plus what the host draws over the tab bar. Run it from the Actions tab with the app's URL.
 on:
   workflow_dispatch:
     inputs:
       url:
         description: App URL
         required: true
-  push:
-    branches: [claude/project-thread-5a1fxl]
-    paths: [scripts/phone_probe.py, scripts/check_host_badges.py, app.py, .github/workflows/phone-probe.yml]
-
-concurrency:
-  group: phone-probe
-  cancel-in-progress: true
 
 jobs:
   probe:
@@ -21,30 +14,21 @@ jobs:
     timeout-minutes: 30
     env:
       URL: ${{ inputs.url }}
-      # Public Streamlit Cloud apps, to see the host's badges as any visitor does.
-      PUBLIC_APPS: https://llm-examples.streamlit.app/ https://30days.streamlit.app/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install playwright && python -m playwright install --with-deps chromium webkit
-      - name: The tab bar fix inside a real Streamlit Cloud page
-        continue-on-error: true
-        run: python scripts/check_host_badges.py "${PUBLIC_APPS%% *}"
-      - name: Your app, first look
-        if: env.URL != ''
+      - name: First look (with screenshots)
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show --timeout 150
-      - name: Your app in WebKit (iPhone layout)
-        if: env.URL != ''
+      - name: iPhone layout in WebKit (with screenshots)
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show --timeout 150
-      - name: Your app on a recent iPhone on good 5G / Wi-Fi
-        if: env.URL != ''
+      - name: Recent iPhone on good 5G / Wi-Fi
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3 --timeout 150
-      - name: Your app on a mid-range phone on slow 4G
-        if: env.URL != ''
+      - name: Mid-range phone on slow 4G
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2 --timeout 150
