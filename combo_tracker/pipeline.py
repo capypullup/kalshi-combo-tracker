@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from . import financial
 from .engine import _game_key, _parse_time, build_bets, legs_of, score_bet
 
 
@@ -34,10 +35,14 @@ class TTLCache:
         """
         now = time.time()
         ttl = self.ttl if max_age is None else min(max_age, self.ttl if self.ttl is not None else max_age)
+        wanted = dict.fromkeys(keys)
         with self.lock:
-            fresh = {k: v for k, (t, v) in self.data.items()
-                     if k in keys and (ttl is None or now - t < ttl)}
-        missing = [k for k in dict.fromkeys(keys) if k not in fresh]
+            fresh = {}
+            for k in wanted:
+                hit = self.data.get(k)
+                if hit is not None and (ttl is None or now - hit[0] < ttl):
+                    fresh[k] = hit[1]
+        missing = [k for k in wanted if k not in fresh]
         if missing:
             fetched = fetch(missing)
             with self.lock:
@@ -110,8 +115,9 @@ class GameStarts:
 class Scorer:
     """Holds the caches that make repeated refreshes cheap."""
 
-    def __init__(self, client, quote_ttl: float = 60, book_ttl: float = 60):
+    def __init__(self, client, quote_ttl: float = 60, book_ttl: float = 60, hide=None):
         self.client = client
+        self.hide = hide  # e.g. financial.is_financial: combos with a leg it flags are left out
         self.starts = GameStarts(client)
         self.combo_markets = TTLCache(None)  # a combo's legs never change
         self.events = TTLCache(None)
@@ -137,23 +143,53 @@ class Scorer:
 
     def score(self, trades: list[dict], min_stake: float = 0.0, group: bool = True,
               max_bets: int = 400, quote_age: float | None = None) -> Snapshot:
+        return self.score_bets(build_bets(trades, group=group), len(trades), min_stake, max_bets, quote_age)
+
+    def _hidden(self, market: dict | None) -> bool:
+        return bool(self.hide and market and any(self.hide(l["market_ticker"]) for l in legs_of(market)))
+
+    def score_bets(self, bets: list, n_trades: int, min_stake: float = 0.0, max_bets: int = 400,
+                   quote_age: float | None = None) -> Snapshot:
+        """Score the newest `max_bets` bets of at least `min_stake` (bets from build_bets).
+
+        Board builds a window's bets once and scores every min bet from them.
+        """
         now = datetime.now(timezone.utc)
-        bets = build_bets(trades, group=group)
         # Filter on size before touching orderbooks; it is what keeps a refresh fast. Keep the
         # newest bets: combo edges disappear within minutes, so recent ones matter most.
-        kept = sorted((b for b in bets if b.stake >= min_stake), key=lambda b: b.last_time, reverse=True)
-        over_min = len(kept)
-        kept = kept[:max_bets]
+        candidates = sorted((b for b in bets if b.stake >= min_stake), key=lambda b: b.last_time, reverse=True)
 
         errors: list[str] = []
         self.starts.refresh()
         if self.starts.error:
             errors.append(f"game schedule: {self.starts.error}")
-        combo_markets = self.combo_markets.get_many([b.ticker for b in kept], self.client.get_markets)
-        legs = [l for m in combo_markets.values() for l in legs_of(m)]
-        leg_tickers = [l["market_ticker"] for l in legs]
-        leg_markets = self._leg_markets(leg_tickers, max_age=quote_age)
-        events = self.events.get_many([l["event_ticker"] for l in legs], self.client.get_events)
+        # Hidden combos (a crypto leg, say) are dropped before the newest-max_bets cut, so the
+        # list still shows max_bets bets: look up a little past the cut until it's full.
+        kept, combo_markets, hidden, i = [], {}, 0, 0
+        while len(kept) < max_bets and i < len(candidates):
+            chunk = candidates[i : i + max_bets - len(kept) + (50 if self.hide else 0)]
+            i += len(chunk)
+            found = self.combo_markets.get_many([b.ticker for b in chunk], self.client.get_markets)
+            combo_markets.update(found)
+            for bet in chunk:
+                if self._hidden(found.get(bet.ticker)):
+                    hidden += 1
+                elif len(kept) < max_bets:
+                    kept.append(bet)
+
+        legs = [l for bet in kept for l in legs_of(combo_markets.get(bet.ticker) or {})]
+        try:
+            events = self.events.get_many([l["event_ticker"] for l in legs], self.client.get_events)
+        except Exception as exc:  # titles are nice to have: fall back to the leg market titles
+            events = {}
+            errors.append(f"event titles: {exc!r}"[:200])
+        financial.learn(events)
+        if self.hide:  # a series seen for the first time may turn out to be crypto or commodities
+            before = len(kept)
+            kept = [b for b in kept if not self._hidden(combo_markets.get(b.ticker))]
+            hidden += before - len(kept)
+            legs = [l for bet in kept for l in legs_of(combo_markets.get(bet.ticker) or {})]
+        leg_markets = self._leg_markets([l["market_ticker"] for l in legs], max_age=quote_age)
         books = {t: top_of_book(m) for t, m in leg_markets.items()}
 
         rows = []
@@ -164,21 +200,21 @@ class Scorer:
                 continue
             rows.append(score_bet(bet, market, leg_markets, books, now=now, events=events, game_start=self.starts))
 
-        return Snapshot(rows, now, len(trades), len(bets), over_min, len(rows), errors)
+        return Snapshot(rows, now, n_trades, len(bets), len(candidates) - hidden, len(rows), errors)
 
 
 class Board:
     """Scored snapshots of the views people have open, kept fresh in the background.
 
     The collector thread calls refresh() after each poll; pages read the latest
-    snapshot instantly. Only a view nobody has opened recently is scored while the
-    page waits. request() is the refresh button: that view is re-scored from the
-    next poll's trades, ahead of the regular pass.
+    snapshot instantly. A view opened for the first time is scored on the next poll
+    (or while the page waits, if it asks first). request() is the refresh button: that
+    view is re-scored from the next poll's trades, ahead of the regular pass.
     """
 
     def __init__(self, scorer: Scorer, trades_for, every: float = 120, forget_after: float = 1800,
                  max_bets: int = 400, default_view: tuple[int, float] = (60, 100.0), stale_request: float = 30,
-                 tap_quote_age: float = 10):
+                 tap_quote_age: float = 10, keep: tuple = (), wait_for_running: float = 30):
         self.scorer = scorer
         self.trades_for = trades_for  # window minutes -> combo trades
         self.every = every
@@ -186,11 +222,14 @@ class Board:
         self.max_bets = max_bets
         self.stale_request = stale_request  # after this long, serve a refresh without waiting for a poll
         self.tap_quote_age = tap_quote_age  # a refresh re-reads leg quotes older than this
-        self.views: dict[tuple[int, float], float] = {default_view: float("inf")}  # view -> last opened
+        self.wait_for_running = wait_for_running  # a page waits this long for a score already running
+        # view -> last opened; the default view and `keep` are always scored
+        self.views: dict[tuple[int, float], float] = {(w, float(m)): float("inf") for w, m in (default_view, *keep)}
         self.snapshots: dict[tuple[int, float], Snapshot] = {}
         self.as_of: dict[tuple[int, float], float] = {}  # view -> start of the poll its trades came from
         self.failed: dict[tuple[int, float], tuple[float, str]] = {}  # view -> (when, error) of its last try
         self.requests: dict[tuple[int, float], float] = {}  # view -> when someone tapped refresh
+        self.running: dict[tuple[int, float], threading.Event] = {}  # views being scored (taps aside)
         self.trades_as_of: float | None = None  # start of the collector's latest poll (None: no collector)
         self.scored_at = 0.0
         self.lock = threading.Lock()
@@ -200,8 +239,26 @@ class Board:
             return self.snapshots.get((window, float(min_stake)))
 
     def get(self, window: int, min_stake: float) -> Snapshot:
+        """The view's snapshot, scoring it now if there is none (or waiting for the worker if it is on it)."""
+        key = (window, float(min_stake))
         self.touch(window, min_stake)
-        return self.peek(window, min_stake) or self._score((window, float(min_stake)))
+        snap = self.peek(*key)
+        if snap is not None:
+            return snap
+        with self.lock:
+            running = self.running.get(key)
+        if running is not None:  # the worker is scoring this view: wait for it instead of doing it twice
+            running.wait(self.wait_for_running)
+            snap = self.peek(*key)
+            if snap is not None:
+                return snap
+            return self._score(key)
+        if not self._claim(key):  # the worker started on it a moment ago
+            return self.get(window, min_stake)
+        try:
+            return self._score(key)
+        finally:
+            self._release(key)
 
     def touch(self, window: int, min_stake: float) -> None:
         """Mark a view as open, so the regular pass keeps scoring it."""
@@ -227,7 +284,8 @@ class Board:
         return (True, error) if when >= since else (False, None)
 
     def refresh(self, force: bool = False, trades_as_of: float | None = None) -> None:
-        """Score requested views first, then, every `every` seconds, all open views.
+        """Score requested views first, then views nobody has seen scored yet, then, every
+        `every` seconds, all open views.
 
         The collector passes the start time of the poll it just finished, so a
         request is only answered with trades from after the tap.
@@ -238,11 +296,21 @@ class Board:
         with self.lock:
             due = [(k, t) for k, t in self.requests.items()
                    if trades_as_of is None or t <= trades_as_of or now - t > self.stale_request]
+        memo: dict = {}  # each window's bets, built once for this call and then let go
         for key, t in due:
-            self._try(key, fresh=True)
+            self._try(key, fresh=True, memo=memo)
             with self.lock:
-                if self.requests.get(key) == t:  # a newer tap waits for the next poll
+                # A tap served early (its poll is slow) stays until a poll that began after it.
+                if self.requests.get(key) == t and (self.trades_as_of is None or t <= self.trades_as_of):
                     del self.requests[key]
+        done = {k for k, _ in due}
+        with self.lock:
+            cold = sorted(k for k in self.views if k not in self.snapshots and k not in done)
+        for key in cold:  # opened since the last pass: score now rather than in up to `every` seconds
+            if self._waiting(now):
+                return  # a tap is waiting on the next poll; this resumes after it
+            self._try(key, memo=memo)
+            done.add(key)
         if not force and now - self.scored_at < self.every:
             return
         with self.lock:
@@ -250,28 +318,57 @@ class Board:
                 del self.views[key]
                 for store in (self.snapshots, self.as_of, self.failed, self.requests):
                     store.pop(key, None)
-            keys = [k for k in self.views if k not in dict(due)]
+            keys = sorted(k for k in self.views if k not in done)  # by window, so each window builds once
         for key in keys:
             if self._waiting(now):
                 return  # a tap is waiting on the next poll; this pass resumes after it
-            self._try(key)
+            self._try(key, memo=memo)
         self.scored_at = now
 
     def _waiting(self, now: float) -> bool:
         with self.lock:
             return any(now - t <= self.stale_request for t in self.requests.values())
 
-    def _try(self, key: tuple[int, float], fresh: bool = False) -> None:
+    def _claim(self, key: tuple[int, float]) -> bool:
+        with self.lock:
+            if key in self.running:
+                return False
+            self.running[key] = threading.Event()
+            return True
+
+    def _release(self, key: tuple[int, float]) -> None:
+        with self.lock:
+            event = self.running.pop(key, None)
+        if event is not None:
+            event.set()  # wakes a page waiting in get(), whether this score worked or not
+
+    def _try(self, key: tuple[int, float], fresh: bool = False, memo: dict | None = None) -> None:
+        if not fresh and not self._claim(key):
+            return  # a page is scoring this view right now
         try:
-            self._score(key, fresh)
+            self._score(key, fresh, memo)
         except Exception as exc:  # keep the worker going; the page shows the error
             with self.lock:
                 self.failed[key] = (time.time(), repr(exc)[:200])
+        finally:
+            if not fresh:
+                self._release(key)
 
-    def _score(self, key: tuple[int, float], fresh: bool = False) -> Snapshot:
+    def _score(self, key: tuple[int, float], fresh: bool = False, memo: dict | None = None) -> Snapshot:
         as_of = self.trades_as_of or time.time()
-        snap = self.scorer.score(self.trades_for(key[0]), min_stake=key[1], max_bets=self.max_bets,
-                                 quote_age=self.tap_quote_age if fresh else None)
+        quote_age = self.tap_quote_age if fresh else None
+        if hasattr(self.scorer, "score_bets"):
+            built = memo.get(key[0]) if memo is not None else None
+            if built is None:
+                trades = self.trades_for(key[0])
+                built = (len(trades), build_bets(trades))
+                if memo is not None:
+                    memo[key[0]] = built
+            snap = self.scorer.score_bets(built[1], built[0], min_stake=key[1], max_bets=self.max_bets,
+                                          quote_age=quote_age)
+        else:
+            snap = self.scorer.score(self.trades_for(key[0]), min_stake=key[1], max_bets=self.max_bets,
+                                     quote_age=quote_age)
         with self.lock:
             self.snapshots[key] = snap
             self.as_of[key] = as_of

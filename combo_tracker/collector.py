@@ -60,10 +60,14 @@ class Collector:
         self._wake = threading.Event()  # poll_now() cuts the wait between polls short
 
     # ---- collection ----
-    def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False) -> None:
-        """Pull every trade in [since, until] and keep the combo ones."""
+    def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False,
+              interruptible: bool = False) -> bool:
+        """Pull every trade in [since, until] and keep the combo ones. Returns False if a refresh
+        tap (poll_now) cut an interruptible scan short."""
         params_until = until
         for t in self.client.iter_trades(since, max_ts=params_until):
+            if interruptible and self._wake.is_set():
+                return False
             self.trades_scanned += 1
             if t["ticker"].startswith(COMBO_PREFIX):
                 with self.lock:
@@ -72,6 +76,7 @@ class Collector:
                 # Trades come newest first, so everything after this one is complete.
                 with self.lock:
                     self.covered_from = _ts(t)
+        return True
 
     def poll(self) -> None:
         start = time.time()
@@ -100,8 +105,9 @@ class Collector:
         if self.covered_from is None or self.covered_from <= target + timedelta(minutes=1):
             return
         until = self.covered_from
-        self._scan(max(target, until - timedelta(minutes=30)), until=until, progress=True)
-        self.covered_from = max(target, until - timedelta(minutes=30))
+        # A refresh tap stops this between pages: covered_from then stays where the scan got to.
+        if self._scan(max(target, until - timedelta(minutes=30)), until=until, progress=True, interruptible=True):
+            self.covered_from = max(target, until - timedelta(minutes=30))
 
     def _prune(self, now: datetime) -> None:
         cutoff = now - self.max_window

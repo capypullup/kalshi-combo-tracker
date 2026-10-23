@@ -125,6 +125,7 @@ class KalshiClient:
         self.session.headers["Accept"] = "application/json"
         self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
         self.batch_orderbooks_ok: bool | None = None  # learned on first try
+        self.batch_events_ok: bool | None = None  # learned on first try
         self.requests_made = 0
 
     def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
@@ -191,7 +192,7 @@ class KalshiClient:
         with ThreadPoolExecutor(self.max_workers) as pool:
             return list(pool.map(fn, items))
 
-    def get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
+    def get_markets(self, tickers: list[str], batch_size: int = 100) -> dict[str, dict]:
         """Fetch market objects for many tickers, keyed by ticker."""
         unique = list(dict.fromkeys(tickers))
         batches = [unique[i : i + batch_size] for i in range(0, len(unique), batch_size)]
@@ -202,17 +203,51 @@ class KalshiClient:
 
         return {m["ticker"]: m for markets in self._parallel(fetch, batches) for m in markets}
 
-    def get_events(self, event_tickers: list[str]) -> dict[str, dict]:
-        """Fetch event objects (for titles like 'Cleveland vs Tampa Bay: Strikeouts'), keyed by ticker."""
-        unique = list(dict.fromkeys(event_tickers))
+    def get_events(self, event_tickers: list[str], batch_size: int = 100) -> dict[str, dict]:
+        """Fetch event objects (titles like 'Cleveland vs Tampa Bay: Strikeouts', and each event's
+        category), keyed by ticker. Events it couldn't get are left out, so callers retry them later.
 
-        def fetch(ticker: str) -> tuple[str, dict]:
+        `GET /events?tickers=A,B` takes a comma-joined list (found 2026-10-23): one call per 100
+        events instead of one per event, which was 56 of the 60 seconds a new Combos filter took.
+        If Kalshi ever answers without honouring the list, this goes back to one call per event.
+        """
+        unique = list(dict.fromkeys(event_tickers))
+        if not unique:
+            return {}
+        if self.batch_events_ok is not False:
+            def fetch_batch(batch: list[str]) -> list[dict] | None:
+                try:
+                    return self._get("/events", {"tickers": ",".join(batch), "limit": len(batch)}).get("events", [])
+                except requests.HTTPError as exc:
+                    if exc.response is not None and exc.response.status_code in (400, 404, 422):
+                        raise  # the batch call itself isn't accepted
+                    return None  # rate limited or down: these titles fall back to market titles for now
+                except requests.RequestException:
+                    return None
+
+            batches = [unique[i : i + batch_size] for i in range(0, len(unique), batch_size)]
+            try:
+                pages = self._parallel(fetch_batch, batches)
+            except requests.HTTPError:
+                if self.batch_events_ok:
+                    return {}
+                self.batch_events_ok = False
+            else:
+                wanted = set(unique)
+                out = {e["event_ticker"]: e for page in pages if page for e in page if e.get("event_ticker") in wanted}
+                if out:
+                    self.batch_events_ok = True
+                if self.batch_events_ok or all(page is None for page in pages):
+                    return out
+                self.batch_events_ok = False  # it answered but ignored the list: go one by one
+
+        def fetch(ticker: str) -> tuple[str, dict | None]:
             try:
                 return ticker, self._get(f"/events/{ticker}", {"with_nested_markets": "false"}).get("event", {})
-            except requests.HTTPError:
-                return ticker, {}
+            except requests.RequestException:
+                return ticker, None
 
-        return dict(self._parallel(fetch, unique))
+        return {t: e for t, e in self._parallel(fetch, unique) if e is not None}
 
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch the raw orderbook for each ticker, keyed by ticker.

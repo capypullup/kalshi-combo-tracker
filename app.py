@@ -45,6 +45,7 @@ def _reload_if_deployed() -> None:
 _reload_if_deployed()
 
 from combo_tracker import activity  # noqa: E402  (after the reload check)
+from combo_tracker import financial  # noqa: E402
 from combo_tracker.bettors import BettorTracker  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
@@ -60,6 +61,9 @@ DEMO = os.environ.get("DEMO") == "1"
 SCORE_SECONDS = 120  # how often the background worker re-scores the views people have open
 DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
 MAX_BETS = 600  # newest bets scored per view
+MIN_BETS = (5, 10, 50, 100, 500)  # the Min bet choices on Combos (MIN_BET in ui/table.js)
+DEFAULT_VIEW = (60, 50)  # Combos opens on the last hour, bets of $50+
+HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keeps scored
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
 REFRESH_WAIT = 45  # seconds the refresh button waits for new scores before saying Kalshi is slow
@@ -197,16 +201,18 @@ def get_source() -> SimpleNamespace:
     """
     if DEMO:
         client = DemoClient(n_trades=1500)  # enough rows to exercise endless scroll
-        scorer = Scorer(client)
+        scorer = Scorer(client, hide=financial.is_financial)
         trades_for = lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m))  # noqa: E731
         return SimpleNamespace(scorer=scorer, trades_for=trades_for, collector=None,
-                               board=Board(scorer, trades_for, max_bets=MAX_BETS))
+                               board=Board(scorer, trades_for, max_bets=MAX_BETS, default_view=HOME_VIEW,
+                                           keep=(DEFAULT_VIEW,)))
     _stop_collectors()
-    client = KalshiClient()
-    scorer = Scorer(client)
+    client = KalshiClient(max_workers=8)  # a new filter's lookups go out 8 at a time
+    scorer = Scorer(client, hide=financial.is_financial)  # Kenny bets sports: no crypto or gold legs
     # Load the newest 15 minutes first; older history fills in a poll at a time.
     collector = Collector(client, max_window_minutes=MAX_WINDOW, initial_backfill_minutes=15)
-    board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS)
+    board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS, default_view=HOME_VIEW,
+                  keep=(DEFAULT_VIEW,))
     collector.after_poll = lambda col: board.refresh(trades_as_of=col.poll_started)
     collector.start()
     return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
@@ -226,8 +232,8 @@ def with_depth(ticker: str, side: str, lookback: int) -> dict:
 
 
 # ---------- State the browser sends back ----------
-st.session_state.setdefault("min_bet", 100)
-st.session_state.setdefault("window", 60)
+st.session_state.setdefault("min_bet", DEFAULT_VIEW[1])
+st.session_state.setdefault("window", DEFAULT_VIEW[0])
 st.session_state.setdefault("deep", {})
 
 
@@ -287,6 +293,8 @@ def table_view():
                     snap = src.board.get(window, min_bet)
             st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
         src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
+        for other in MIN_BETS:  # and the other Min bets at this window, so switching is instant
+            src.board.touch(window, other)
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
@@ -297,7 +305,7 @@ def table_view():
             notes.append(f"Still loading history: {covered:.0f} of {window} min so far.")
         if collector.last_error:
             error = error or _poll_error(collector.last_error)
-    if snap and snap.bets_over_min > snap.bets_scored:
+    if snap and snap.bets_over_min > MAX_BETS:
         notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
     # The browser spins the refresh icon until `refreshed` echoes its tap. Until then the
@@ -435,7 +443,6 @@ def combo_page() -> None:
 
 
 # ---------- Home page ----------
-HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keeps scored
 
 
 def _home_refresh():
@@ -672,8 +679,8 @@ def _secret(name: str) -> str | None:
 def quote_page() -> None:
     nav()
     src = get_source()
-    view = (st.session_state.get("window", 60), st.session_state.get("min_bet", 100))
-    snap = src.board.peek(*view) or src.board.peek(60, 100)  # the worker always keeps 60 min / $100 scored
+    view = (st.session_state.get("window", DEFAULT_VIEW[0]), st.session_state.get("min_bet", DEFAULT_VIEW[1]))
+    snap = src.board.peek(*view) or src.board.peek(*DEFAULT_VIEW) or src.board.peek(*HOME_VIEW)  # always scored
     if snap is None:
         with st.spinner("Loading recent bets…"):
             snap = src.board.get(*view)

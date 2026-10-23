@@ -3,6 +3,7 @@ toolbarMode = "minimal"
 
 [server]
 enableStaticServing = true  # static/capyev-touch.png, the home-screen icon
+enableWebsocketCompression = true  # the Combos list is ~650 KB of JSON; gzipped it is ~110 KB on the phone
 
 [theme]
 base = "dark"

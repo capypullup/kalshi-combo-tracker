@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from combo_tracker import alerts  # noqa: E402
+from combo_tracker import alerts, financial  # noqa: E402
 from combo_tracker.client import KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.pipeline import Scorer  # noqa: E402
@@ -67,7 +67,7 @@ except (OSError, ValueError):
 
 client = KalshiClient()
 col = Collector(client, max_window_minutes=window, initial_backfill_minutes=window)
-scorer = Scorer(client, quote_ttl=every / 2)
+scorer = Scorer(client, quote_ttl=every / 2, hide=financial.is_financial)  # no lookups for crypto combos
 deadline = time.time() + minutes * 60
 ok = 0
 while time.time() < deadline:
