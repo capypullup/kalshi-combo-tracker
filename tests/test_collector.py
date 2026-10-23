@@ -216,3 +216,31 @@ def test_clients_share_one_rate_limit_and_429_pause():
     a.limiter.pause(2)
     assert kc.SHARED_LIMITER.next_at >= before and kc.SHARED_LIMITER.next_at > kc.time.monotonic() + 1
     kc.SHARED_LIMITER.next_at = 0.0  # don't slow the other tests down
+
+
+def test_after_a_long_pause_the_collector_starts_over_from_the_newest_trades():
+    c = FakeClient()
+    c.add("old", "KXMVECROSS-A", 50)
+    c.add("gap", "KXMVECROSS-B", 30)
+    col = Collector(c, max_window_minutes=180, initial_backfill_minutes=15)
+    col.covered_from = col.covered_to = datetime.now(timezone.utc) - timedelta(minutes=45)
+    col.trades = {"old": ("stale",)}
+    c.add("new", "KXMVECROSS-C", 5)
+    col.poll()
+    assert set(col.trades) == {"new"}  # the 30-minute gap isn't paged through all at once
+    assert col.coverage_minutes() < 16
+
+
+def test_workers_pause_only_once_a_page_has_pinged(monkeypatch):
+    from combo_tracker import activity
+    monkeypatch.setattr(activity, "_tracking", False)
+    monkeypatch.setattr(activity, "_last_seen", time.monotonic() - 3600)
+    assert activity.active()  # the bots never call seen(), so they never go idle
+    activity.seen()
+    assert activity.active()
+    monkeypatch.setattr(activity, "_last_seen", time.monotonic() - activity.IDLE_SECONDS - 1)
+    assert not activity.active()
+    stop = __import__("threading").Event()
+    stop.set()
+    activity.wait_active(stop)  # returns at once when stopping
+    monkeypatch.setattr(activity, "_tracking", False)

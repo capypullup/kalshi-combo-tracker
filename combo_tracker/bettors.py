@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 
 import requests
 
+from . import activity
 from .client import COMBO_PREFIX
 from .engine import taker_fee
 
@@ -665,6 +666,9 @@ class BettorTracker:
     def run_forever(self) -> None:
         next_cycle = 0.0
         while not self._stop.is_set():
+            activity.wait_active(self._stop)  # no Kalshi calls while nobody has the app open
+            if self._stop.is_set():
+                break
             try:
                 if time.time() >= next_cycle:
                     self.cycle()

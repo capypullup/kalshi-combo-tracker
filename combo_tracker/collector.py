@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+from . import activity
 from .client import COMBO_PREFIX
 
 THREAD_NAME = "combo-collector"
@@ -75,6 +76,12 @@ class Collector:
     def poll(self) -> None:
         start = time.time()
         now = datetime.fromtimestamp(start, timezone.utc)
+        if self.covered_to is not None and now - self.covered_to > self.initial_backfill:
+            # Back after a long pause (nobody had the app open): start over from the newest
+            # trades rather than paging through the whole gap at once.
+            with self.lock:
+                self.trades.clear()
+                self.covered_from = self.covered_to = None
         if self.covered_to is None:
             self.covered_to = now
             self._scan(now - self.initial_backfill, progress=True)
@@ -105,6 +112,9 @@ class Collector:
 
     def run_forever(self) -> None:
         while not self._stop.is_set():
+            activity.wait_active(self._stop)  # no Kalshi calls while nobody has the app open
+            if self._stop.is_set():
+                break
             self._wake.clear()
             try:
                 self.poll()
