@@ -1,0 +1,57 @@
+name: Notification bot
+# Always-on alerts: each run watches for ~5h50m, and the hourly schedule queues the next
+# run behind it (one running + one waiting), so there's no gap between runs.
+# Change the thresholds in Settings → Secrets and variables → Actions → Variables:
+#   ALERT_MIN_BET (dollars, default 500), ALERT_MIN_EV (percent, default 10),
+#   ALERT_EV_BASIS (mid or crx, default mid), APP_URL (your CapyEV link, adds a Quote it button).
+# Sends with the secrets TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (or NTFY_TOPIC). Without them, it only prints.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to run
+        default: "350"
+      dry_run:
+        description: Print alerts instead of sending (1 = yes)
+        default: "0"
+
+concurrency:
+  group: alert-bot
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests
+      - name: What earlier runs already sent
+        uses: actions/cache/restore@v4
+        with:
+          path: alerts_sent.json
+          key: alerts-sent-${{ github.run_id }}
+          restore-keys: alerts-sent-
+      - run: python scripts/alert_bot.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ALERT_MIN_BET: ${{ vars.ALERT_MIN_BET }}
+          ALERT_MIN_EV: ${{ vars.ALERT_MIN_EV }}
+          ALERT_EV_BASIS: ${{ vars.ALERT_EV_BASIS }}
+          APP_URL: ${{ vars.APP_URL }}
+          ALERT_MINUTES: ${{ inputs.minutes || '350' }}
+          DRY_RUN: ${{ inputs.dry_run || '0' }}
+      - name: Remember what this run sent
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: alerts_sent.json
+          key: alerts-sent-${{ github.run_id }}
