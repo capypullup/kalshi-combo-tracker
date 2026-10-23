@@ -50,6 +50,7 @@ from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
+from combo_tracker.keys import find_secret, kalshi_auth  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
@@ -521,18 +522,38 @@ def home_page() -> None:
 BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed and bettors' histories
 
 
+def _secrets() -> tuple[dict, str | None]:
+    """The app's secrets (read on every call: Streamlit reloads them when they're edited)."""
+    try:
+        return st.secrets.to_dict(), None
+    except Exception as exc:  # no secrets, or the secrets aren't valid TOML
+        if "No secrets" in str(exc):
+            return {}, None
+        return {}, f"the app's secrets couldn't be read, so check them for a typo ({exc})"[:240]
+
+
 def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
     """The API key from Streamlit secrets or the environment, and why it couldn't be used, if so."""
-    try:
-        secrets = dict(st.secrets)
-    except Exception as exc:  # no secrets, or the secrets aren't valid TOML
-        secrets = {}
-        if "No secrets" not in str(exc):
-            return None, f"the app's secrets couldn't be read ({exc})"[:200]
-    try:
-        return KalshiAuth.from_env(secrets), None
-    except Exception as exc:
-        return None, f"the private key couldn't be read ({exc})"[:200]
+    secrets, problem = _secrets()
+    auth, missing = kalshi_auth(secrets)
+    return auth, (None if auth else problem or missing)
+
+
+_RFQ_LOCK = threading.Lock()
+
+
+def _sync_rfq(tracker: BettorTracker, auth: KalshiAuth | None) -> None:
+    """Start RFQ matching once the app has a key, or switch it to a new key, without a reboot."""
+    if DEMO or auth is None:
+        return
+    with _RFQ_LOCK:
+        rfq = tracker.rfq
+        if rfq is None:
+            # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
+            tracker.rfq = RfqBook(KalshiClient(rate_per_sec=4, auth=auth)).start()
+        elif (rfq.client.auth is None or rfq.client.auth.key_id != auth.key_id
+              or rfq.client.auth.fingerprint() != auth.fingerprint()):
+            rfq.client.auth = auth  # the stream signs its next reconnect with it
 
 
 @st.cache_resource
@@ -549,14 +570,9 @@ def get_bettors() -> BettorTracker:
         return tracker
     for name in ("bettor-tracker", "rfq-stream", "rfq-matcher"):
         _stop_collectors(name)
-    auth, problem = _kalshi_auth()
-    rfq = None
-    if auth is not None:
-        # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
-        rfq = RfqBook(KalshiClient(rate_per_sec=4, auth=auth)).start()
     # Its own client and rate limit, so it never slows the combo collector down.
-    tracker = BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE, rfq=rfq)
-    tracker.auth_problem = problem
+    tracker = BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE)
+    _sync_rfq(tracker, _kalshi_auth()[0])
     return tracker.start()
 
 
@@ -569,6 +585,8 @@ def _track():
 @st.fragment
 def bettors_view():
     tracker = get_bettors()
+    auth, problem = (None, None) if DEMO else _kalshi_auth()
+    _sync_rfq(tracker, auth)  # picks up secrets added or fixed since the app started
     snap = tracker.snapshot
     notes = []
     if snap and snap.feed_since:
@@ -576,9 +594,8 @@ def bettors_view():
                      f"{snap.feed_trades:,} trades show a public name.")
     rfq = snap.rfq if snap else None
     if rfq is None and not DEMO:
-        problem = getattr(tracker, "auth_problem", None)
-        notes.append(f"RFQ matching is off: {problem}." if problem else
-                     "RFQ matching is off: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets.")
+        notes.append("RFQ matching is starting: names show up as combo bets fill." if auth else
+                     f"RFQ matching is off: {problem}.")
     elif rfq:
         matched = rfq.get("sure", 0) + rfq.get("likely", 0)
         bets = rfq.get("executions", 0)
@@ -660,13 +677,8 @@ def _leg_pool(scorer, max_age: float = 900):
 
 
 def _secret(name: str) -> str | None:
-    try:
-        value = st.secrets.get(name)
-    except Exception:  # no secrets file
-        value = None
-    if value is None:
-        value = os.environ.get(name)
-    return (str(value).strip() or None) if value is not None else None  # blank counts as not set
+    """A secret, found the same forgiving way as the Kalshi key; blank counts as not set."""
+    return find_secret(_secrets()[0], name)
 
 
 def quote_page() -> None:
@@ -680,6 +692,7 @@ def quote_page() -> None:
     rows = sorted(snap.rows, key=lambda r: r["last_time"], reverse=True) if snap else []
     client = src.scorer.client if DEMO else quote_client()  # the demo's bets only exist in its own client
     auth, problem = (None, None) if DEMO else _kalshi_auth()
+    problem = f"Quotes are off: {problem}." if problem else None
     pool = (lambda: (client.leg_markets, client.events)) if DEMO else _leg_pool(src.scorer)
     quote_view.render(client, rows, starts=src.scorer.starts, auth=auth, demo=DEMO, pool=pool,
                       scored_at=snap.fetched_at if snap else None, pin=_secret("TRADE_PIN"), auth_problem=problem)
