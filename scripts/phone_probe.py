@@ -68,6 +68,25 @@ SHELL_JS = """() => {
 }"""
 
 
+# Which strips along the bottom of the screen a tap would land on the host's page instead of the app.
+COVERED_JS = """() => {
+  const W = innerWidth, H = innerHeight, rows = {};
+  for (const dy of [12, 30, 50, 75, 100, 130]) {
+    const y = H - dy, runs = [];
+    let start = null, what = null;
+    for (let x = 2; x <= W; x += 4) {
+      const e = x < W ? document.elementFromPoint(x, y) : null;
+      const host = e && e.tagName !== 'IFRAME' && e !== document.body && e !== document.documentElement;
+      const label = host ? (e.closest('a,button,[data-testid]') || e).outerHTML.slice(0, 90) : null;
+      if (host && start === null) { start = x; what = label; }
+      if (!host && start !== null) { runs.push({x: [start, x - 4], what}); start = null; }
+    }
+    if (runs.length) rows[dy] = runs;
+  }
+  return rows;
+}"""
+
+
 class Wire:
     """Bytes the page downloads, from Chrome's own network events."""
 
@@ -115,6 +134,8 @@ def app_frame(page: Page, timeout: float = 120) -> Frame | None:
     """The frame the app runs in: Streamlit Cloud puts it in an iframe at /~/+/; elsewhere it's the page."""
     end = time.time() + timeout
     while time.time() < end:
+        if "/errors/" in page.url:  # Streamlit Cloud's "no access or doesn't exist" page
+            return None
         for f in page.frames:
             if f is not page.main_frame and "/~/+/" in f.url:
                 return f
@@ -184,7 +205,7 @@ def what_shows(page: Page) -> dict:
     return out
 
 
-def first_load(page: Page, wire: Wire, url: str, timeout: float) -> dict:
+def first_load(page: Page, wire: Wire, url: str, timeout: float, overlays_only: bool = False) -> dict:
     t0 = time.time()
     page.goto(url, wait_until="commit", timeout=timeout * 1000)
     page.wait_for_load_state("domcontentloaded", timeout=timeout * 1000)
@@ -198,6 +219,12 @@ def first_load(page: Page, wire: Wire, url: str, timeout: float) -> dict:
         out["page"] = what_shows(page)
         return out
     out["frame_ms"] = round((time.time() - t0) * 1000)
+    if overlays_only:  # any Streamlit app: just wait for it to draw
+        frame.wait_for_selector("[data-testid='stApp']", state="visible", timeout=timeout * 1000)
+        frame.wait_for_selector("[data-testid='stMainBlockContainer'] > div", state="visible", timeout=timeout * 1000)
+        out["app_ms"] = round((time.time() - t0) * 1000)
+        out["wire"] = wire.mark()
+        return out
     frame.wait_for_selector(".st-key-tabbar", state="visible", timeout=timeout * 1000)
     out["tabbar_ms"] = round((time.time() - t0) * 1000)
     frame.wait_for_selector(READY["home"], state="visible", timeout=timeout * 1000)
@@ -227,7 +254,7 @@ def switch(page: Page, frame: Frame, wire: Wire, to: str, timeout: float) -> dic
 
 
 def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, timeout: float,
-        engine: str = "chromium", switch_timeout: float = 45) -> dict:
+        engine: str = "chromium", switch_timeout: float = 45, overlays_only: bool = False) -> dict:
     res = {"url": url, "profile": profile, "engine": engine}
     with sync_playwright() as pw:
         if engine == "webkit":  # Safari's engine, for how an iPhone lays the page out (no throttling)
@@ -244,7 +271,7 @@ def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, t
             wire = Wire(cdp)
             throttle(cdp, profile)
         try:
-            res["first_load"] = first_load(page, wire, url, timeout)
+            res["first_load"] = first_load(page, wire, url, timeout, overlays_only)
         except Exception as exc:
             res["first_load"] = {"error": str(exc)[:300], "page": what_shows(page)}
         if "error" in res["first_load"]:
@@ -252,9 +279,10 @@ def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, t
             browser.close()
             return res
         frame = app_frame(page, 5)
-        page.wait_for_timeout(2500)  # the host's badges come in after the app
+        page.wait_for_timeout(5000 if overlays_only else 2500)  # the host's badges come in after the app
         res["overlays"] = page.evaluate(OVERLAYS_JS)
         res["tabs"] = blocked_tabs(page, frame)
+        res["covered_px_from_bottom"] = page.evaluate(COVERED_JS) if frame is not page.main_frame else {}
         res["touch_icon_top"] = page.evaluate(
             "() => (document.querySelector('link[rel=\"apple-touch-icon\"]') || {}).href || null")
         if frame is not page.main_frame:
@@ -262,6 +290,9 @@ def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, t
         shot(page, f"{engine}-{profile}-home", out_dir, show)
         if profile == "none":
             res["shell"] = page.evaluate(SHELL_JS)
+        if overlays_only:
+            browser.close()
+            return res
         print("=====FIRST LOOK=====\n" + json.dumps(res, indent=1, default=str) + "\n=====END FIRST LOOK=====", flush=True)
 
         res["switches"] = []
@@ -294,11 +325,14 @@ def main() -> None:
     ap.add_argument("--switch-timeout", type=float, default=45)
     ap.add_argument("--shots", type=Path, help="save screenshots here")
     ap.add_argument("--show", action="store_true", help="print screenshots as base64 (for CI logs)")
+    ap.add_argument("--overlays-only", action="store_true",
+                    help="any Streamlit app: time the first load and list what the host draws over it, no tabs")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
     if args.shots:
         args.shots.mkdir(parents=True, exist_ok=True)
-    res = run(args.url, args.profile, args.rounds, args.shots, args.show, args.timeout, args.engine, args.switch_timeout)
+    res = run(args.url, args.profile, args.rounds, args.shots, args.show, args.timeout, args.engine, args.switch_timeout,
+              args.overlays_only)
     text = json.dumps(res, indent=1, default=str)
     if args.out:
         args.out.write_text(text)

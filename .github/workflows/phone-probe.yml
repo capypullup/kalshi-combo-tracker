@@ -1,12 +1,12 @@
 name: Phone speed probe
 # Loads the live app like a phone (scripts/phone_probe.py) and prints load and tab-switch times,
-# plus what Streamlit Cloud draws over the tab bar. Run it from the Actions tab with any app URL.
+# plus what Streamlit Cloud draws over the tab bar. Run it from the Actions tab with your app's URL.
 on:
   workflow_dispatch:
     inputs:
       url:
         description: App URL
-        default: "https://capyev.streamlit.app/"
+        required: true
   push:
     branches: [claude/project-thread-5a1fxl]
     paths: [scripts/phone_probe.py, .github/workflows/phone-probe.yml]
@@ -20,32 +20,49 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      URL: ${{ inputs.url || 'https://capyev.streamlit.app/' }}
+      URL: ${{ inputs.url }}
+      # Public Streamlit Cloud apps, to see the host's badges as any visitor does.
+      PUBLIC_APPS: https://llm-examples.streamlit.app/ https://30days.streamlit.app/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install playwright && python -m playwright install --with-deps chromium webkit
-      - name: Round trips to Kalshi and the app from this runner
+      - name: Round trips to Kalshi and Streamlit Cloud from this runner
         continue-on-error: true
         run: |
           for i in 1 2 3; do
             curl -sS -o /dev/null -w "kalshi %{time_connect}s connect %{time_total}s total\n" https://api.elections.kalshi.com/trade-api/v2/exchange/status
-            curl -sS -o /dev/null -w "app page %{http_code} %{time_connect}s connect %{time_total}s total %{size_download}B\n" "$URL"
+            curl -sS -o /dev/null -w "streamlit.app %{http_code} %{time_connect}s connect %{time_total}s total\n" https://llm-examples.streamlit.app/
           done
-      - name: First look, no throttling (with screenshots)
+      - name: What Streamlit Cloud draws over any app on a phone
+        continue-on-error: true
+        run: |
+          for app in $PUBLIC_APPS; do
+            python scripts/phone_probe.py "$app" --overlays-only --profile none --show --timeout 120
+          done
+          python scripts/phone_probe.py "${PUBLIC_APPS%% *}" --overlays-only --engine webkit --profile none --show --timeout 120
+      - name: A Streamlit Cloud app's first load on a phone
+        continue-on-error: true
+        run: |
+          for p in fast fast slow4g slow4g; do
+            python scripts/phone_probe.py "${PUBLIC_APPS%% *}" --overlays-only --profile $p --timeout 150
+          done
+          python scripts/phone_probe.py "${PUBLIC_APPS%% *}~/+/" --overlays-only --profile fast --show --timeout 120
+      - name: Your app, first look
+        if: env.URL != ''
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show --timeout 150
-      - name: iPhone layout in WebKit (with screenshots)
+      - name: Your app in WebKit (iPhone layout)
+        if: env.URL != ''
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show --timeout 150
-      - name: Recent iPhone on good 5G / Wi-Fi
+      - name: Your app on a recent iPhone on good 5G / Wi-Fi
+        if: env.URL != ''
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3 --timeout 150
-      - name: Mid-range phone on slow 4G
+      - name: Your app on a mid-range phone on slow 4G
+        if: env.URL != ''
         continue-on-error: true
         run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2 --timeout 150
-      - name: The app without Streamlit Cloud's page around it (/~/+/)
-        continue-on-error: true
-        run: python scripts/phone_probe.py "${URL%/}/~/+/" --profile fast --rounds 2 --show --timeout 150
