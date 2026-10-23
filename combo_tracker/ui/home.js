@@ -19,8 +19,18 @@ const SPORT_ICON = { football: "🏈", basketball: "🏀", baseball: "⚾", hock
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isNum = (x) => typeof x === "number" && isFinite(x);
 
+// An EV as the badge prints it: whole percents from +10%, one decimal under that. Colors, the 🔥 and the
+// ring go by this value too, so two badges that read the same look the same (same as Combos).
+function evShown(x) {
+  if (!isNum(x)) return x;
+  const d = Math.round(x * 1000) / 1000;
+  return Math.abs(d) >= 0.1 ? Math.round(x * 100) / 100 : d;
+}
+
 export function evText(x) {
+  x = evShown(x);
   if (!isNum(x)) return "–";
+  if (Math.abs(x) < 0.0005) return "+0.0%";  // a tiny edge either way
   const p = x * 100;
   return `${p >= 0 ? "+" : ""}${Math.abs(p) >= 10 ? Math.round(p).toLocaleString() : p.toFixed(1)}%`;
 }
@@ -31,9 +41,13 @@ export function evHeat(x) {
   return Math.min(1, Math.log1p(x * 100) / Math.log1p(800));
 }
 
-// The EV badge's colors: a pale mint wash under +10%, then ever deeper and brighter green, up to
-// solid neon with a glow for +200% and beyond, so a huge edge is obvious at a glance.
+// The EV badge's colors: a pale mint wash under +10%, deep green with light text from +10%, then from
+// +20% bright green with dark text that keeps brightening and turns yellower up to neon chartreuse at
+// +800% (the hue moves most at the top so +350% and +800% still differ), with a glow from +200%, so a
+// huge edge is obvious at a glance. The Combos page uses the same colors (tests/test_table_js.py
+// checks they match).
 export function evStyle(x) {
+  x = evShown(x);
   const h = evHeat(x);
   if (!(x >= 0.1)) {  // under +10%: tint only
     const a = (0.1 + 0.3 * h).toFixed(2);
@@ -41,10 +55,15 @@ export function evStyle(x) {
   }
   const h10 = evHeat(0.1);
   const t = (h - h10) / (1 - h10);  // 0 at +10%, 1 at +800%
-  const light = 26 + 26 * t;
-  const bg = `hsl(152 ${(62 + 38 * t).toFixed(0)}% ${light.toFixed(0)}%)`;
-  const fg = light >= 40 ? "#00170c" : "#f2fff9";
-  const glow = h >= 0.8 ? `0 0 ${Math.round(24 * h)}px hsl(152 100% 50% / ${(0.6 * h).toFixed(2)})` : "none";
+  const t20 = (evHeat(0.2) - h10) / (1 - h10);
+  const hue = (160 - 80 * t ** 1.5).toFixed(0);
+  const dark = x >= 0.2;
+  const u = dark ? (t - t20) / (1 - t20) : t / t20;
+  const sat = dark ? 70 + 30 * u ** 0.8 : 64 + 6 * u;
+  const light = dark ? 37 + 18 * u : 23 + 3 * u;
+  const bg = `hsl(${hue} ${sat.toFixed(0)}% ${light.toFixed(0)}%)`;
+  const fg = dark ? "#00170c" : "#f2fff9";
+  const glow = x >= 2 ? `0 0 ${Math.round(24 * h)}px hsl(${hue} 100% 50% / ${(0.6 * h).toFixed(2)})` : "none";
   return `background:${bg};color:${fg};box-shadow:${glow}`;
 }
 
@@ -116,11 +135,14 @@ function cardHtml(S, r) {
   const time = r.live ? '<span class="live"><i></i>Live</span>' : r.start ? esc(when(r.start)) : "";
   const warn = [r.sg ? "same game" : "", /CHECK/.test(r.flags) ? "check the book" : "", /IN BAND/.test(r.flags) ? "inside spread" : ""]
     .filter(Boolean).map((w) => `<span class="warn">${w}</span>`).join("");
-  const hot = evHeat(r.evm) >= 0.8 ? '<span class="fire">🔥</span>' : "";
+  const evm = evShown(r.evm), evc = evShown(r.evc);
+  const hot = evm >= 2 ? '<span class="fire">🔥</span>' : "";
+  const ring = evm >= 5 ? " ring" : "";  // +500% and up, like the Combos pill
+  const lo = evc <= -0.0005 ? ' class="lo"' : "";  // a negative cross gets a red chip
   return `<div class="card${open ? " open" : ""}" data-id="${esc(id(r))}">
     <div class="head" data-act="toggle">
-      <div class="ev" style="${evStyle(r.evm)}">${hot}
-        <b>${evText(r.evm)}</b><span>${evText(r.evc)}</span><small>mid / cross</small>
+      <div class="ev${ring}" style="${evStyle(r.evm)}">${hot}
+        <b>${evText(r.evm)}</b><span${lo}>${evText(r.evc)}</span><small>mid / cross</small>
       </div>
       <div class="what">
         <div class="meta"><span class="sport">${sportLabel(r)}</span><span class="when">${time}</span></div>

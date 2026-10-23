@@ -24,8 +24,8 @@ def flags(r: dict) -> str:
         out.append("NO QUOTE")
     if r["outside_band"] is False:
         out.append("IN BAND")
-    if r["ev_pct_mid"] is not None and r["ev_pct_mid"] > 2:
-        out.append("CHECK")  # +200% edges are usually a stale book or a misread side
+    if r["ev_pct_mid"] is not None and round(r["ev_pct_mid"], 2) >= 2:
+        out.append("CHECK")  # edges that read +200% or more (the 🔥) are usually a stale book or a misread side
     return " · ".join(out)
 
 

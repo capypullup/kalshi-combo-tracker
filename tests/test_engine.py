@@ -206,3 +206,10 @@ def test_scorer_keeps_the_newest_bets():
     newest = sorted(build_bets(client.trades), key=lambda b: b.last_time, reverse=True)[:20]
     assert {r["ticker"] for r in snap.rows} == {b.ticker for b in newest if b.ticker}
     assert sum(1 for r in snap.rows for l in r["leg_detail"] if l["start"] is not None) > 0  # demo schedule used
+
+
+def test_check_flag_starts_where_the_pill_reads_plus_200():
+    from combo_tracker.view import flags
+
+    base = {"same_game_legs": 0, "missing_quotes": 0, "inactive_legs": 0, "outside_band": True}
+    assert [flags({**base, "ev_pct_mid": x}) for x in (1.99, 1.996, 2.0, 5.0, None)] == ["", "CHECK", "CHECK", "CHECK", ""]
