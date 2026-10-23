@@ -47,15 +47,21 @@ The **Bettors** tab ranks public Kalshi profiles, with tennis bettors as the sta
 
 ### API key for RFQ matching
 
-Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's Get quote button, which creates and deletes your own RFQs.
+Create a key on Kalshi (Account & security → API keys, with read and write access) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. Both must come from the same Kalshi key: a key ID from one key with the private key of another gets `INCORRECT_API_KEY_SIGNATURE`. The Quote page's **API key check** shows the app's key ID ending and public-key fingerprint, and whether Kalshi accepts it for reading and trading.
+
+Add a third secret, `TRADE_PIN` (a passphrase or 6+ digits), to bet from the Quote page. The app is public, so once it's set, quotes and bets ask for the PIN; a phone stays unlocked for 30 days, and more than 8 wrong PINs in an hour lock it for everyone.
 
 ## Quote page
 
-A fill in the feed means someone got that price, not that you still can. The QUOTE tab checks one combo now (pick a recent bet or paste a combo ticker; `?t=TICKER&side=yes&p=0.25&n=100` on `/quote` pre-fills it):
+Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or Copy ticker, then the big **Paste ticker** button). A ticker, a CapyEV `/quote?t=TICKER&side=yes&p=0.25&n=100` link or a Kalshi `markets_by_ticker` link all work.
 
 - **Verdict**: LIVE when the combo's own orderbook has resting orders at or under the price, or the same side filled at that price in the last 90 s (the picked bet's own fills don't count); LIKELY when the newest fill was at the price a few minutes ago; MOVED when newer fills are worse; STALE when nothing has filled since.
+- **Since HH:MM**: fair odds and EV when CapyEV scored the bet vs now, and which legs moved. A +EV line from two minutes ago can be gone.
 - The combo's book, its newest fills, and each leg's book now, with EV at the price and at the best price available now. Watch re-checks every 5 s.
-- **Get quote** (needs the API key above) sends a real RFQ for $10–$500, lists makers' quotes as they arrive with price incl. fee, odds, size, maker code and EV MID/CROSS, and cancels the RFQ after 45 s. It never accepts a quote. This is the one place the app sends signed write requests (create/delete your own RFQ).
+- **Quotes** (needs the API key): pasting a combo sends a real RFQ at your size, in units (1u = $1,000 and ¼ Kelly by default, editable under Sizing; the Kelly size at the best price now is preselected). Quotes list the odds after your fee, cost, EV MID/CROSS and Kelly units at that price. RFQs hide your ID from makers and close after 45 s. Kalshi allows one open request per combo, so if you have one open on the same combo (its slip in the Kalshi app, say), it's closed first.
+- **Bet** (needs `TRADE_PIN`) takes the best quote after a confirm step that shows its EV: you buy at the maker's price for the quoted size, the maker confirms within 3 s, and the page shows the fill. If Kalshi stops answering mid-bet, the page says the bet may have gone through: check the Kalshi app before betting again. One bet is capped at 3u.
+- **Add legs**: near-certain legs (80–98.5%, tight books) on other games, by sport, from legs people combined in the last 15 minutes. Pick some and quote the bigger combo next to the original: makers price whole combos, so an extra leg sometimes costs less than its odds.
+- **Bet in Kalshi** opens the combo's slip in the Kalshi app.
 
 ## Notification bot
 
@@ -101,6 +107,6 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
 - `combo_tracker/alerts.py`: which bets the notification bot sends and how the alerts read
-- `combo_tracker/quote.py` + `quote_view.py`: the Quote page (live check, RFQs)
+- `combo_tracker/quote.py` + `quote_view.py` + `ui/paste.js`: the Quote page (live check, RFQs, betting, extra legs)
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page

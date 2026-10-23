@@ -215,6 +215,7 @@ def _quote():
 def table_view():
     go = st.session_state.pop("quote_req", None)
     if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
+        st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
                                                "n": f"{go['n']:g}"})
     min_bet, window = st.session_state.min_bet, st.session_state.window
@@ -395,6 +396,7 @@ def _home_quote():
 def home_view():
     go = st.session_state.pop("quote_req", None)
     if go:  # "Quote" on a card: check it on the Quote page
+        st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}", "n": f"{go['n']:g}"})
     src = get_source()
     error = None
@@ -580,6 +582,29 @@ def quote_client():
     return KalshiClient(rate_per_sec=8)
 
 
+def _leg_pool(scorer, max_age: float = 900):
+    """The leg markets and events the scorer has fetched in the last 15 minutes: legs people
+    combined recently, which the Quote page suggests as extra legs."""
+    def pool():
+        now = time.time()
+        with scorer.leg_markets.lock:
+            markets = {k: v for k, (t, v) in scorer.leg_markets.data.items() if now - t < max_age}
+        with scorer.events.lock:
+            events = {k: v for k, (t, v) in scorer.events.data.items()}
+        return markets, events
+    return pool
+
+
+def _secret(name: str) -> str | None:
+    try:
+        value = st.secrets.get(name)
+    except Exception:  # no secrets file
+        value = None
+    if value is None:
+        value = os.environ.get(name)
+    return (str(value).strip() or None) if value is not None else None  # blank counts as not set
+
+
 def quote_page() -> None:
     nav()
     src = get_source()
@@ -590,22 +615,33 @@ def quote_page() -> None:
             snap = src.board.get(*view)
     rows = sorted(snap.rows, key=lambda r: r["last_time"], reverse=True) if snap else []
     client = src.scorer.client if DEMO else quote_client()  # the demo's bets only exist in its own client
-    quote_view.render(client, rows, starts=src.scorer.starts, auth=None if DEMO else _kalshi_auth()[0], demo=DEMO)
+    auth, problem = (None, None) if DEMO else _kalshi_auth()
+    pool = (lambda: (client.leg_markets, client.events)) if DEMO else _leg_pool(src.scorer)
+    quote_view.render(client, rows, starts=src.scorer.starts, auth=auth, demo=DEMO, pool=pool,
+                      scored_at=snap.fetched_at if snap else None, pin=_secret("TRADE_PIN"), auth_problem=problem)
     with st.expander("How to read this"):
         st.markdown(
+            "- **Paste ticker**: copy a combo's ticker on the Combos page (open a bet → Copy ticker) and tap the big "
+            "button. A CapyEV quote link works too. The bet's price and time come from the Combos list when it's "
+            "there, otherwise from the combo's newest fill.\n"
             "- A fill in the feed means someone got that price, not that you still can. This page checks one combo "
-            "**now**.\n"
-            "- **LIVE**: the combo's own orderbook has resting orders at or under the price, or it filled at that "
-            "price in the last 90 seconds. **LIKELY**: its newest fill was at or under the price, but a few minutes "
-            "ago. **MOVED**: newer fills are at a worse price. **STALE**: nothing on this side in 10 minutes.\n"
-            "- **Combo book**: makers often leave orders resting on a combo after it trades. Green levels are at or "
-            "under your price, so you could take them now with a limit order.\n"
-            "- **EV** compares the price with the legs' books right now (mid, and crossing the spread). "
-            "**Best now** is the lowest price that looks available: the book's ask or a fill in the last 90 seconds.\n"
-            "- **Watch** re-checks every 5 seconds while it's on.\n"
-            "- **Get quote** sends a real request for quote with your API key, for about the dollar amount you "
-            "pick (fees included), and lists makers' quotes as they arrive with EV after your fee. It's cancelled "
-            "after 45 seconds. Nothing is ever accepted from this page."
+            "**now**. **LIVE**: the combo's own orderbook has resting orders at or under the price, or it filled at "
+            "that price in the last 90 seconds. **LIKELY**: its newest fill was at or under the price, but a few "
+            "minutes ago. **MOVED**: newer fills are at a worse price. **STALE**: nothing on this side in 10 minutes.\n"
+            "- **Since HH:MM** compares the legs now with when CapyEV scored the bet: fair odds, EV at the bet's "
+            "price, and the legs whose mid moved (▲ helps a YES bet, ▼ hurts it). A +EV bet from two minutes ago "
+            "can be −EV now if a leg moved.\n"
+            "- **Quotes**: pasting a combo asks every maker for a quote at the size you pick (Kelly by default, in "
+            "units; fees included). Quotes show the odds after your fee, cost, EV at the legs' mid and cross, and "
+            "Kelly units at that price. A request closes after 45 seconds; tap Get quotes for fresh ones.\n"
+            "- **Bet** takes the best quote after you confirm it: you buy at the maker's price for the quoted size, "
+            "the maker confirms within 3 seconds, and the fill shows here and in the Kalshi app. It needs the "
+            "TRADE_PIN secret, since anyone with the link can open this app.\n"
+            "- **Add legs**: makers price whole combos, not legs, so adding a near-certain leg on another game "
+            "sometimes lowers the price by less than the leg's odds. Pick legs, quote the bigger combo, and compare "
+            "EV with the original's quotes.\n"
+            "- **Bet in Kalshi** opens the combo's slip in the Kalshi app (or on kalshi.com) to bet it there. Check the "
+            "side in the slip for a NO bet."
         )
 
 
