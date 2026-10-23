@@ -71,7 +71,17 @@ print(f"Recorder: whales bet ${whale_min:,.0f}+ (then ${track_min:,.0f}+ counts)
       f"{'dry run' if dry else 'saving to ' + recorder.BRANCH}; alerts {'on' if tg else 'off'}", flush=True)
 
 store = recorder.Store(whale_min, track_min, tennis_min)
-saved = recorder.fetch_files(names=(recorder.STORE_FILE,)).get(recorder.STORE_FILE)
+saved = None
+for attempt in range(3):  # a hiccup here must not look like "no data yet" and get written over
+    try:
+        saved = recorder.fetch_files(names=(recorder.STORE_FILE,)).get(recorder.STORE_FILE)
+        break
+    except recorder.GitError as exc:
+        print(f"Couldn't read the {recorder.BRANCH} branch ({exc}); trying again", flush=True)
+        time.sleep(15 * (attempt + 1))
+else:
+    if not dry:
+        sys.exit(f"Couldn't read the {recorder.BRANCH} branch; stopping rather than start over on top of it.")
 if saved:
     try:
         store = recorder.Store.from_dict(recorder.unseal(saved, auth, secret), whale_min, track_min, tennis_min)
@@ -110,16 +120,20 @@ def read_tags() -> None:
 
 # ---- alerts ----
 def send(payload: dict) -> None:
-    if tg is None:
-        print(">>>", payload.get("text"), flush=True)
+    if tg is None:  # dry run: the text names the bettor, which doesn't belong in a public log
+        print(f">>> alert ({len(payload.get('text') or '')} chars, not sent)", flush=True)
         return
-    for _ in range(2):
-        resp = requests.post(f"{tg}/sendMessage", json=payload, timeout=15)
-        if resp.status_code != 429:
-            break
-        time.sleep(float(resp.json().get("parameters", {}).get("retry_after", 3)))
-    if not resp.ok:
-        print("telegram:", resp.status_code, resp.text[:200], flush=True)
+    try:
+        for _ in range(2):
+            resp = requests.post(f"{tg}/sendMessage", json=payload, timeout=15)
+            if resp.status_code != 429:
+                break
+            time.sleep(float(resp.json().get("parameters", {}).get("retry_after", 3)))
+        if not resp.ok:
+            print("telegram:", resp.status_code, resp.text[:200], flush=True)
+    except (requests.RequestException, ValueError) as exc:  # the URL holds the bot token: say only what kind
+        counts["errors"] += 1
+        print(f"telegram: {type(exc).__name__}", flush=True)
 
 
 def alert(bet: dict, m, rows: list[dict]) -> None:
@@ -136,8 +150,10 @@ def alert(bet: dict, m, rows: list[dict]) -> None:
 
 
 # ---- jobs ----
-def price_some(limit: int = 6) -> None:
+def price_some(limit: int = 6, until: float | None = None) -> None:
     for _ in range(min(limit, len(pending))):
+        if until is not None and time.time() > until:
+            break
         bet, m = pending.popleft()
         try:
             rows = scorer.score(trades_of(m), max_bets=1).rows
@@ -151,7 +167,11 @@ def price_some(limit: int = 6) -> None:
         else:
             counts["unpriced"] += 1
         if store.is_tagged(bet["c"]):
-            alert(bet, m, rows)
+            try:
+                alert(bet, m, rows)
+            except Exception as exc:  # an alert must never stop the recording
+                counts["errors"] += 1
+                print(f"{time.strftime('%H:%M:%S')} alert error: {type(exc).__name__}", flush=True)
 
 
 def settle() -> None:
@@ -172,7 +192,12 @@ def link(limit: int = 12) -> None:
             counts["linked"] += 1
     for bet in store.to_link()[:limit]:
         counts["lookups"] += 1
-        data = client.social_trades(market_ticker=bet["tk"])
+        try:
+            data = client.social_trades(market_ticker=bet["tk"])
+        except requests.HTTPError:  # this market's page won't come; count the try so the next bet gets its turn
+            counts["errors"] += 1
+            store.link(bet, [])
+            continue
         counts["linked"] += bool(store.link(bet, data.get("trades") or []))
 
 
@@ -293,5 +318,17 @@ while time.time() < deadline:
 
 stopping.set()
 book.stop()
-price_some(limit=len(pending))
-save(time.time())
+
+
+def final_save(label: str) -> None:
+    try:
+        save(time.time())
+    except Exception as exc:
+        counts["errors"] += 1
+        print(f"{label} save failed: {exc!r}"[:300], flush=True)
+
+
+final_save("final")  # what we have, first
+if pending:  # then the bets still waiting for a price, for a couple of minutes
+    price_some(limit=len(pending), until=time.time() + 120)
+    final_save("last")

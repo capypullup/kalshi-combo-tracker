@@ -103,18 +103,19 @@ function betHtml(b, tags) {
   const ev = isNum(b.fm) && b.p ? b.fm / b.p - 1 : null;
   const what = b.ti || (b.L ? `Combo, ${b.L} legs` : b.tk);
   const kind = !b.c ? "profile" : b.w ? "whale" : "";
+  const side = b.s === "no" ? "no" : "yes";
   return `<div class="lbet">
     <div class="lhead"><b>${starred(b, tags) ? `<span class="star on">${STAR}</span> ` : ""}${esc(who(b))}</b>
       ${kind ? `<span class="tag">${kind}</span>` : ""}<span class="sp"></span><span class="sub">${esc(ago(b.t))} ago${b.lv ? " · live" : ""}</span></div>
     <div class="lrec sub">${record(b)}</div>
     <div class="lbody">
-      <span class="s ${b.s}">${b.s.toUpperCase()}</span>
+      <span class="s ${side}">${side.toUpperCase()}</span>
       <span class="n">${esc(what)}</span>
       <span class="q"><b>${plain0(stake)}</b> @ ${cents(b.p)} <span class="o">${odds(b.p)}</span><br>
         <span class="o">EV at bet <span class="${cls(ev)}">${pct(ev)}</span> · to win ${plain0(b.n - stake)}</span></span>
     </div>
     <div class="lacts">
-      <button class="btn primary" data-act="quote" data-tk="${esc(b.tk)}" data-s="${b.s}" data-p="${b.p}" data-n="${b.n}">Quote it</button>
+      <button class="btn primary" data-act="quote" data-tk="${esc(b.tk)}" data-s="${side}" data-p="${+b.p}" data-n="${+b.n}">Quote it</button>
       ${b.c ? `<button class="btn" data-act="tag" data-v="${esc(b.c)}">${starred(b, tags) ? `${STAR} Starred` : "☆ Star"}</button>` : ""}
     </div>
   </div>`;

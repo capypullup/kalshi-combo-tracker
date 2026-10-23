@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import threading
 import time
@@ -65,6 +67,7 @@ STORE_FILE = "store.json"
 VIEW_FILE = "view.json"
 PROFILES_FILE = "profiles.json"
 TAGS_FILE = "tags.json"
+MAX_TAGS = 200  # stars in the shared tags.json
 REPO = os.environ.get("GITHUB_REPOSITORY") or "capypullup/kalshi-combo-tracker"
 RAW = f"https://raw.githubusercontent.com/{REPO}"
 VIEW_URL = f"{RAW}/{BRANCH}/{VIEW_FILE}"
@@ -270,7 +273,11 @@ class Store:
         for b in self.bets.values():
             if b.get("r") is not None or now - b["t"] < min_age:
                 continue
-            if now - b.get("chk", 0.0) < recheck and b.get("x") is not None and now < b["x"]:
+            x = b.get("x")
+            # not expected to resolve yet: a look every `recheck`; past that time: every `min_age`;
+            # never priced (no idea when it resolves): in between
+            wait = recheck if x is not None and now < x else min_age if x is not None else 2 * min_age
+            if now - b.get("chk", 0.0) < wait:
                 continue
             due.append(b)
         due.sort(key=lambda b: b["t"])
@@ -301,7 +308,9 @@ class Store:
         social feed: their biggest not tried yet. Biggest bettors first."""
         now = now or time.time()
         by_code: dict[str, list[dict]] = defaultdict(list)
+        whole: dict[str, int] = defaultdict(int)
         for b in self.bets.values():
+            whole[b["c"]] += 1
             if not b.get("lk") and now - b["t"] >= min_age:
                 by_code[b["c"]].append(b)
         out = []
@@ -309,7 +318,7 @@ class Store:
             info = self.codes.get(code) or {}
             if info.get("name") or info.get("tried", 0) >= tries:
                 continue
-            if not (self.keeps_whole(code) or self.count(code) >= 3):
+            if not (self.keeps_whole(code) or self.count(code, whole[code]) >= 3):
                 continue
             out.append(max(bets, key=stake))
         return sorted(out, key=lambda b: -self.codes[b["c"]]["big"])
@@ -331,9 +340,10 @@ class Store:
     def code_of(self, name: str) -> str | None:
         return next((c for c, i in self.codes.items() if i.get("name") == name), None)
 
-    def count(self, code: str) -> int:
-        """How many bets we have for a code, whole and folded."""
-        whole = sum(1 for b in self.bets.values() if b["c"] == code)
+    def count(self, code: str, whole: int | None = None) -> int:
+        """How many bets we have for a code, whole and folded (`whole` when the caller counted already)."""
+        if whole is None:
+            whole = sum(1 for b in self.bets.values() if b["c"] == code)
         folded = sum(v[0] for v in self.buckets.get(code, {}).get("a", {}).values())
         folded += sum(v[0] for v in self.buckets.get(code, {}).get("aL", {}).values())
         return whole + int(folded)
@@ -387,16 +397,19 @@ class Store:
         self.codes = {c: v for c, v in self.codes.items() if c in held or self.is_tagged(c)}
 
     # ---- totals ----
-    def tally(self, code: str, scope: str = "a", locks: bool = False, since: float | None = None) -> Tally:
-        """Totals for one bettor: whole bets plus folded days, in `scope`, with or without 95¢+ bets, since a time."""
+    def tally(self, code: str, scope: str = "a", locks: bool = False, since: float | None = None,
+              bets=None) -> Tally:
+        """Totals for one bettor: whole bets plus folded days, in `scope`, with or without 95¢+ bets, since
+        the start of the UTC day of `since` (the day folded totals are kept by, so nothing jumps when bets fold).
+        `bets`: this code's whole bets when the caller grouped them already (build_view does, once)."""
         t = Tally()
         first_day = None if since is None else day_of(since)
         for key in (variant(scope, False),) + ((variant(scope, True),) if locks else ()):
             for day, values in self.buckets.get(code, {}).get(key, {}).items():
                 if first_day is None or int(day) >= first_day:
                     t.add_bucket(int(day), values)
-        for b in self.bets.values():
-            if b["c"] != code or b.get("r") == "void" or (since is not None and b["t"] < since):
+        for b in self.bets.values() if bets is None else bets:
+            if b["c"] != code or b.get("r") == "void" or (first_day is not None and day_of(b["t"]) < first_day):
                 continue
             if (scope == "t" and not b.get("ten")) or (not locks and is_lock(b)):
                 continue
@@ -439,20 +452,22 @@ def build_view(store: Store, now: float | None = None, max_rows: int = MAX_ROWS,
     for b in store.bets.values():
         by_code[b["c"]].append(b)
     codes = set(by_code) | set(store.buckets)
-    listed = {c for c in codes if store.is_whale(c) or store.is_tagged(c) or store.tally(c, "t").s["n"] >= 3}
-    vol_of = {c: store.tally(c).s["vol"] for c in listed}
+    listed = {c for c in codes
+              if store.is_whale(c) or store.is_tagged(c) or store.tally(c, "t", bets=by_code.get(c, ())).s["n"] >= 3}
+    vol_of = {c: store.tally(c, bets=by_code.get(c, ())).s["vol"] for c in listed}
     ordered = sorted(listed, key=lambda c: -vol_of[c])[:max_rows]
     rows, by_row = [], {}
     for code in ordered:
         info = store.codes.get(code) or {}
         sums = {}
+        mine = by_code.get(code, ())
         for period, days in PERIODS.items():
             since = None if days is None else now - days * DAY
             for scope in SCOPES:
-                sums[f"{scope}:{period}"] = store.tally(code, scope, False, since).out()
+                sums[f"{scope}:{period}"] = store.tally(code, scope, False, since, mine).out()
             if store.is_whale(code):
-                sums[f"a+:{period}"] = store.tally(code, "a", True, since).out()
-        bets = sorted(by_code.get(code, ()), key=lambda b: -b["t"])
+                sums[f"a+:{period}"] = store.tally(code, "a", True, since, mine).out()
+        bets = sorted(mine, key=lambda b: -b["t"])
         row = {"code": code, "name": info.get("name"), "pa": info.get("pa"), "p30": info.get("p30"),
                "seen": int((info.get("first") or now) * 1000), "w": store.is_whale(code), "tg": store.is_tagged(code),
                **sums, "recent": [recent_bet(b) for b in bets[:RECENT]]}
@@ -481,20 +496,32 @@ class Locked(Exception):
     """The data was saved with a different key than the one we have."""
 
 
+_FERNETS: dict[bytes, object] = {}  # derived keys, by a hash of what they came from
+SALT = b"capyev bettor data"
+
+
 def _fernet(auth=None, secret: str | None = None):
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
     if secret:
-        material = secret.encode()
+        kind, material = b"pass", secret.encode()
     elif auth is not None:
-        material = auth.key.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
-                                          serialization.NoEncryption())
+        kind, material = b"key", auth.key.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
+                                                        serialization.NoEncryption())
     else:
         raise Locked("no key to open the bettor data: set KALSHI_PRIVATE_KEY (or BETTOR_DATA_KEY)")
-    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=b"capyev bettor data", info=b"v1").derive(material)
-    return Fernet(base64.urlsafe_b64encode(key))
+    cache_key = hashlib.sha256(kind + b":" + material).digest()
+    f = _FERNETS.get(cache_key)
+    if f is None:
+        if secret:  # a passphrase someone typed: stretch it (the ciphertext is public), ~0.1 s and 32 MB once
+            key = Scrypt(salt=SALT, length=32, n=2 ** 15, r=8, p=1).derive(material)
+        else:  # the Kalshi private key is random already
+            key = HKDF(algorithm=hashes.SHA256(), length=32, salt=SALT, info=b"v1").derive(material)
+        f = _FERNETS[cache_key] = Fernet(base64.urlsafe_b64encode(key))
+    return f
 
 
 def key_label(auth=None, secret: str | None = None) -> str:
@@ -525,18 +552,33 @@ def secret_key() -> str | None:
 
 
 # ---- the data branches (worker side) ----
-def _git(*args: str, data: bytes | None = None, cwd: str | None = None) -> str:
+class GitError(Exception):
+    """A fetch or push didn't go through (the message says why, without secrets)."""
+
+
+def _git(*args: str, data: bytes | None = None, cwd: str | None = None, timeout: float = 60) -> str:
     env = {**os.environ, "GIT_AUTHOR_NAME": "bettor-recorder", "GIT_AUTHOR_EMAIL": "bettor-recorder@users.noreply.github.com",
            "GIT_COMMITTER_NAME": "bettor-recorder", "GIT_COMMITTER_EMAIL": "bettor-recorder@users.noreply.github.com"}
-    return subprocess.run(["git", *args], input=data, capture_output=True, check=True, cwd=cwd, env=env).stdout.decode().strip()
+    return subprocess.run(["git", *args], input=data, capture_output=True, check=True, cwd=cwd, env=env,
+                          timeout=timeout).stdout.decode().strip()
+
+
+def _stderr(exc: Exception) -> str:
+    err = getattr(exc, "stderr", None) or b""
+    return (err.decode(errors="replace") if isinstance(err, bytes) else str(err)).strip()
 
 
 def fetch_files(remote: str = "origin", branch: str = BRANCH, names=(STORE_FILE,), cwd: str | None = None) -> dict[str, bytes]:
-    """The files on a data branch, or {} when it doesn't exist yet."""
+    """The files on a data branch, or {} when the branch doesn't exist yet. Raises GitError when the fetch
+    itself fails (network, auth), so a hiccup is never mistaken for "no data yet"."""
     try:
         _git("fetch", "-q", "--depth=1", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}", cwd=cwd)
-    except subprocess.CalledProcessError:
-        return {}
+    except subprocess.CalledProcessError as exc:
+        if "couldn't find remote ref" in _stderr(exc):
+            return {}
+        raise GitError(f"fetching {branch}: {_stderr(exc)[-200:] or 'git failed'}") from None
+    except subprocess.TimeoutExpired:
+        raise GitError(f"fetching {branch}: timed out") from None
     out = {}
     for name in names:
         try:
@@ -549,14 +591,31 @@ def fetch_files(remote: str = "origin", branch: str = BRANCH, names=(STORE_FILE,
 
 def push_files(files: dict[str, bytes], message: str, remote: str = "origin", branch: str = BRANCH,
                cwd: str | None = None) -> str:
-    """Replace the data branch with one commit holding `files` (no history, so the branch stays small)."""
+    """Replace the data branch with one commit holding `files` (no history, so the branch stays small).
+    The push goes through only if the branch is still what this process last fetched or pushed, so two
+    recorders can't silently write over each other; otherwise it raises GitError."""
     entries = []
     for name, blob in sorted(files.items()):
         sha = _git("hash-object", "-w", "--stdin", data=blob, cwd=cwd)
         entries.append(f"100644 blob {sha}\t{name}\n")
     tree = _git("mktree", data="".join(entries).encode(), cwd=cwd)
     commit = _git("commit-tree", tree, "-m", message, cwd=cwd)
-    _git("push", "-q", "-f", remote, f"{commit}:refs/heads/{branch}", cwd=cwd)
+    tracking = f"refs/remotes/{remote}/{branch}"
+    try:
+        expect = _git("rev-parse", "--verify", "-q", tracking, cwd=cwd)
+    except subprocess.CalledProcessError:
+        expect = ""  # never fetched: the branch must not exist yet
+    try:
+        _git("push", "-q", f"--force-with-lease=refs/heads/{branch}:{expect}", remote, f"{commit}:refs/heads/{branch}",
+             cwd=cwd, timeout=120)
+    except subprocess.CalledProcessError as exc:
+        err = _stderr(exc)
+        if "stale info" in err or "rejected" in err:
+            raise GitError(f"the {branch} branch changed under us (another recorder writing?); not overwriting it") from None
+        raise GitError(f"pushing {branch}: {err[-200:] or 'git failed'}") from None
+    except subprocess.TimeoutExpired:
+        raise GitError(f"pushing {branch}: timed out") from None
+    _git("update-ref", tracking, commit, cwd=cwd)
     return commit
 
 
@@ -569,11 +628,17 @@ def parse_tags(blob: bytes | str | None) -> set[str]:
     except ValueError:
         return set()
     items = data.get("tags", []) if isinstance(data, dict) else data
-    return {str(t).strip().lstrip("@#") for t in items if str(t).strip()}
+    tags = {str(t).strip().lstrip("@#") for t in items if str(t).strip()} if isinstance(items, list) else set()
+    return {t for t in tags if valid_tag(t)}
 
 
 def is_code(tag: str) -> bool:
     return len(tag) == 64 and all(c in "0123456789abcdef" for c in tag)
+
+
+def valid_tag(tag: str) -> bool:
+    """A requester code, or a Kalshi nickname (letters, digits, . _ -)."""
+    return is_code(tag) or re.fullmatch(r"[A-Za-z0-9._-]{1,32}", tag) is not None
 
 
 # ---- the data branch (app side) ----
@@ -688,10 +753,14 @@ class GitHubTags:
 
     def toggle(self, tag: str) -> set[str]:
         """Star or unstar one code or nickname. Returns the tags afterwards."""
+        if not valid_tag(tag):
+            raise ValueError("a star is a bettor's code or Kalshi nickname")
         with self.lock:
             tags, sha = self.read()
             if tag in tags:
                 tags.discard(tag)
+            elif len(tags) >= MAX_TAGS:
+                raise ValueError(f"at most {MAX_TAGS} stars; unstar someone first")
             else:
                 tags.add(tag)
             if sha is None:

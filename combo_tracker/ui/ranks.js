@@ -159,11 +159,12 @@ export function betHtml(b) {
   const res = b.r === "yes" || b.r === "no"
     ? `<span class="${cls(b.pnl)}">${b.r === b.s ? "won" : "lost"} ${money0(b.pnl)}</span>` : b.r === "void" ? `<span class="dimc">void</span>` : `<span class="dimc">open</span>`;
   const what = b.ti || (b.L ? `Combo, ${b.L} legs` : b.tk);
-  return `<div class="fill"><span class="s ${b.s}">${b.s.toUpperCase()}</span>
+  const side = b.s === "no" ? "no" : "yes";
+  return `<div class="fill"><span class="s ${side}">${side.toUpperCase()}</span>
     <span class="n">${esc(what)}<i> · ${ago(b.t)} ago${b.lv ? " · live" : ""}</i></span>
     <span class="q">${plain0(stake)} @ ${cents(b.p)} <span class="o">${odds(b.p)}</span><br>
       <span class="o">EV <span class="${cls(ev)}">${pct(ev)}</span> · ${res}</span>
-      ${b.r ? "" : `<button class="mini" data-act="quote" data-tk="${esc(b.tk)}" data-s="${b.s}" data-p="${b.p}" data-n="${b.n}">Quote</button>`}</span></div>`;
+      ${b.r ? "" : `<button class="mini" data-act="quote" data-tk="${esc(b.tk)}" data-s="${side}" data-p="${+b.p}" data-n="${+b.n}">Quote</button>`}</span></div>`;
 }
 
 function detailHtml(S, D, r, star) {

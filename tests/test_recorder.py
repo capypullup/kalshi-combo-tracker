@@ -200,3 +200,104 @@ def test_note_run_joins_close_runs():
     assert s.runs == [[100, 900], [5000, 5100]]
     t = Tally()
     assert t.out()["n"] == 0 and t.out()["z"] is None
+
+
+def test_unsettled_backs_off_for_unpriced_and_overdue_bets():
+    s = Store()
+    b = s.consider(match(WHALE, 1, 6000))  # never priced: no expected resolution
+    assert s.unsettled(now=NOW) == ["KXMVE-1"]
+    s.settle({"KXMVE-1": {"status": "active", "result": ""}}, now=NOW)
+    assert s.unsettled(now=NOW + 1800) == []  # asked half an hour ago: not again yet
+    assert s.unsettled(now=NOW + 3601) == ["KXMVE-1"]  # an hour later, yes
+    s.price(b, row(hours=1.0), now=NOW)
+    s.settle({"KXMVE-1": {"status": "active", "result": ""}}, now=NOW + 3600)  # past its hour, still open
+    assert s.unsettled(now=NOW + 3600 + 1500) == []  # overdue bets are asked every 30 min, not every call
+    assert s.unsettled(now=NOW + 3600 + 1801) == ["KXMVE-1"]
+
+
+def test_tally_with_grouped_bets_and_day_boundary():
+    s = Store(tennis_min=10)
+    for i in range(4):
+        b = s.consider(match(TENNIS_PRO, i, 100, price=0.4, ts=NOW - (10 + i) * 86400, tennis=True))
+        b["r"] = "yes"
+    mine = [b for b in s.bets.values() if b["c"] == TENNIS_PRO]
+    since = NOW - 12.5 * 86400
+    whole = s.tally(TENNIS_PRO, "t", since=since).out()
+    assert whole == s.tally(TENNIS_PRO, "t", since=since, bets=mine).out()
+    s.fold(now=NOW)
+    assert s.tally(TENNIS_PRO, "t", since=since).out()["n"] == whole["n"]  # folding changes nothing
+    assert s.count(TENNIS_PRO) == 4 == s.count(TENNIS_PRO, whole=0)
+
+
+def test_tags_are_codes_or_nicknames_only():
+    assert recorder.valid_tag("Bendeck18") and recorder.valid_tag("a" * 64) and recorder.valid_tag("j.r_0-9")
+    assert not recorder.valid_tag("") and not recorder.valid_tag("x" * 33) and not recorder.valid_tag("<b>hi</b>")
+    assert parse_tags(b'{"tags": ["ok", "<script>", "a b"]}') == {"ok"}
+    assert parse_tags(b'{"tags": "ok"}') == set()
+
+
+class _Resp:
+    def __init__(self, status, body=None):
+        self.status_code, self.ok, self._body = status, status < 400, body or {}
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise RuntimeError(self.status_code)
+
+
+class _Session:
+    """Just enough of requests.Session for GitHubTags: one file on one branch."""
+
+    def __init__(self, tags):
+        self.headers, self.tags, self.puts = {}, set(tags), 0
+
+    def get(self, url, **kw):
+        if url.endswith("/tags.json"):
+            import base64
+
+            return _Resp(200, {"content": base64.b64encode(json.dumps({"tags": sorted(self.tags)}).encode()).decode(),
+                               "sha": "abc"})
+        return _Resp(200, {})
+
+    def put(self, url, json=None, **kw):
+        self.puts += 1
+        return _Resp(200)
+
+
+def test_github_tags_refuses_junk_and_too_many():
+    gh = recorder.GitHubTags("t", session=_Session([f"u{i}" for i in range(recorder.MAX_TAGS)]))
+    with pytest.raises(ValueError):
+        gh.toggle("<script>")
+    with pytest.raises(ValueError):
+        gh.toggle("one.more")
+    assert "u1" not in gh.toggle("u1") and gh.session.puts == 1  # unstarring always works
+
+
+def test_fetch_and_push_files_keep_a_lease(tmp_path):
+    import subprocess
+
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+    works = []
+    for name in ("a", "b"):
+        w = tmp_path / name
+        w.mkdir()
+        subprocess.run(["git", "init", "-q", str(w)], check=True)
+        subprocess.run(["git", "-C", str(w), "remote", "add", "origin", str(bare)], check=True)
+        works.append(str(w))
+    a, b = works
+    assert recorder.fetch_files(cwd=a) == {}  # no branch yet, not an error
+    recorder.push_files({"store.json": b"one"}, "first", cwd=a)
+    assert recorder.fetch_files(cwd=b) == {"store.json": b"one"}
+    recorder.push_files({"store.json": b"two"}, "second", cwd=b)  # b has fetched the branch: fine
+    with pytest.raises(recorder.GitError, match="changed under us"):
+        recorder.push_files({"store.json": b"three"}, "stale", cwd=a)  # a still holds the first commit
+    assert recorder.fetch_files(cwd=a) == {"store.json": b"two"}
+    recorder.push_files({"store.json": b"three"}, "fresh", cwd=a)  # after a fetch, a may write again
+    assert recorder.fetch_files(cwd=b, names=("store.json", "missing.json")) == {"store.json": b"three"}
+    subprocess.run(["git", "-C", a, "remote", "set-url", "origin", str(tmp_path / "gone.git")], check=True)
+    with pytest.raises(recorder.GitError, match="fetching"):
+        recorder.fetch_files(cwd=a)  # a broken remote is an error, never "no data yet"

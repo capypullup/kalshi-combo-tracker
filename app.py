@@ -601,10 +601,23 @@ def _tags() -> set[str]:
     return shared | set(st.session_state.get("local_tags", ()))
 
 
+def _tags_shared() -> bool:
+    """Whether this session's stars go to GitHub: the app has a token and the session unlocked with
+    TRADE_PIN (anyone with the link can open the app; only the PIN holder gets to write to the repo)."""
+    feeds = bettor_feeds()
+    pin = _secret("TRADE_PIN")
+    if feeds.tags is None or not pin:
+        return False
+    auth, _ = _kalshi_auth()
+    return quote_view._unlocked(pin, auth.key_id if auth is not None else "demo")
+
+
 def _toggle_tag(tag: str) -> None:
+    if not recorder.valid_tag(tag):
+        return
     feeds = bettor_feeds()
     local = st.session_state.setdefault("local_tags", set())
-    if feeds.tags is not None:
+    if _tags_shared():
         try:
             feeds.tags.toggle(tag)
             feeds.tags_feed.get(force=True)
@@ -653,8 +666,8 @@ def _track():
     name = getattr(st.session_state.bt, "track", None)
     if name:
         get_bettors().add(name)
-        if bettor_feeds().tags is not None:  # the recorder follows starred names too
-            _toggle_tag(name) if name not in _tags() else None
+        if _tags_shared() and name not in _tags():  # the recorder follows starred names too
+            _toggle_tag(name)
 
 
 def _go_quote() -> None:
@@ -758,8 +771,9 @@ def bettors_page() -> None:
             "and the public profiles below, newest first, each with the bettor's 30-day record. **Quote it** checks "
             "the same combo on the Quote page.\n"
             "- **★ Star** a bettor to keep every bet of theirs (whatever the size) and to filter to them. Stars are "
-            "kept on this phone; with a GitHub token (GH_TOKEN) in the app's secrets they're shared with the recorder, "
-            "which can also send each starred bettor's bets to Telegram.\n"
+            "kept on this phone; with a GitHub token (GH_TOKEN) in the app's secrets, and once you've unlocked with "
+            "the PIN on the Quote page, they're shared with the recorder, which can also send each starred bettor's "
+            "bets to Telegram.\n"
             "- **Profiles**: public Kalshi profiles (the busiest names in the tennis feed plus any you add) with their "
             "whole trade history, Kalshi's own PnL, EV against one-minute candles, and **Beat** = PnL − EV with its z. "
             "A profile that hides its trades shows **hidden**.\n"
