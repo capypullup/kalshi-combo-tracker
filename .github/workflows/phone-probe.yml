@@ -1,0 +1,47 @@
+name: Phone speed probe
+# Loads the live app like a phone (scripts/phone_probe.py) and prints load and tab-switch times,
+# plus what Streamlit Cloud draws over the tab bar. Run it from the Actions tab with any app URL.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: App URL
+        default: "https://capyev.streamlit.app/"
+  push:
+    branches: [claude/project-thread-5a1fxl]
+    paths: [scripts/phone_probe.py, .github/workflows/phone-probe.yml]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      URL: ${{ inputs.url || 'https://capyev.streamlit.app/' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && python -m playwright install --with-deps chromium webkit
+      - name: Round trips to Kalshi and the app from this runner
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            curl -sS -o /dev/null -w "kalshi %{time_connect}s connect %{time_total}s total\n" https://api.elections.kalshi.com/trade-api/v2/exchange/status
+            curl -sS -o /dev/null -w "app health %{http_code} %{time_connect}s connect %{time_total}s total\n" "${URL%/}/~/+/_stcore/health"
+          done
+      - name: First look, no throttling (with screenshots)
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show
+      - name: iPhone layout in WebKit (with screenshots)
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show
+      - name: Recent iPhone on good 5G / Wi-Fi
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3
+      - name: Mid-range phone on slow 4G
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2
+      - name: The app without Streamlit Cloud's page around it (/~/+/)
+        continue-on-error: true
+        run: python scripts/phone_probe.py "${URL%/}/~/+/" --profile fast --rounds 2 --show
