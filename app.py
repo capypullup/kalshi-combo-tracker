@@ -44,7 +44,8 @@ def _reload_if_deployed() -> None:
 
 _reload_if_deployed()
 
-from combo_tracker.bettors import BettorTracker  # noqa: E402  (after the reload check)
+from combo_tracker import activity  # noqa: E402  (after the reload check)
+from combo_tracker.bettors import BettorTracker  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
@@ -203,7 +204,8 @@ def get_source() -> SimpleNamespace:
     _stop_collectors()
     client = KalshiClient()
     scorer = Scorer(client)
-    collector = Collector(client, max_window_minutes=MAX_WINDOW)
+    # Load the newest 15 minutes first; older history fills in a poll at a time.
+    collector = Collector(client, max_window_minutes=MAX_WINDOW, initial_backfill_minutes=15)
     board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS)
     collector.after_poll = lambda col: board.refresh(trades_as_of=col.poll_started)
     collector.start()
@@ -367,8 +369,15 @@ def _watch_refresh() -> None:
     st.rerun()  # a full run shows the new scores and stops this timer
 
 
+@st.fragment(run_every=60)
+def _heartbeat() -> None:
+    """Tells the background workers a page is open, so they keep polling Kalshi (see activity.py)."""
+    activity.seen()
+
+
 def nav() -> None:
     """The tab bar fixed to the bottom of every page (the Streamlit header is hidden), with Home in the middle."""
+    _heartbeat()
     st.html(TOUCH_ICON_JS + HOST_BADGES_JS, unsafe_allow_javascript=True)
     here = st.session_state.get("page")
     half = len(NAV_TABS) // 2
