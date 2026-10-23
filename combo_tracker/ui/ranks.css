@@ -1,0 +1,23 @@
+/* Whales table; shares colors and controls with table.css and bettors.css. */
+.wgrid { display: grid; grid-template-columns: minmax(0, 1fr) 58px 60px 58px 42px; column-gap: 4px; align-items: center; padding: 6px 2px; }
+.row .wgrid > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row > .wgrid { cursor: pointer; }
+.row.open > .wgrid { background: var(--panel); }
+.thead.wgrid .clock { cursor: pointer; }
+.fill .mini { margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700; color: var(--cyan);
+  background: none; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.star.on { color: var(--warn); }
+.lbet { padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.lhead { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.lhead .sub { font-size: 12px; }
+.lrec { font-size: 12px; padding: 1px 0 4px; }
+.lrec .pos { color: var(--pos); }
+.lrec .neg { color: var(--neg); }
+.lbody { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; column-gap: 8px; align-items: start; }
+.lbody .s { font-weight: 800; font-size: 11.5px; padding-top: 2px; }
+.lbody .n { font-size: 12.5px; }
+.lbody .q { text-align: right; font-size: 12px; white-space: nowrap; }
+.lbody .q .o { color: var(--dim); font-size: 11px; }
+.lbody .pos { color: var(--pos); }
+.lbody .neg { color: var(--neg); }
+.lacts { display: flex; gap: 8px; justify-content: flex-end; padding-top: 6px; }

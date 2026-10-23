@@ -1,0 +1,56 @@
+name: Bettor recorder
+# Names the people behind combo bets around the clock and keeps the ones that matter for the Bettors
+# page: whales, tennis bettors, tagged bettors, and the public-profile tracker (scripts/recorder_bot.py).
+# Like the notification bot, each run lasts ~5h50m and the hourly schedule queues the next run behind
+# it (one running + one waiting), so there's no gap between runs.
+# The data goes to the bettor-data branch, encrypted with a key derived from KALSHI_PRIVATE_KEY.
+# Settings → Secrets and variables → Actions → Variables:
+#   WHALE_MIN (a bet this big makes a whale, default 5000), WHALE_TRACK_MIN (their later bets this big
+#   count too, default 1000), TENNIS_MIN (tennis-leg combo bets this big are kept for everyone, default 25),
+#   BETTOR_TAGS (codes or nicknames to follow, comma-separated; the app's stars are read too), APP_URL.
+# Secrets: KALSHI_KEY_ID + KALSHI_PRIVATE_KEY; TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for alerts on tagged
+# bettors' bets; BETTOR_DATA_KEY (optional, also in the app) to lock the data with its own key.
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to run
+        default: "350"
+      dry_run:
+        description: Don't save or send anything (1 = yes)
+        default: "0"
+
+concurrency:
+  group: bettor-recorder
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # pushes the bettor-data branch
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests cryptography websocket-client
+      - run: python scripts/recorder_bot.py
+        env:
+          KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+          BETTOR_DATA_KEY: ${{ secrets.BETTOR_DATA_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WHALE_MIN: ${{ vars.WHALE_MIN }}
+          WHALE_TRACK_MIN: ${{ vars.WHALE_TRACK_MIN }}
+          TENNIS_MIN: ${{ vars.TENNIS_MIN }}
+          BETTOR_TAGS: ${{ vars.BETTOR_TAGS }}
+          APP_URL: ${{ vars.APP_URL }}
+          RECORDER_MINUTES: ${{ inputs.minutes || '350' }}
+          DRY_RUN: ${{ inputs.dry_run || '0' }}
