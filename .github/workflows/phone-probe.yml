@@ -1,0 +1,34 @@
+name: Phone speed probe
+# Loads the app like a phone (scripts/phone_probe.py) and prints first-load and tab-switch times,
+# plus what the host draws over the tab bar. Run it from the Actions tab with the app's URL.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: App URL
+        required: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      URL: ${{ inputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && python -m playwright install --with-deps chromium webkit
+      - name: First look (with screenshots)
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show --timeout 150
+      - name: iPhone layout in WebKit (with screenshots)
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show --timeout 150
+      - name: Recent iPhone on good 5G / Wi-Fi
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3 --timeout 150
+      - name: Mid-range phone on slow 4G
+        continue-on-error: true
+        run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2 --timeout 150
