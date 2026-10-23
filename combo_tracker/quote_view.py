@@ -17,9 +17,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import html
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -40,6 +42,7 @@ MAX_BET_UNITS = 3.0  # a safety cap on one bet from this page
 ACCEPT_WAIT = 8  # seconds to wait for the maker to confirm and the trade to execute
 PIN_COOKIE = "capyev_trade"
 PIN_TRIES = 8  # wrong PINs allowed per hour, across everyone
+_PIN_LOCK = threading.Lock()
 
 CSS = """<style>
 .qv {font-family: "Nunito", ui-rounded, "SF Pro Rounded", ui-sans-serif, -apple-system, system-ui, sans-serif; color: #e6fbff;
@@ -86,6 +89,15 @@ def _ago(ts: datetime, now: datetime) -> str:
     return f"{s}s" if s < 120 else f"{s // 60}m" if s < 7200 else f"{s // 3600}h"
 
 
+def _clock(ts: datetime, fmt: str = "%H:%M") -> str:
+    """A time in the phone's zone (the server runs on UTC)."""
+    try:
+        tz = ZoneInfo(st.context.timezone) if st.context.timezone else None
+    except Exception:  # no browser zone yet, or an unknown one
+        tz = None
+    return ts.astimezone(tz).strftime(fmt) if tz else ts.astimezone(timezone.utc).strftime(fmt) + " UTC"
+
+
 def _odds(p: float | None) -> str:
     """'8.33x <small>+733</small>': the Kalshi app's multiplier with American odds."""
     return f"{mult(p)}<small>{odds(p)}</small>"
@@ -97,7 +109,7 @@ def _units(dollars: float, unit: float) -> str:
 
 
 def _bet_label(r: dict) -> str:
-    t = r["last_time"].astimezone().strftime("%H:%M")
+    t = _clock(r["last_time"])
     ev = r.get("ev_pct_mid")
     ev = f" · EV {ev * 100:+.0f}%" if ev is not None else ""
     return f"{t} · {r['side'].upper()} {mult(r['price'])} · ${r['stake']:,.0f} · {r['legs']} legs{ev}"
@@ -109,15 +121,32 @@ def _ctx_from(r: dict, scored_at: datetime | None) -> dict:
             "since": r["last_time"], "row": r, "seen_at": scored_at}
 
 
-def _set_ctx(ctx: dict | None) -> None:
+def _params(ctx: dict) -> dict:
+    """The link for this bet (what Quote it on the Combos page sends)."""
+    out = {"t": ctx["ticker"]}
+    if ctx.get("side"):
+        out["side"] = ctx["side"]
+    if ctx.get("price"):
+        out["p"] = f"{ctx['price']:.4f}"
+    if ctx.get("contracts"):
+        out["n"] = f"{ctx['contracts']:g}"
+    return out
+
+
+def _fresh(ctx: dict | None) -> None:
+    """Start over on a new bet: drop the last one's card, result and picks, and redraw the side and price
+    boxes (new keys: a box keeps what the phone shows otherwise, even for the same combo)."""
     ss = st.session_state
-    ss.q_ctx = ctx
-    ss.q_extra = []
-    ss.pop("q_confirm", None)
+    ss.q_ctx, ss.q_extra = ctx, []
+    for k in ("q_confirm", "q_bet", "q_auto"):
+        ss.pop(k, None)
+    ss.q_gen = ss.get("q_gen", 0) + 1
+
+
+def _set_ctx(ctx: dict | None) -> None:
+    _fresh(ctx)
     if ctx:
-        st.query_params.update({"t": ctx["ticker"], "side": ctx["side"] or "yes"})
-        if ctx.get("price"):
-            st.query_params["p"] = f"{ctx['price']:.4f}"
+        st.query_params.from_dict(_params(ctx))
     else:
         st.query_params.clear()
 
@@ -132,6 +161,8 @@ def _from_paste(text: str, rows: list[dict], scored_at) -> dict | None:
         ctx = _ctx_from(mine[0], scored_at)
         if got["price"]:
             ctx["price"] = got["price"]
+        if got["contracts"]:
+            ctx["contracts"] = got["contracts"]
         return ctx
     return {**got, "since": None, "row": None, "seen_at": None}
 
@@ -146,19 +177,23 @@ def _pin_misses() -> list[float]:
     return []  # times of wrong PINs, shared by every visitor
 
 
+def _same(a, b: str) -> bool:
+    return isinstance(a, str) and hmac.compare_digest(a.encode(), b.encode())
+
+
 def _unlocked(pin: str | None, salt: str) -> bool:
     if not pin:
         return True
     ss = st.session_state
-    if ss.get("q_unlocked"):
-        return True
-    try:
-        cookie = st.context.cookies.get(PIN_COOKIE)
-    except Exception:  # no request context (tests)
-        cookie = None
-    if cookie and hmac.compare_digest(cookie, _token(pin, salt)):
-        ss.q_unlocked = True
-    return bool(ss.get("q_unlocked"))
+    token = _token(pin, salt)  # a new PIN (or key) locks every session that unlocked with the old one
+    if not _same(ss.get("q_unlocked"), token):
+        try:
+            cookie = st.context.cookies.get(PIN_COOKIE)
+        except Exception:  # no request context (tests)
+            cookie = None
+        if _same(cookie, token):
+            ss.q_unlocked = token
+    return _same(ss.get("q_unlocked"), token)
 
 
 def _unlock_form(pin: str, salt: str) -> None:
@@ -173,14 +208,19 @@ def _unlock_form(pin: str, salt: str) -> None:
                                   label_visibility="collapsed")
             ok = st.form_submit_button("Unlock", type="primary")
     if ok:
-        if hmac.compare_digest(typed.strip(), pin):
-            st.session_state.q_unlocked = True
+        with _PIN_LOCK:  # sessions run in parallel threads: count every try
+            misses[:] = [t for t in misses if time.time() - t < 3600]
+            locked = len(misses) >= PIN_TRIES
+            good = not locked and hmac.compare_digest(typed.strip().encode(), pin.encode())
+            if not locked and not good:
+                misses.append(time.time())
+        if good:
+            st.session_state.q_unlocked = _token(pin, salt)
             # Remember this phone for 30 days (the cookie holds a hash, not the PIN).
             st.session_state.q_cookie = (f"{PIN_COOKIE}={_token(pin, salt)}; Max-Age={30 * 86400}; Path=/; "
                                          "SameSite=Strict; Secure")
             st.rerun()
-        misses.append(time.time())
-        st.error("Wrong PIN.")
+        st.error("Too many wrong PINs in the last hour." if locked else "Wrong PIN.")
     st.caption("Quotes and bets use your Kalshi key, so they need the TRADE_PIN from the app's secrets. "
                "This phone stays unlocked for 30 days.")
 
@@ -195,28 +235,27 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
     """
     st.html(CSS)
     ss = st.session_state
-    ss.setdefault("q_unit", UNIT_DOLLARS)
+    ss.setdefault("q_unit", UNIT_DOLLARS)  # plain keys: the Sizing widgets aren't drawn on every run
     ss.setdefault("q_kelly", KELLY)
 
     q = st.query_params
     ctx = ss.get("q_ctx")
     if "q_ctx" not in ss or (q.get("t") and (ctx is None or q["t"].upper() != ctx["ticker"])):
-        # First load, or the Combos page sent a bet: take it from the link.
+        # First load, or the Combos page sent a bet (it drops q_ctx first): take it from the link.
         ctx = _from_paste(f"?t={q['t']}&side={q.get('side', '')}&p={q.get('p', '')}&n={q.get('n', '')}", rows,
                           scored_at) if q.get("t") else None
-        if ctx and q.get("n"):
-            try:
-                ctx["contracts"] = float(q["n"])
-            except ValueError:
-                pass
-        ss.q_ctx, ss.q_extra = ctx, []
-        ss.pop("q_confirm", None)
+        _fresh(ctx)
+        if ctx:  # the link as parsed, so a stray character in it doesn't reload the bet on every run
+            st.query_params.from_dict(_params(ctx))
+        elif q.get("t"):
+            st.query_params.clear()  # not a combo link
 
     def on_paste():
         text = getattr(ss.q_paste, "text", None)
         new = _from_paste(text or "", rows, scored_at)
         if new is None:
-            ss.q_paste_err = f"That doesn't look like a combo ticker: {(text or '')[:60]}"
+            shown = (text or "")[:60].replace("`", "")
+            ss.q_paste_err = f"That doesn't look like a combo ticker: `{shown}`"
         else:
             ss.pop("q_paste_err", None)
             _set_ctx(new)
@@ -240,18 +279,21 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
     _header(ctx)
     if not ctx.get("price"):
         _guess_price(client, ctx)
+        # The side, not the guessed price: a reload guesses again, so that fill still doesn't count as proof.
+        st.query_params.from_dict({k: v for k, v in _params(ctx).items() if k != "p"})
 
     with st.container(horizontal=True, vertical_alignment="bottom"):
-        side = st.segmented_control("Side", ["yes", "no"], default=ctx["side"] or "yes", key=f"q_side_{ctx['ticker']}",
-                                    format_func=str.upper) or ctx["side"] or "yes"
+        gen = ss.get("q_gen", 0)
+        side = st.segmented_control("Side", ["yes", "no"], default=ctx["side"] or "yes",
+                                    key=f"q_side_{ctx['ticker']}_{gen}", format_func=str.upper) or ctx["side"] or "yes"
         same = side == (ctx["side"] or "yes")
         price = st.number_input("Price ¢", min_value=0.01, max_value=99.99, step=0.1, format="%.2f",
-                                key=f"q_price_{ctx['ticker']}_{side}",
-                                value=round((ctx["price"] or 0.5) * 100, 2) if same else 50.0) / 100
+                                key=f"q_price_{ctx['ticker']}_{side}_{gen}",
+                                value=min(99.99, max(0.01, round((ctx["price"] or 0.5) * 100, 2))) if same else 50.0) / 100
         force = st.button("Check", type="primary")
         watch = st.toggle("Watch", key="q_watch", help=f"Re-check every {WATCH_SECONDS}s")
     st.caption(f"{side.upper()} at {mult(price)} ({odds(price)})" + (
-        f" · bet at {ctx['since'].astimezone().strftime('%H:%M:%S')}" if ctx.get("since") and same else ""))
+        f" · bet at {_clock(ctx['since'], '%H:%M:%S')}" if ctx.get("since") and same else ""))
 
     def live_part():
         key = (ctx["ticker"], side, round(price, 4))
@@ -271,7 +313,7 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
     st.fragment(live_part, run_every=WATCH_SECONDS if watch else None)()
 
     c = (ss.get("q_check") or {}).get("check")
-    if c is None or c.ticker != ctx["ticker"]:
+    if c is None or c.ticker != ctx["ticker"] or c.side != side:  # the check failed: never price with the other side's
         return
 
     st.html('<div class="qv"><div class="sec">Quotes</div></div>')
@@ -281,7 +323,7 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
     elif not unlocked:
         _unlock_form(pin, salt)
     else:
-        _quotes_section(desk, c, side, pin is not None or demo)
+        _quotes_section(desk, c, side, bool(pin) or demo)
 
     _open_in_kalshi(c)
     if side == "yes":
@@ -327,6 +369,7 @@ def _guess_price(client, ctx: dict) -> None:
         if ctx["side"] in (None, side):
             ctx["side"] = side
             ctx["price"] = float(t["yes_price_dollars"] if side == "yes" else t["no_price_dollars"])
+            ctx["since"] = _parse_time(t.get("created_time"))  # so this fill doesn't count as proof it's live
             return
     ctx["side"] = ctx["side"] or "yes"
 
@@ -341,7 +384,7 @@ def _verdict_html(c: LiveCheck, then: dict | None, seen_at: datetime | None) -> 
                    f'EV mid {_pct(c.ev_now.get("mid"))} · cross {_pct(c.ev_now.get("cross"))}<br>')
     out.append(f'<span class="dim">At {mult(c.price)}:</span> EV mid {_pct(s["ev_pct_mid"])} · '
                f'cross {_pct(s["ev_pct_crx"])} <span class="dim">· fair {mult(s["fair_mid"])} / {mult(s["fair_crx"])} · '
-               f'checked {now.astimezone().strftime("%H:%M:%S")}</span></div>')
+               f'checked {_clock(now, "%H:%M:%S")}</span></div>')
 
     if then is not None:
         out.append(_moves_html(c, then, seen_at))
@@ -369,7 +412,7 @@ def _verdict_html(c: LiveCheck, then: dict | None, seen_at: datetime | None) -> 
     out.append(f"<h4>Legs · {len(legs)}</h4><table><tr><th>Leg</th><th>Bid</th><th>Ask</th><th>Top</th></tr>")
     for l in legs:
         live = '<span class="ld"></span>' if leg_live(l) else ""
-        thin = (l["spread"] or 1) > 0.03 or min(l["top_bid_size"], l["top_ask_size"]) < 50
+        thin = (l["spread"] or 1) > 0.03 + 1e-9 or min(l["top_bid_size"], l["top_ask_size"]) < 50
         out.append(
             f'<tr><td>{live}<span class="cy">{l["side"].upper()}</span> {html.escape(l["leg"])}'
             f'<small>{html.escape(l["event_title"])}</small></td><td>{_c(l["bid"])}</td><td>{_c(l["ask"])}</td>'
@@ -381,19 +424,21 @@ def _verdict_html(c: LiveCheck, then: dict | None, seen_at: datetime | None) -> 
 def _moves_html(c: LiveCheck, then: dict, seen_at: datetime | None) -> str:
     """How the line moved since CapyEV scored the bet: fair odds and EV then vs now, and the legs that moved."""
     s = c.scored
-    when = seen_at.astimezone().strftime("%H:%M") if seen_at else "then"
+    when = _clock(seen_at) if seen_at else "then"
     ago = f" ({_ago(seen_at, c.checked_at)} ago)" if seen_at else ""
     ev_then = then.get("ev_pct_mid")
+    # EV now at the bet's own price (the price box may hold another one), so only the legs move it.
+    ev_now = s["fair_mid"] / then["price"] - 1 if s["fair_mid"] and then.get("price") else None
     out = [f'<div class="card"><span class="dim">Since {when}{ago}:</span> fair {mult(then.get("fair_mid"))} → '
-           f'<b>{mult(s["fair_mid"])}</b> · EV at {mult(then["price"])} {_pct(ev_then)} → <b>{_pct(s["ev_pct_mid"])}</b>']
+           f'<b>{mult(s["fair_mid"])}</b> · EV at {mult(then["price"])} {_pct(ev_then)} → <b>{_pct(ev_now)}</b>']
     moved = [m for m in leg_moves(then, s) if m.moved]
-    if moved:
+    if moved:  # green when the move helps this bet: legs up for YES, down for NO
         out.append("<br>" + " · ".join(
-            f'<span class="{"pos" if m.delta > 0 else "neg"}">{"▲" if m.delta > 0 else "▼"}</span> '
-            f'{html.escape(m.name)} {m.then * 100:.0f}% → {m.now * 100:.0f}%' for m in moved))
-    elif ev_then is not None and s["ev_pct_mid"] is not None:
+            f'<span class="{"pos" if (m.delta > 0) == (c.side == "yes") else "neg"}">{"▲" if m.delta > 0 else "▼"}'
+            f'</span> {html.escape(m.name)} {m.then * 100:.0f}% → {m.now * 100:.0f}%' for m in moved))
+    elif ev_then is not None and ev_now is not None:
         out.append('<br><span class="dim">No leg moved more than a point and a half.</span>')
-    if ev_then is not None and s["ev_pct_mid"] is not None and ev_then > 0 >= s["ev_pct_mid"]:
+    if ev_then is not None and ev_now is not None and ev_then > 0 >= ev_now:
         out.append('<br><span class="warn">The edge is gone at this price.</span>')
     out.append("</div>")
     return "".join(out)
@@ -407,21 +452,24 @@ def _quotes_section(desk, c: LiveCheck, side: str, can_bet: bool) -> None:
     ref = c.best_now or c.price
     k_dollars = kelly_stake(fair, ref, unit=unit, kelly=kelly)
     k_units = k_dollars / unit if unit else 0
+    kp = min(round(k_units, 2), MAX_BET_UNITS) if k_units >= 0.02 else None  # the Kelly pill, at most the cap
     key = f"q_size_{c.ticker}_{side}"
     if key not in ss:
-        ss[key] = round(k_units, 2) if 0.02 <= k_units <= MAX_BET_UNITS else 0.25
-    pills = sorted(set(UNIT_PILLS + ([round(k_units, 2)] if 0.02 <= k_units <= MAX_BET_UNITS else [])
-                       + ([ss[key]] if ss[key] else [])))
+        ss[key] = kp or 0.25
+    pills = sorted(set(UNIT_PILLS + ([kp] if kp else []) + ([ss[key]] if ss[key] else [])))
+    kname = "Kelly (capped)" if k_units > MAX_BET_UNITS else "Kelly"
     size = st.pills("Size", pills, key=key, label_visibility="collapsed",
-                    format_func=lambda u: (f"Kelly {u:g}u" if abs(u - k_units) < 0.005 else f"{u:g}u")
+                    format_func=lambda u: (f"{kname} {u:g}u" if kp and abs(u - kp) < 0.005 else f"{u:g}u")
                     + f" ${u * unit:,.0f}") or ss[key] or 0.25
     get = st.button(f"Get quotes for ${size * unit:,.0f}", type="primary", width="stretch")
-    st.caption(f"Kelly ({kelly:g}×, 1u = ${unit:,.0f}) at {mult(ref)}: "
-               + (f"{k_units:.2f}u (${k_dollars:,.0f})" if k_dollars > 0 else "no bet, the edge isn't there")
+    # \$: a caption with two dollar signs would render the text between them as math.
+    st.caption(f"Kelly ({kelly:g}×, 1u = \\${unit:,.0f}) at {mult(ref)}: "
+               + (f"{k_units:.2f}u (\\${k_dollars:,.0f})" if k_dollars > 0 else "no bet, the edge isn't there")
+               + (f", capped at {MAX_BET_UNITS:g}u here" if k_units > MAX_BET_UNITS else "")
                + " · sizes include Kalshi's fee")
 
     rfqs = ss.setdefault("q_rfqs", {})
-    if get or (c.ticker not in rfqs and ss.get("q_auto") != c.ticker):
+    if get or ss.get("q_auto") != c.ticker:
         ss.q_auto = c.ticker  # one automatic request per pasted combo
         _start_rfq(desk, c.ticker, side, size * unit, "This combo", c.scored["fair_mid"], c.scored["fair_crx"],
                    owner=c.ticker)
@@ -441,14 +489,17 @@ def _quotes_section(desk, c: LiveCheck, side: str, can_bet: bool) -> None:
         quotes.sort(key=lambda x: ((x[0]["fair"] or 0) / x[1].all_in, -x[1].all_in), reverse=True)
         st.html(_quotes_html(quotes, live, unit, kelly))
         open_quotes = [(r, q) for r, q in quotes if not r["closed"]]
+        bet = ss.get("q_bet")
+        bet = bet if bet and bet.get("owner") == c.ticker else None  # a bet on this combo, not the last one
         if open_quotes and can_bet:
             best = {}  # the best quote on each combo (this one, and with extra legs)
             for r, q in open_quotes:
                 best.setdefault(r["ticker"], (r, q))
             _bet_buttons(desk, list(best.values()), unit)
-        elif quotes:
+        elif quotes and not can_bet:
             st.caption("To bet from here, add TRADE_PIN to the app's secrets.")
-        bet = ss.get("q_bet")
+        elif quotes and not bet and all(r["closed"] for r in live):
+            st.caption("These quotes have closed. Get quotes again to bet.")
         if bet:
             (st.success if bet["ok"] else st.error)(bet["msg"])
 
@@ -458,8 +509,8 @@ def _quotes_section(desk, c: LiveCheck, side: str, can_bet: bool) -> None:
 def _start_rfq(desk, ticker: str, side: str, dollars: float, label: str, fair, fair_crx, owner: str) -> None:
     """Ask makers for quotes on `ticker`. `owner` is the pasted combo it's for (itself, or the one it adds legs to)."""
     ss = st.session_state
-    if isinstance(desk, DemoRfqDesk):
-        desk.fair[ticker] = fair or 0.3
+    if isinstance(desk, DemoRfqDesk):  # its makers price off the YES fair
+        desk.fair[ticker] = (fair if side == "yes" else 1 - fair) if fair else 0.3
     rfqs = ss.setdefault("q_rfqs", {})
     old = rfqs.pop(ticker, None)
     if old and not old.get("closed"):
@@ -540,6 +591,9 @@ def _quotes_html(quotes: list, rfqs: list[dict], unit: float, kelly: float) -> s
 def _bet_buttons(desk, quotes: list, unit: float) -> None:
     ss = st.session_state
     pending = ss.get("q_confirm")
+    if pending and pending["rfq"].get("closed"):  # its request expired while the card was up
+        ss.pop("q_confirm", None)
+        pending = None
     if pending:
         r, q = pending["rfq"], pending["quote"]
         ev = r["fair"] / q.all_in - 1 if r["fair"] else None
@@ -551,52 +605,80 @@ def _bet_buttons(desk, quotes: list, unit: float) -> None:
                 + ('<br><span class="dim">This maker also bids your side. CapyEV reads Kalshi\'s accept as "buy '
                    f'{q.side.upper()}" (from its docs; no bet has checked it yet), so check the fill below.</span>'
                    if q.two_sided else "") + f'<br><span class="dim">{html.escape(r["label"])} · {html.escape(r["ticker"])}</span></div></div>')
+        # Callbacks, not st.rerun: they run before the next run, whether Streamlit reruns the fragment or the page.
         with st.container(horizontal=True):
-            if st.button("Confirm bet", type="primary", key="q_yes"):
-                ss.q_bet = _take(desk, r, q)
-                ss.pop("q_confirm", None)
-                st.rerun(scope="fragment")
-            if st.button("Cancel", key="q_no"):
-                ss.pop("q_confirm", None)
-                st.rerun(scope="fragment")
+            st.button("Confirm bet", type="primary", key="q_yes", on_click=_confirm, args=(desk, r, q))
+            st.button("Cancel", key="q_no", on_click=ss.pop, args=("q_confirm", None))
         return
     with st.container(horizontal=True):
         for i, (r, q) in enumerate(quotes):
             label = f"Bet ${q.cost:,.0f} @ {mult(q.all_in)}" + (f" ({r['label']})" if len(quotes) > 1 else "")
-            if st.button(label, type="primary" if i == 0 else "secondary", key=f"q_bet_{q.id}"):
-                if q.cost > MAX_BET_UNITS * unit:
-                    ss.q_bet = {"ok": False, "msg": f"That's over the {MAX_BET_UNITS:g}u cap for one bet here. "
-                                                   "Pick a smaller size and get quotes again."}
-                else:
-                    ss.q_confirm = {"rfq": r, "quote": q, "at": time.time()}
-                    ss.pop("q_bet", None)
-                st.rerun(scope="fragment")
+            st.button(label, type="primary" if i == 0 else "secondary", key=f"q_bet_{q.id}", on_click=_pick,
+                      args=(r, q, unit))
+
+
+def _pick(r: dict, q, unit: float) -> None:
+    ss = st.session_state
+    if q.cost > MAX_BET_UNITS * unit * 1.01:  # 1%: a quote at the cap can come back a few cents over
+        ss.q_bet = {"ok": False, "owner": r["owner"], "msg": f"That's over the {MAX_BET_UNITS:g}u cap for one bet "
+                                                             "here. Pick a smaller size and get quotes again."}
+    else:
+        ss.q_confirm = {"rfq": r, "quote": q, "at": time.time()}
+        ss.pop("q_bet", None)
+
+
+def _confirm(desk, r: dict, q) -> None:
+    ss = st.session_state
+    if ss.pop("q_confirm", None) is None:  # one accept per card: a second tap does nothing
+        return
+    # Streamlit can end a callback at any session_state read or write when another tap comes in, so the
+    # result is stored before the accept and filled in afterwards, with no session_state call after it.
+    bet = {"ok": False, "owner": r["owner"],
+           "msg": "The bet may have gone through: check the Kalshi app before betting again."}
+    ss.q_bet = bet
+    if r.get("closed") or time.time() - r["at"] >= RFQ_SECONDS:
+        out = {"ok": False, "msg": "That request had closed, so nothing was bought. Get quotes again."}
+    else:
+        out = _take(desk, r, q)
+    if r["label"] != "This combo":
+        out["msg"] = f"{r['label']}: {out['msg']}"
+    bet.update(out)
 
 
 def _take(desk, r: dict, q) -> dict:
-    """Accept a quote, wait for the maker to confirm and the trade to execute, then read the fill."""
+    """Accept a quote, wait for the maker to confirm and the trade to execute, then read the fill.
+
+    When Kalshi doesn't answer the accept, the bet may still have gone through, so that's never
+    reported as "nothing bought".
+    """
     started = datetime.now(timezone.utc)
+    r["closed"] = True  # the RFQ is done either way, unless Kalshi turns the accept down
+    unsure = False
     try:
         desk.accept(r["id"], q.id, q.side)
     except RfqError as exc:
-        return {"ok": False, "msg": f"Kalshi didn't take the bet. {explain(exc)}"}
-    status, t0 = "accepted", time.time()
+        if exc.code != "NETWORK" and exc.status is not None and 400 <= exc.status < 500:  # Kalshi said no
+            r["closed"] = False
+            return {"ok": False, "msg": f"Kalshi didn't take the bet. {explain(exc)}"}
+        unsure = True  # no answer, a 5xx, or a 2xx we couldn't read
+    except Exception:
+        unsure = True
+    status, t0 = ("unknown" if unsure else "accepted"), time.time()
     while time.time() - t0 < ACCEPT_WAIT:
         try:
             status = desk.quote(r["id"], q.id).get("status") or status
-        except RfqError:
+        except Exception:  # keep trying: the bet may have gone through
             pass
         if status in ("executed", "cancelled"):
             break
         time.sleep(0.5)
-    r["closed"] = True  # the RFQ is done either way
     if status == "cancelled":
         return {"ok": False, "msg": "The maker didn't confirm in time, so nothing was bought. Get quotes again."}
     fills = []
     try:
         fills = [f for f in desk.fills(r["ticker"])
                  if (_parse_time(f.get("created_time")) or started) >= started - timedelta(seconds=5)]
-    except RfqError:
+    except Exception:
         pass
     if fills:
         f = fills[0]
@@ -608,6 +690,9 @@ def _take(desk, r: dict, q) -> dict:
                                               f"(${n * price:,.2f} + fee).{warn}"}
     if status == "executed":
         return {"ok": True, "msg": "Executed. The fill should show in the Kalshi app in a moment."}
+    if unsure:
+        return {"ok": False, "msg": "Lost contact with Kalshi during the bet, so it may have gone through. Check the "
+                                    "Kalshi app before betting again."}
     return {"ok": False, "msg": f"Accepted, but the trade hadn't executed after {ACCEPT_WAIT}s (status: {status}). "
                                 "Check the Kalshi app before betting again."}
 
@@ -655,9 +740,17 @@ def _extra_legs_section(desk, client, c: LiveCheck, pool, starts) -> None:
             fresh = client.get_markets([x.market_ticker for x in extra])
             now = {f"{x.market_ticker}|{x.side}": x for x in extra_legs(fresh, events, combo_legs, game_start=starts,
                                                                          lo=0, hi=1, max_spread=1, min_size=0)}
-            extra = [now.get(f"{x.market_ticker}|{x.side}", x) for x in extra]
         except Exception:
-            pass
+            now = None
+            st.caption("Couldn't re-price the legs just now, so these use prices from the last few minutes.")
+        if now is not None:
+            gone = [x for x in extra if f"{x.market_ticker}|{x.side}" not in now]
+            if gone:  # closed, no book, or flipped to the other side
+                st.caption("Left out (closed, no book now, or the other side is the favorite now): "
+                           + ", ".join(x.name.replace("$", "\\$") for x in gone))
+            extra = [now[f"{x.market_ticker}|{x.side}"] for x in extra if f"{x.market_ticker}|{x.side}" in now]
+            if not extra:
+                return
         fair, crx = c.scored["fair_mid"], c.scored["fair_crx"]
         for x in extra:
             fair = fair * x.prob if fair else None
@@ -688,10 +781,16 @@ def _leg_chip(x) -> str:
 # ---------- settings ----------
 def _settings() -> None:
     ss = st.session_state
+
+    def keep():  # widget values vanish on runs that don't draw them, so they're copied to q_unit / q_kelly
+        ss.q_unit, ss.q_kelly = ss.q_unit_w, ss.q_kelly_w
+
     with st.expander(f"Sizing: 1u = ${ss.q_unit:,.0f} · {ss.q_kelly:g} Kelly"):
         with st.container(horizontal=True):
-            st.number_input("1 unit ($)", min_value=10.0, step=100.0, key="q_unit")
-            st.select_slider("Kelly", [0.1, 0.2, 0.25, 0.33, 0.5, 1.0], key="q_kelly")
+            st.number_input("1 unit ($)", min_value=10.0, step=100.0, value=float(ss.q_unit), key="q_unit_w",
+                            on_change=keep)
+            st.select_slider("Kelly", [0.1, 0.2, 0.25, 0.33, 0.5, 1.0], value=ss.q_kelly, key="q_kelly_w",
+                             on_change=keep)
         st.caption(f"Kelly sizing assumes 1u is 1% of bankroll, like the Combos page. One bet here is capped at "
                    f"{MAX_BET_UNITS:g}u.")
 

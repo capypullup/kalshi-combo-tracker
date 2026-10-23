@@ -16,12 +16,15 @@ live price also shows whether it's still +EV.
 
 from __future__ import annotations
 
+import math
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
+
+import requests
 
 from .engine import ComboBet, _game_key, _parse_time, american_odds, kelly_fraction, legs_of, score_bet, taker_fee
 from .orderbook import LegBook
@@ -248,8 +251,9 @@ USER_IDS: dict[str, str] = {}  # API key ID -> your private user ID (from your o
 class RfqDesk:
     """Asks makers for quotes with your API key, and takes one when you confirm.
 
-    RFQs hide your communications ID from makers (obscure_creator_id) and never
-    replace RFQs you have open elsewhere, such as a slip in the Kalshi app.
+    RFQs hide your communications ID from makers (obscure_creator_id). Kalshi allows one open
+    RFQ per combo, so one you already have open on the same combo (an earlier tap, or that
+    combo's slip in the Kalshi app) is closed first. Others are left alone.
     """
 
     def __init__(self, client, auth):
@@ -259,8 +263,12 @@ class RfqDesk:
     def _send(self, method: str, path: str, params: dict | None = None, body: dict | None = None) -> dict:
         url = f"{self.client.base_url}{path}"
         self.client.limiter.wait()
-        resp = self.client.session.request(method, url, params=params, json=body, timeout=self.client.timeout,
-                                           headers=self.auth.headers(method, urlparse(url).path))
+        try:
+            resp = self.client.session.request(method, url, params=params, json=body, timeout=self.client.timeout,
+                                               headers=self.auth.headers(method, urlparse(url).path))
+        except requests.RequestException as exc:
+            # No URL in the message: a quotes read carries your user ID in its query string.
+            raise RfqError(f"{method} {path}: no answer from Kalshi ({type(exc).__name__})", None, "NETWORK") from None
         if not resp.ok:
             try:
                 err = resp.json()
@@ -270,7 +278,10 @@ class RfqDesk:
             code = err.get("details") or err.get("code") if isinstance(err, dict) else None
             raise RfqError(f"{method} {path}: HTTP {resp.status_code} {resp.text[:200]}", resp.status_code,
                            code if isinstance(code, str) else None)
-        return resp.json() if resp.content else {}
+        try:
+            return resp.json() if resp.content else {}
+        except ValueError:
+            raise RfqError(f"{method} {path}: Kalshi's answer wasn't JSON", resp.status_code, "NETWORK") from None
 
     def create(self, ticker: str, dollars: float) -> str:
         """Ask for quotes on `ticker` for about `dollars`, fees included."""
@@ -396,7 +407,10 @@ class DemoRfqDesk:
         self.open.pop(rfq_id, None)
 
     def accept(self, rfq_id: str, quote_id: str, side: str) -> None:
-        q = quote_for(next(q for q in self.quotes(rfq_id) if q["id"] == quote_id), side)
+        raw = next((q for q in self.quotes(rfq_id) if q["id"] == quote_id), None)
+        if raw is None:
+            raise RfqError("quote closed", 400, "RFQ_CLOSED")
+        q = quote_for(raw, side)
         self.accepted[rfq_id] = (side, q.price, q.contracts)
 
     def fills(self, ticker: str) -> list[dict]:
@@ -457,7 +471,7 @@ class LegMove:
 
     @property
     def moved(self) -> bool:
-        return self.delta is not None and abs(self.delta) >= max(0.015, 0.05 * self.then)
+        return self.delta is not None and abs(self.delta) >= 0.015 - 1e-9  # a point and a half
 
 
 def leg_moves(then_row: dict, now_scored: dict) -> list[LegMove]:
@@ -530,7 +544,7 @@ def extra_legs(markets: dict[str, dict], events: dict[str, dict], combo_legs: li
             sizes = float(m.get("yes_bid_size_fp") or 0), float(m.get("yes_ask_size_fp") or 0)
         except (TypeError, ValueError):
             continue
-        if not 0 < bid < ask < 1 or ask - bid > max_spread or min(sizes) < min_size:
+        if not 0 < bid < ask < 1 or ask - bid > max_spread + 1e-9 or min(sizes) < min_size:
             continue
         expiry = _parse_time(m.get("expected_expiration_time"))
         if expiry is not None and (expiry - now).total_seconds() > max_hours * 3600:
@@ -544,7 +558,7 @@ def extra_legs(markets: dict[str, dict], events: dict[str, dict], combo_legs: li
         title = (events.get(ev) or {}).get("title") or m.get("title") or ev
         out.append(ExtraLeg(t, ev, side, m.get("yes_sub_title") or m.get("title") or t, title, sport_of(ev), prob,
                             worst, ask - bid, live, start))
-    out.sort(key=lambda x: (-x.prob, x.spread))
+    out.sort(key=lambda x: (x.live, -x.prob, x.spread))  # makers often skip combos with a leg in play
     seen: set[str] = set()  # one leg per game: two on the same game are correlated
     return [x for x in out if not (_game_key(x.event_ticker) in seen or seen.add(_game_key(x.event_ticker)))]
 
@@ -559,16 +573,19 @@ def parse_paste(text: str) -> dict | None:
     if not text:
         return None
     out = {"ticker": None, "side": None, "price": None, "contracts": None}
-    if "://" in text or text.startswith(("quote?", "/quote", "?")):
+    if re.search(r"[?&]t=", text):  # a link, with or without https://
         q = parse_qs(urlparse(text if "://" in text else "https://x/" + text.lstrip("/")).query)
-        if q.get("t"):
-            out["ticker"] = q["t"][0].strip().upper()
-            out["side"] = (q.get("side") or [None])[0]
+        t = (q.get("t") or [""])[0].strip()
+        if TICKER_RE.fullmatch(t):  # another site's t= is no ticker: look for one in the text instead
+            out["ticker"] = t.upper()
+            out["side"] = (q.get("side") or [""])[0].strip().lower() or None
             for key, name in (("p", "price"), ("n", "contracts")):
                 try:
-                    out[name] = float(q[key][0]) if q.get(key) else None
+                    v = float(q[key][0]) if q.get(key) else None
                 except ValueError:
-                    pass
+                    v = None
+                ok = v is not None and math.isfinite(v) and v > 0 and (name != "price" or v < 1)
+                out[name] = v if ok else None
     if not out["ticker"]:
         m = TICKER_RE.search(text)
         if not m:

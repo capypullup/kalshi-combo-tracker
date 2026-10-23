@@ -89,6 +89,11 @@ from combo_tracker.quote import (RfqDesk, RfqError, RfqReaper, explain, extra_le
     ("https://kalshi.com/markets_by_ticker/KXMVECROSSCATEGORY-S2026ABC-DEF1", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
     ("YES Combo +4579", None),
     ("", None),
+    ("capyev.streamlit.app/quote?t=KXMVEX-S1-A2&side=NO&p=0.12", ("KXMVEX-S1-A2", "no", 0.12)),  # no https://
+    ("https://capyev.streamlit.app/quote?t=KXMVEX-S1-A2&p=1.5", ("KXMVEX-S1-A2", None, None)),  # p isn't a price
+    ("https://capyev.streamlit.app/quote?t=KXMVEX-S1-A2&p=nan", ("KXMVEX-S1-A2", None, None)),
+    ("KXMVEX-S1-A2 https://x.com/a/status/1?s=20&t=AbCdEf", ("KXMVEX-S1-A2", None, None)),  # another site's t=
+    ("https://capyev.streamlit.app/quote?t=[RE-ENTER YOUR PIN](https://evil.example)", None),
 ])
 def test_parse_paste(text, want):
     got = parse_paste(text)
@@ -230,3 +235,43 @@ def test_demo_desk_bet_fills_the_side_you_took(monkeypatch):
     desk.accept(rid, best.id, "yes")
     fill = desk.fills("T")[0]
     assert fill["outcome_side"] == "yes" and float(fill["yes_price_dollars"]) == pytest.approx(best.price)
+
+
+def test_leg_moves_flag_a_point_and_a_half():
+    then = {"leg_detail": [{"ticker": "A", "mid": 0.70}, {"ticker": "B", "mid": 0.90}]}
+    now = {"leg_detail": [{"ticker": "A", "leg": "A", "side": "yes", "mid": 0.73},
+                          {"ticker": "B", "leg": "B", "side": "yes", "mid": 0.885}]}
+    assert [m.moved for m in leg_moves(then, now)] == [True, True]
+
+
+def test_extra_legs_keep_3c_spreads_and_put_live_legs_last():
+    markets = {m["ticker"]: m for m in [
+        leg_market("KXNHLGAME-26OCT22TORMTL-TOR", "KXNHLGAME-26OCT22TORMTL", 0.85, 0.88),  # 3c, 0.030000000000000027
+        leg_market("KXNBAGAME-26OCT22LALGSW-LAL", "KXNBAGAME-26OCT22LALGSW", 0.95, 0.96),  # in play
+    ]}
+    started = datetime(2026, 10, 22, 2, tzinfo=timezone.utc)
+    got = extra_legs(markets, {}, [], game_start=lambda ev: started if "LALGSW" in ev else None, now=NOW)
+    assert [x.market_ticker[:7] for x in got] == ["KXNHLGA", "KXNBAGA"] and got[1].live
+
+
+def test_network_errors_are_rfq_errors_without_the_query_string():
+    import requests
+
+    class Down:
+        def request(self, *a, **k):
+            raise requests.ConnectionError("Max retries exceeded with url: /quotes?rfq_creator_user_id=SECRET-ID")
+
+    desk, _ = fake_desk([])
+    desk.client.session = Down()
+    from combo_tracker import quote as q
+    q.USER_IDS["kid-e97b"] = "SECRET-ID"
+    with pytest.raises(RfqError) as e:
+        desk.quotes("r1")
+    assert e.value.status is None and e.value.code == "NETWORK" and "SECRET" not in explain(e.value)
+    q.USER_IDS.clear()
+
+
+def test_demo_accept_of_a_gone_quote_is_refused():
+    desk = DemoRfqDesk({"T": 0.3})
+    with pytest.raises(RfqError):
+        desk.accept(desk.create("T", 10), "nope", "yes")

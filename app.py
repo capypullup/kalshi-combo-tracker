@@ -197,6 +197,7 @@ def _quote():
 def table_view():
     go = st.session_state.pop("quote_req", None)
     if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
+        st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(PAGES[2], query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
                                                "n": f"{go['n']:g}"})
     min_bet, window = st.session_state.min_bet, st.session_state.window
@@ -490,7 +491,9 @@ def _secret(name: str) -> str | None:
         value = st.secrets.get(name)
     except Exception:  # no secrets file
         value = None
-    return str(value).strip() if value else os.environ.get(name) or None
+    if value is None:
+        value = os.environ.get(name)
+    return (str(value).strip() or None) if value is not None else None  # blank counts as not set
 
 
 def quote_page() -> None:
