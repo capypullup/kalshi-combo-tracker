@@ -54,6 +54,27 @@ class RateLimiter:
 SHARED_RATE = float(os.environ.get("KALSHI_SHARED_RATE", "14"))
 SHARED_LIMITER = RateLimiter(SHARED_RATE)
 
+# Some public routes have a lower limit of their own, per IP. Measured 2026-10-23 without a key,
+# with paced calls and no retries: the trade feed 429s from 5 calls a second, the /events list
+# from about 5, and /markets for combo tickers from 5-7 (for leg tickers it takes 16+). Each limit
+# is separate from the others. These pace those calls, and a 429 on one pauses only that one.
+COMBO_LOOKUPS = "/markets (combos)"
+ROUTE_LIMITERS = {"/markets/trades": RateLimiter(4.5), "/events": RateLimiter(4), COMBO_LOOKUPS: RateLimiter(4.5)}
+MAX_QUERY = 6000  # characters of tickers per call: 200 combo tickers (~11k) got HTTP 414
+
+
+def _batches(tickers: list[str], size: int) -> list[list[str]]:
+    """Up to `size` tickers per batch, and no more than MAX_QUERY characters of them."""
+    out: list[list[str]] = []
+    chars = 0
+    for t in tickers:
+        if not out or len(out[-1]) >= size or chars + len(t) + 1 > MAX_QUERY:
+            out.append([])
+            chars = 0
+        out[-1].append(t)
+        chars += len(t) + 1
+    return out
+
 
 class KalshiAuth:
     """Signs requests with a Kalshi API key: a signature over timestamp + method + path,
@@ -125,15 +146,21 @@ class KalshiClient:
         self.session.headers["Accept"] = "application/json"
         self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
         self.batch_orderbooks_ok: bool | None = None  # learned on first try
+        self.batch_events_ok: bool | None = None  # learned on first try
+        self.routes = ROUTE_LIMITERS
         self.requests_made = 0
 
-    def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
-        return self._get_url(f"{self.base_url}{path}", params, retries, signed)
+    def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False,
+             route: str | None = None) -> dict:
+        return self._get_url(f"{self.base_url}{path}", params, retries, signed, route=self.routes.get(route or path))
 
-    def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
+    def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False,
+                 route: RateLimiter | None = None) -> dict:
         if signed and self.auth is None:
             raise RuntimeError("this call needs a Kalshi API key (KALSHI_KEY_ID / KALSHI_PRIVATE_KEY)")
         for attempt in range(retries + 1):
+            if route is not None:
+                route.wait()
             self.limiter.wait()
             self.requests_made += 1
             headers = self.auth.headers("GET", urlparse(url).path) if signed else None
@@ -146,7 +173,7 @@ class KalshiClient:
                     delay = float(resp.headers.get("Retry-After", ""))
                 except ValueError:
                     delay = min(1.0 * 2**attempt, 16)
-                self.limiter.pause(delay)
+                (route or self.limiter).pause(delay)
                 continue
             resp.raise_for_status()
             return resp.json()
@@ -191,28 +218,66 @@ class KalshiClient:
         with ThreadPoolExecutor(self.max_workers) as pool:
             return list(pool.map(fn, items))
 
-    def get_markets(self, tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
-        """Fetch market objects for many tickers, keyed by ticker."""
+    def get_markets(self, tickers: list[str], batch_size: int = 100) -> dict[str, dict]:
+        """Fetch market objects for many tickers, keyed by ticker. Leg tickers go up to 200 a call;
+        combo tickers are long, and Kalshi limits their lookups more (COMBO_LOOKUPS)."""
         unique = list(dict.fromkeys(tickers))
-        batches = [unique[i : i + batch_size] for i in range(0, len(unique), batch_size)]
+        batches = _batches(unique, batch_size)
 
         def fetch(batch: list[str]) -> list[dict]:
-            data = self._get("/markets", {"tickers": ",".join(batch), "limit": len(batch)})
+            combos = any(t.startswith(COMBO_PREFIX) for t in batch)
+            data = self._get("/markets", {"tickers": ",".join(batch), "limit": len(batch)},
+                             route=COMBO_LOOKUPS if combos else None)
             return data.get("markets", [])
 
         return {m["ticker"]: m for markets in self._parallel(fetch, batches) for m in markets}
 
-    def get_events(self, event_tickers: list[str]) -> dict[str, dict]:
-        """Fetch event objects (for titles like 'Cleveland vs Tampa Bay: Strikeouts'), keyed by ticker."""
-        unique = list(dict.fromkeys(event_tickers))
+    def get_events(self, event_tickers: list[str], batch_size: int = 200) -> dict[str, dict]:
+        """Fetch event objects (titles like 'Cleveland vs Tampa Bay: Strikeouts', and each event's
+        category), keyed by ticker. Events it couldn't get are left out, so callers retry them later.
 
-        def fetch(ticker: str) -> tuple[str, dict]:
+        `GET /events?tickers=A,B` takes a comma-joined list of up to 200 (found 2026-10-23): one call
+        per 200 events instead of one per event, which was 56 of the 60 seconds a new Combos filter took.
+        If Kalshi ever answers without honouring the list, this goes back to one call per event.
+        """
+        unique = list(dict.fromkeys(event_tickers))
+        if not unique:
+            return {}
+        if self.batch_events_ok is not False:
+            def fetch_batch(batch: list[str]) -> list[dict] | None:
+                try:
+                    return self._get("/events", {"tickers": ",".join(batch), "limit": len(batch)}).get("events", [])
+                except requests.HTTPError as exc:
+                    if exc.response is not None and exc.response.status_code in (400, 404, 422):
+                        raise  # the batch call itself isn't accepted
+                    return None  # rate limited or down: these titles fall back to market titles for now
+                except requests.RequestException:
+                    return None
+
+            batches = _batches(unique, batch_size)
+            try:
+                pages = self._parallel(fetch_batch, batches)
+            except requests.HTTPError:
+                self.batch_events_ok = False  # the list is refused now, whatever worked before
+            else:
+                wanted = set(unique)
+                out = {e["event_ticker"]: e for page in pages if page for e in page if e.get("event_ticker") in wanted}
+                if out or all(page is None for page in pages):
+                    if out:
+                        self.batch_events_ok = True
+                    return out
+                # It answered without any of them: the list was ignored (or they're all gone).
+
+        def fetch(ticker: str) -> tuple[str, dict | None]:
             try:
                 return ticker, self._get(f"/events/{ticker}", {"with_nested_markets": "false"}).get("event", {})
-            except requests.HTTPError:
-                return ticker, {}
+            except requests.RequestException:
+                return ticker, None
 
-        return dict(self._parallel(fetch, unique))
+        found = {t: e for t, e in self._parallel(fetch, unique) if e is not None}
+        if any(found.values()):
+            self.batch_events_ok = False  # one by one finds what the list call didn't: stop asking it
+        return found
 
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch the raw orderbook for each ticker, keyed by ticker.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -34,9 +35,16 @@ def _parse_time(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+# A year or a date (and time) alone, e.g. SENATEGA-26 or KXHIGHNY-26OCT23: many unrelated events share it.
+_NO_GAME = re.compile(r"\d{2,4}|\d{2}[A-Z]{3}\d{2}(H?\d{2,4})?")
+
+
 def _game_key(event_ticker: str) -> str:
-    """'KXNFLSPREAD-26OCT15SEADEN' -> '26OCT15SEADEN', shared by every market on one game."""
-    return event_ticker.split("-", 1)[1] if "-" in event_ticker else event_ticker
+    """'KXNFLSPREAD-26OCT15SEADEN' -> '26OCT15SEADEN', shared by every market on one game. Some events add a
+    part, e.g. set 1 of a tennis match 'KXATPSETWINNER-26OCT23VANMUS-1' or 'KXNBARACE-26OCT23CHIMIL-10', and
+    are still that game. Events with no game in the ticker are their own key."""
+    parts = event_ticker.split("-")
+    return event_ticker if len(parts) < 2 or _NO_GAME.fullmatch(parts[1]) else parts[1]
 
 
 def _product(values: list[float | None]) -> float | None:

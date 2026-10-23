@@ -11,17 +11,20 @@ import time
 
 import requests
 
+from . import financial
 from .format import bet_card, fmt_mult, fmt_odds, fmt_units, units
 from .links import bet_url
+from .sports import league_of
 from .view import is_live
 
 NTFY_URL = "https://ntfy.sh"
 TELEGRAM_URL = "https://api.telegram.org"
 THIN_SPREAD = 0.03  # same default as the Combos page's Hide thin
 THIN_SIZE = 50
-# Leg series left out by default: crypto price markets (KXBTC also covers KXBTCD, KXBTC15M, ...).
-SKIP_SERIES = ("KXBTC", "KXETH", "KXSOL", "KXXRP", "KXDOGE", "KXBNB", "KXHYPE", "KXADA", "KXLTC", "KXAVAX",
-               "KXLINK", "KXSHIBA", "KXDOT", "KXSUI", "KXTRX", "KXXLM", "KXBCH", "KXTON", "KXPEPE")
+# Same-game legs aren't independent, so a fair price that multiplies the legs is off; those don't alert,
+# and neither do combos over MAX_LEGS legs or MAX_LEAGUES leagues (the bot's ALERT_* variables change it).
+MAX_LEGS = 5
+MAX_LEAGUES = 2
 
 
 def key(row: dict) -> str:
@@ -57,19 +60,35 @@ def min_ev_for(stake: float, tiers: list[tuple[float, float]]) -> float | None:
     return reached[-1] if reached else None
 
 
-def skipped(row: dict, series: tuple[str, ...] = SKIP_SERIES) -> bool:
-    """Has a leg from a left-out series (crypto by default)?"""
-    return any(l["ticker"].startswith(series) for l in row["leg_detail"])
+def skipped(row: dict, series: tuple[str, ...] | None = None) -> bool:
+    """Has a leg we leave out? By default a crypto, commodity or other financial-market leg
+    (financial.is_financial); with `series`, a leg whose ticker starts with one of them (() keeps all)."""
+    if series is None:
+        return any(financial.is_financial(l["ticker"]) for l in row["leg_detail"])
+    return any(l["ticker"].startswith(series) for l in row["leg_detail"]) if series else False
+
+
+def leagues(row: dict) -> int:
+    """How many leagues the legs span, as the app labels them (sports.league_of): NBA + NFL is 2."""
+    return len({league_of(l["ticker"])[0] for l in row["leg_detail"]})
+
+
+def spread_out(row: dict, max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES) -> bool:
+    """More legs or more leagues than an alert allows (None: no cap)."""
+    return (max_legs is not None and row["legs"] > max_legs) or (max_leagues is not None and leagues(row) > max_leagues)
 
 
 def pick(rows: list[dict], pregame: list[tuple[float, float]], live: list[tuple[float, float]], sent: set[str],
-         basis: str = "mid", skip_thin: bool = True, skip_series: tuple[str, ...] = SKIP_SERIES) -> list[dict]:
+         basis: str = "mid", skip_thin: bool = True, skip_series: tuple[str, ...] | None = None,
+         skip_same_game: bool = True, max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES) -> list[dict]:
     """Bets that clear their size tier's EV bar (pregame or live tiers), not alerted yet, best first.
-    Thin leg books and combos with a crypto leg are left out."""
+    Thin leg books, same-game legs, combos over max_legs legs or max_leagues leagues, and combos with
+    a crypto, commodity or other financial leg are left out."""
     def wanted(r):
         bar = min_ev_for(r["stake"], live if is_live(r) else pregame)
         return (bar is not None and (ev_of(r, basis) or -1) > bar and key(r) not in sent
-                and not (skip_thin and thin(r)) and not skipped(r, skip_series))
+                and not (skip_thin and thin(r)) and not (skip_same_game and r["same_game_legs"])
+                and not spread_out(r, max_legs, max_leagues) and not skipped(r, skip_series))
     return sorted(filter(wanted, rows), key=lambda r: ev_of(r, basis), reverse=True)
 
 

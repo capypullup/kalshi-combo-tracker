@@ -40,7 +40,7 @@ def _expand(c: tuple) -> dict:
 
 class Collector:
     def __init__(self, client, max_window_minutes: int = 180, poll_seconds: int = 60,
-                 initial_backfill_minutes: int = 60, after_poll=None):
+                 initial_backfill_minutes: int = 60, after_poll=None, after_error=None):
         self.client = client
         self.max_window = timedelta(minutes=max_window_minutes)
         self.poll_seconds = poll_seconds
@@ -53,6 +53,7 @@ class Collector:
         self.last_error: str | None = None
         self.last_poll_seconds: float | None = None
         self.after_poll = after_poll  # e.g. pre-score the default view so page loads hit warm caches
+        self.after_error = after_error  # e.g. tell pages waiting for this poll to go ahead without it
         self.trades_scanned = 0
         self.poll_started: float | None = None  # when the latest finished poll began
         self._thread: threading.Thread | None = None
@@ -60,10 +61,18 @@ class Collector:
         self._wake = threading.Event()  # poll_now() cuts the wait between polls short
 
     # ---- collection ----
-    def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False) -> None:
-        """Pull every trade in [since, until] and keep the combo ones."""
-        params_until = until
-        for t in self.client.iter_trades(since, max_ts=params_until):
+    def _scan(self, since: datetime, until: datetime | None = None, progress: bool = False,
+              interruptible: bool = False) -> bool:
+        """Pull every trade in [since, until] and keep the combo ones. Returns False if a refresh
+        tap (poll_now) cut an interruptible scan short.
+
+        One page at a time: Kalshi caps its trade feed at about 5 pages a second per IP, so
+        paging stretches of time at once only draws 429s (measured 2026-10-23).
+        """
+        # max_ts is whole seconds: go a second past `until` so the rest of its second is read too.
+        for t in self.client.iter_trades(since, max_ts=until and until + timedelta(seconds=1)):
+            if interruptible and self._wake.is_set():
+                return False
             self.trades_scanned += 1
             if t["ticker"].startswith(COMBO_PREFIX):
                 with self.lock:
@@ -72,20 +81,21 @@ class Collector:
                 # Trades come newest first, so everything after this one is complete.
                 with self.lock:
                     self.covered_from = _ts(t)
+        return True
 
     def poll(self) -> None:
         start = time.time()
         now = datetime.fromtimestamp(start, timezone.utc)
-        if self.covered_to is not None and now - self.covered_to > self.initial_backfill:
-            # Back after a long pause (nobody had the app open): start over from the newest
-            # trades rather than paging through the whole gap at once.
+        if self.covered_to is None or now - self.covered_to > self.initial_backfill:
+            # The first poll, or back after a long pause (nobody had the app open): load the
+            # newest trades rather than paging through the whole gap. Until that has worked, the
+            # trades held and their coverage stay as they were, so a failed scan is simply redone.
+            since = now - self.initial_backfill
+            self._scan(since)
             with self.lock:
-                self.trades.clear()
-                self.covered_from = self.covered_to = None
-        if self.covered_to is None:
-            self.covered_to = now
-            self._scan(now - self.initial_backfill, progress=True)
-            self.covered_from = now - self.initial_backfill
+                if self.covered_to is not None:  # what's from before the gap goes; backfill reloads it
+                    self.trades = {k: t for k, t in self.trades.items() if t[0] >= since.timestamp()}
+                self.covered_from, self.covered_to = since, now
         else:
             # Overlap a few seconds so trades stamped just before the last poll aren't missed.
             self._scan(self.covered_to - timedelta(seconds=5))
@@ -100,8 +110,10 @@ class Collector:
         if self.covered_from is None or self.covered_from <= target + timedelta(minutes=1):
             return
         until = self.covered_from
-        self._scan(max(target, until - timedelta(minutes=30)), until=until, progress=True)
-        self.covered_from = max(target, until - timedelta(minutes=30))
+        since = max(target, until - timedelta(minutes=30))
+        # A refresh tap stops this between pages: covered_from then stays where the scan got to.
+        if self._scan(since, until=until, progress=True, interruptible=True):
+            self.covered_from = since
 
     def _prune(self, now: datetime) -> None:
         cutoff = now - self.max_window
@@ -125,6 +137,8 @@ class Collector:
                 self.last_error = None
             except Exception as exc:  # keep collecting through API hiccups
                 self.last_error = repr(exc)
+                if self.after_error:
+                    self.after_error(self)
             self._wake.wait(self.poll_seconds)
 
     def poll_now(self) -> None:
