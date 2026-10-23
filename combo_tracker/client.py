@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import base64
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Iterator
+from urllib.parse import urlparse
 
 import requests
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+# Kalshi's social API (the one kalshi.com profiles use). Also public and keyless.
+SOCIAL_URL = "https://api.elections.kalshi.com/v1/social"
 COMBO_PREFIX = "KXMVE"
+MAX_CANDLES = 10_000  # per /markets/candlesticks request, across all its markets
 
 
 class RateLimiter:
@@ -36,24 +42,74 @@ class RateLimiter:
             self.next_at = max(self.next_at, time.monotonic() + seconds)
 
 
+class KalshiAuth:
+    """Signs requests with a Kalshi API key: a signature over timestamp + method + path,
+    made with the key's Ed25519 or RSA (PSS, SHA-256) private key.
+
+    Only the RFQ endpoints need it. The app only ever makes GET requests with it.
+    """
+
+    def __init__(self, key_id: str, private_key: str):
+        self.key_id = key_id.strip()
+        self.key = self.load_key(private_key)
+
+    @staticmethod
+    def load_key(text: str):
+        """Read a private key pasted with or without its -----BEGIN/END----- lines."""
+        from cryptography.hazmat.primitives import serialization
+
+        text = text.strip().replace("\\n", "\n")
+        if "-----BEGIN" in text:
+            return serialization.load_pem_private_key(text.encode(), password=None)
+        return serialization.load_der_private_key(base64.b64decode("".join(text.split())), password=None)
+
+    @classmethod
+    def from_env(cls, secrets: dict | None = None) -> "KalshiAuth | None":
+        """KALSHI_KEY_ID + KALSHI_PRIVATE_KEY from Streamlit secrets or the environment, if set."""
+        get = lambda k: (secrets or {}).get(k) or os.environ.get(k)  # noqa: E731
+        key_id, key = get("KALSHI_KEY_ID"), get("KALSHI_PRIVATE_KEY")
+        return cls(key_id, key) if key_id and key else None
+
+    def headers(self, method: str, path: str) -> dict[str, str]:
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+        ts = str(int(time.time() * 1000))
+        message = f"{ts}{method}{path}".encode()
+        if isinstance(self.key, rsa.RSAPrivateKey):
+            sig = self.key.sign(message, padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                                                     salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
+        else:  # Ed25519
+            sig = self.key.sign(message)
+        return {"KALSHI-ACCESS-KEY": self.key_id, "KALSHI-ACCESS-TIMESTAMP": ts,
+                "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode()}
+
+
 class KalshiClient:
     def __init__(self, base_url: str = BASE_URL, timeout: float = 15.0, max_workers: int = 4,
-                 rate_per_sec: float = 10.0):
+                 rate_per_sec: float = 10.0, auth: KalshiAuth | None = None):
+        self.auth = auth
         self.base_url = base_url
         self.timeout = timeout
         self.max_workers = max_workers
         self.limiter = RateLimiter(rate_per_sec)
         self.session = requests.Session()
         self.session.headers["Accept"] = "application/json"
+        self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
         self.batch_orderbooks_ok: bool | None = None  # learned on first try
         self.requests_made = 0
 
-    def _get(self, path: str, params: dict | None = None, retries: int = 5) -> dict:
-        url = f"{self.base_url}{path}"
+    def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
+        return self._get_url(f"{self.base_url}{path}", params, retries, signed)
+
+    def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
+        if signed and self.auth is None:
+            raise RuntimeError("this call needs a Kalshi API key (KALSHI_KEY_ID / KALSHI_PRIVATE_KEY)")
         for attempt in range(retries + 1):
             self.limiter.wait()
             self.requests_made += 1
-            resp = self.session.get(url, params=params, timeout=self.timeout)
+            headers = self.auth.headers("GET", urlparse(url).path) if signed else None
+            resp = self.session.get(url, params=params, timeout=self.timeout, headers=headers)
             # 429 = rate limited; back off and retry. 5xx are usually transient too.
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == retries:
@@ -161,3 +217,58 @@ class KalshiClient:
         for ticker, book in self._parallel(fetch, unique):
             out[ticker] = {**book, "_fetched_at": fetched_at}
         return out
+
+    # ---- price history ----
+    def get_candles(self, tickers: list[str], start_ts: int, end_ts: int) -> dict[str, list[dict]]:
+        """One-minute candles (yes bid/ask at each minute's close) for many markets over one span.
+
+        Kalshi caps a request at MAX_CANDLES candles across all its markets, so the
+        tickers are split into as many requests as that takes.
+        """
+        minutes = max(1, (end_ts - start_ts) // 60 + 1)
+        per_call = max(1, min(100, MAX_CANDLES // minutes))
+        unique = list(dict.fromkeys(tickers))
+        out: dict[str, list[dict]] = {}
+        for i in range(0, len(unique), per_call):
+            data = self._get("/markets/candlesticks", {"market_tickers": ",".join(unique[i : i + per_call]),
+                                                       "start_ts": start_ts, "end_ts": end_ts, "period_interval": 1})
+            for m in data.get("markets", []):
+                out[m["market_ticker"]] = m.get("candlesticks") or []
+        return out
+
+    # ---- social (public profiles) ----
+    def social_trades(self, nickname: str | None = None, series_ticker: str | None = None,
+                      cursor: str | None = None, limit: int = 100, market_ticker: str | None = None) -> dict:
+        """One page (max 100, newest first) of trades with the maker's and taker's public
+        nicknames. A nickname is blank unless that trader's profile shows their trades.
+        For a profile with hidden trades, the response has visibility_state "hidden"."""
+        params = {"limit": limit}
+        if nickname:
+            params["nickname"] = nickname
+        if series_ticker:
+            params["series_ticker"] = series_ticker
+        if market_ticker:
+            params["market_ticker"] = market_ticker
+        if cursor:
+            params["cursor"] = cursor
+        return self._get_url(f"{SOCIAL_URL}/trades", params)
+
+    def profile_metrics(self, nickname: str, days: int | None = None) -> dict:
+        """A profile's PnL (in 1/100 cents), markets traded, etc. `days` limits it to recent days (30 works)."""
+        params = {"nickname": nickname}
+        if days:
+            params["since_day_before"] = days
+        return self._get_url(f"{SOCIAL_URL}/profile/metrics", params).get("metrics") or {}
+
+    # ---- RFQs (need an API key) ----
+    def get_rfqs(self, cursor: str | None = None, status: str | None = None, limit: int = 100) -> dict:
+        """One page of everyone's RFQs. creator_id is a pseudonymous hash, stable per user."""
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        if status:
+            params["status"] = status
+        return self._get("/communications/rfqs", params, signed=True)
+
+    def get_rfq(self, rfq_id: str) -> dict:
+        return self._get(f"/communications/rfqs/{rfq_id}", signed=True).get("rfq") or {}

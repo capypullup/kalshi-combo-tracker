@@ -79,3 +79,28 @@ def pack(rows: list[dict]) -> dict:
         s["legs"] = [{**l, "n": ref(l["n"]), "e": ref(l["e"])} for l in s["legs"]]
         out.append(s)
     return {"rows": out, "strs": list(index)}
+
+
+def _scope(s: dict) -> dict:
+    return {"n": s["n"], "mk": s["markets"], "vol": num(s["vol"], 2), "ev": num(s["ev"], 2), "cov": num(s["ev_cover"], 3),
+            "evr": num(s["ev_roi"], 4), "pnl": num(s["pnl"], 2), "st": s["settled"], "pr": num(s["pnl_roi"], 4),
+            "win": num(s["win_rate"], 4),
+            "edge": num(s["edge"], 2), "z": num(s["z"], 2), "tk": num(s["taker_share"], 3), "open": num(s["open_vol"], 2),
+            "first": int(s["first"] * 1000) if s["first"] else None, "last": int(s["last"] * 1000) if s["last"] else None}
+
+
+def pack_bettors(rows: list[dict]) -> list[dict]:
+    """Compact rows for the Bettors table."""
+    out = []
+    for r in rows:
+        out.append({
+            "nick": r["nick"], "src": r["src"], "hidden": r["hidden"], "missing": r["missing"],
+            "pa": num(r["pnl_all"], 2), "p30": num(r["pnl_30d"], 2), "ma": r["markets_all"], "m30": r["markets_30d"],
+            "fn": r["feed_n"], "fv": num(r["feed_vol"], 2), "fl": int(r["feed_last"] * 1000) if r["feed_last"] else None,
+            **{k: _scope(r[k]) for k in ("all", "tennis", "all30", "tennis30")}, "done": r["history_done"],
+            "code": r["code"], "linked": r["linked"], "codes": r["codes"], "sure": r["sure"],
+            "recent": [{"t": int(f["t"] * 1000), "title": f["title"], "L": f["legs"], "s": f["side"], "p": num(f["price"], 4),
+                        "n": num(f["n"], 2), "tk": f["taker"], "fair": num(f["fair"], 4), "ev": num(f["ev"], 2),
+                        "pnl": num(f["pnl"], 2)} for f in r["recent"]],
+        })
+    return out

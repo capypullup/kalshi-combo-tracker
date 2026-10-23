@@ -2,6 +2,8 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       lookback:
@@ -10,6 +12,9 @@ on:
       min_stake:
         description: Minimum bet size in dollars
         default: "100"
+      rfq_seconds:
+        description: Seconds to listen to live RFQs
+        default: "180"
 
 permissions:
   contents: write
@@ -28,6 +33,21 @@ jobs:
         run: |
           set -o pipefail
           python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }} 2>&1 | tee /tmp/live_check.txt
+      - name: Live check of the Bettors tracker
+        if: always()
+        run: |
+          set -o pipefail
+          echo -e "\n===== Bettors =====" >> /tmp/live_check.txt
+          python scripts/live_bettors.py 12 400 2>&1 | tee -a /tmp/live_check.txt
+      - name: Live check of RFQ matching (needs the API key secrets)
+        if: always()
+        env:
+          KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+        run: |
+          set -o pipefail
+          echo -e "\n===== RFQ matching =====" >> /tmp/live_check.txt
+          python scripts/live_rfq.py ${{ inputs.rfq_seconds || '180' }} 2>&1 | tee -a /tmp/live_check.txt
       - name: Save live check output to the ci-output branch
         if: always()
         run: |
