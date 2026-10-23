@@ -46,6 +46,14 @@ def test_pick_filters_on_size_tier_ev_thin_and_sent():
     assert alerts.pick([good], TIERS, set(), skip_thin=False) == [good]
 
 
+def test_pick_leaves_out_crypto_legs():
+    good = row()
+    assert alerts.pick([good], TIERS, set()) == [good]
+    good["leg_detail"][1]["ticker"] = "KXBTCD-26OCT2117-T108000"
+    assert alerts.pick([good], TIERS, set()) == []
+    assert alerts.pick([good], TIERS, set(), skip_series=()) == [good]
+
+
 def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
