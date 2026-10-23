@@ -82,15 +82,27 @@ function ago(ms) {
   return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
 }
 const agoTxt = (ms) => (ago(ms) === "now" ? "just now" : `${ago(ms)} ago`);
-const hhmm = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
+// Clock time in the phone's own format ("12:45 AM"), with the weekday when it isn't today ("Sat 7:05 PM"),
+// or the date from 6 days away ("Nov 1 1:00 PM"), where a weekday would read as this week.
+function clock(ms, now = Date.now()) {
+  if (!isNum(ms)) return "";
+  const d = new Date(ms);
+  const t = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date(now).toDateString()) return t;
+  const dayNo = (x) => { const y = new Date(x); return Date.UTC(y.getFullYear(), y.getMonth(), y.getDate()) / 864e5; };
+  const day = Math.abs(dayNo(ms) - dayNo(now)) >= 6 ? { month: "short", day: "numeric" } : { weekday: "short" };
+  return `${d.toLocaleDateString(undefined, day)} ${t}`;
+}
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
-// Short forms for the cards: $692, $3,712, $17k, $1.2M · 4.58x
+// Short forms for the cards: $692, $3,712, $12.4k, $250k, $1.2M · 4.58x. Up to $100k they keep three figures,
+// so a $12k bet doesn't print smaller than a $4,851 one.
 function money0(x) {
   if (!isNum(x)) return "–";
   const a = Math.abs(x);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}k` : Math.round(a).toLocaleString();
+  const s = a >= 999500 ? `${(a / 1e6).toFixed(1)}M` : a >= 99950 ? `${Math.round(a / 1e3)}k`
+    : a >= 9999.5 ? `${(a / 1e3).toFixed(1)}k` : Math.round(a).toLocaleString();
   return `${x < 0 ? "-" : ""}$${s}`;
 }
 function mult(p) {
@@ -239,20 +251,13 @@ function legThin(S, l) {
 }
 const rowThin = (S, r) => r.legs.some((l) => legThin(S, l));
 
-function startLabel(ms) {
+// When a pre-match combo's first game starts: "starts in 25m" within the hour, then "starts 7:05 PM",
+// "starts Sat 7:05 PM" on another day. Always "starts", so it never reads as the time it was bet.
+function startsIn(ms, now = Date.now()) {
   if (!isNum(ms)) return "";
-  const d = new Date(ms);
-  return d.toDateString() === new Date().toDateString() ? hhmm(ms) : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hhmm(ms)}`;
-}
-// When a pre-match combo's first game starts: "in 25m", "in 2h40", "in 9h", then "Sat 19:05".
-function startsIn(ms) {
-  if (!isNum(ms)) return "";
-  const m = (ms - Date.now()) / 60000;
+  const m = (ms - now) / 60000;
   if (m <= 0) return "starting";
-  if (m < 60) return `in ${Math.max(1, Math.floor(m))}m`;
-  if (m < 180) return `in ${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
-  if (m < 1440) return `in ${Math.round(m / 60)}h`;
-  return startLabel(ms);
+  return m < 60 ? `starts in ${Math.max(1, Math.floor(m))}m` : `starts ${clock(ms, now)}`;
 }
 const firstStart = (r) => r.legs.reduce((a, l) => (isNum(l.st) && (a === null || l.st < a) ? l.st : a), null);
 
@@ -265,7 +270,7 @@ function leagues(r) {
 function sportChips(r, max) {
   const all = leagues(r);
   const shown = all.length > max ? all.slice(0, max - 1) : all;
-  const chip = ([lg, spt]) => `<span class="lg">${SPORT_ICON[spt] || SPORT_ICON.other} ${esc(lg)}</span>`;
+  const chip = ([lg, spt]) => `<span class="lg">${SPORT_ICON[spt] || SPORT_ICON.other}<span> ${esc(lg)}</span></span>`;
   return shown.map(chip).join("") + (all.length > shown.length ? `<span class="lg plus">+${all.length - shown.length}</span>` : "");
 }
 
@@ -361,17 +366,24 @@ function shell(root) {
 function legendHtml() {
   const pill = (x, small) => `<span class="evp ${evTier(x)}${evDark(x) ? " dk" : ""}" style="${evStyle(x)}"><b>${pctShort(x)}</b>`
     + `${small === undefined ? "" : `<i>/</i><span>${pctShort(small)}</span>`}</span>`;
-  return `<div class="lrow">${pill(0.21, 0.13)}<span>EV <b>mid</b> / EV <b>cross</b>. The big one is what the Mid / Cross
+  return `<p><span class="nw"><b>$232</b> @ <b>21.6x</b></span> the bet and the multiplier it got;
+      <span class="nw"><b class="c">$500+</b></span> bets in cyan<br>
+      <span class="nw"><b>2.73u</b></span> Kelly units to bet (set Kelly and unit size with the gear)<br>
+      <span class="nw"><i>fair</i> <b>17.8x</b> / 19.1x</span> the fair multipliers at mid / cross, the brighter one
+      following the switch. EV = paid ÷ fair − 1: <span class="nw">21.6 ÷ 17.8 − 1 = +21%</span><br>
+      <span class="nw"><b>9:19 AM</b> · 2m ago</span> when it was bet<br>
+      <span class="nw"><b>LIVE</b></span> or <span class="nw"><b>starts 2:40 PM</b></span> when its first game starts</p>
+    <div class="lrow">${pill(0.21, 0.13)}<span>EV <b>mid</b> / EV <b>cross</b>. The big one is what the Mid / Cross
       switch picks: it sets the color, Min EV, Min QK and the EV and QK sorts. The other gets a red chip when it's
       negative (a green one when it's positive on a red pill).</span></div>
     <div class="ramp">${[0.05, 0.15, 0.3, 1, 2.5, 8].map((x) => pill(x)).join("")}</div>
     <p>Pale under +10%, deep green from +10%, bright from +20% and neon by +800%: 🔥 from +200%, a white ring from
       +500%. Edges from +200% are usually a stale leg book, so they carry <em class="wn">⚠ CHECK</em>.</p>
-    <p><b>2.73u</b> Kelly units to bet (set Kelly and unit size with the gear) · <b class="c">$500+</b> bets in cyan ·
-      <em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
+    <p><em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
       leg's book is wide or small · <em class="wn">IN BAND</em> the price sits inside the leg spreads ·
-      <em class="wn">NO QUOTE</em> a leg has no market.
-      Tap a bet for its legs, fair odds and Bet in Kalshi.</p>`;
+      <em class="wn">NO QUOTE</em> a leg has no market. Then the leagues and legs; a tight line shows leagues by their
+      emoji, or leaves them to the open bet. Tap a bet for its legs, American odds, what it pays and the buttons to bet
+      it.</p>`;
 }
 
 const WARN_ORDER = ["CHECK", "NO QUOTE", "THIN", "IN BAND"];  // most important first, in case the line runs out
@@ -393,35 +405,59 @@ function rowHtml(S, data, r) {
   const fire = tier === "t3" || tier === "t4" ? '<span class="fire">🔥</span>' : "";
   const warns = [...new Set([...r.flags.split(" · "), rowThin(S, r) ? "THIN" : ""])]
     .filter((f) => WARN_ORDER.includes(f)).sort((a, b) => WARN_ORDER.indexOf(a) - WARN_ORDER.indexOf(b));
-  const tags = (r.sg ? '<em class="sg">SG</em>' : "") + (warns.length ? `<em class="wn">⚠ ${warns.join(" · ")}</em>` : "");
+  const tags = (r.side === "no" ? '<em class="no">NO</em>' : "") + (r.sg ? '<em class="sg">SG</em>' : "")
+    + (warns.length ? `<em class="wn">⚠ ${warns.join(" · ")}</em>` : "");
   const legs = r.legs.map((l) => `${l.s === "no" ? "NO " : ""}${l.n}`).join(" · ");
   const st = firstStart(r);
   const when = r.live ? '<span class="live"><i></i>LIVE</span>'
     : st !== null ? `<span class="pre" data-st="${st}">${startsIn(st)}</span>` : "";
-  const no = r.side === "no";
+  // The fair multipliers behind EV mid / EV cross; the one the switch picks is brighter, as in the pill.
+  const fair = (p, on) => `<span${on ? ' class="on"' : ""}>${mult(p)}</span>`;
   const open = S.open === r.id;
+  // Three lines: the bet and the multiplier it got against its EV pill, then the fair multipliers against
+  // the time it was bet, then tags, leagues and legs against LIVE or the start time.
   return `<div class="row ${tier}${open ? " open" : ""}" data-id="${esc(r.id)}" style="${evCardVars(ev, tier)}">
     <div class="card" data-act="toggle">
-      <div class="lf">
-        <div class="l1">${pill}${fire}${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</div>
-        <div class="l2">${no ? '<em class="no">NO</em>' : ""}${sportChips(r, no ? 2 : 3)}</div>
-        <div class="l3">${tags ? `<span class="tg">${tags}</span>` : ""}<span class="pv"><i>${r.L} legs · </i>${esc(legs)}</span></div>
-      </div>
-      <div class="rt">
-        <div class="l1"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b> <span class="x">@</span> <b class="m">${mult(r.price)}</b></div>
-        <div class="l2"><span class="od">${odds(r.price)} · </span>pays ${money0(r.n)}</div>
-        <div class="l3">${when}<span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></div>
-      </div>
+      <div class="c1"><span class="lead"><span class="bet"><b class="stake${Math.round(r.stake) >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>`
+        + `${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</span><span class="evx">${pill}${fire}</span></div>
+      <div class="c2"><span class="fair"><i>fair</i>${fair(r.fm, mid)}<i>/</i>${fair(r.fc, !mid)}</span>
+        <span class="tm"><b>${clock(r.t)}</b><span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></span></div>
+      <div class="c3"><div class="ctx"><span class="tg">${tags}${sportChips(r, tags ? 2 : 3)}<span class="nl">${r.L} leg${r.L === 1 ? "" : "s"}</span></span>`
+        + `<span class="pv"><i>· </i>${esc(legs)}</span></div>${when}</div>
     </div>
     ${open ? detailHtml(S, data, r) : ""}
   </div>`;
+}
+
+// Line 3 never cuts a league or the leg count in half. Where the tags, leagues and leg count don't fit, the
+// leagues turn into their emoji one at a time from the right (.lg.e); with every league an emoji, the ⚠ tag gives
+// way down to "⚠…" (.lgx); if the leg count still doesn't fit, the leagues go (.lgx2; the open bet lists each
+// leg's). Each round reads every row, then writes.
+function fitCards(rows, fresh = false) {
+  if (fresh) {
+    rows.forEach((row) => {
+      row.classList.remove("lgx", "lgx2");
+      row.querySelectorAll(".lg.e").forEach((l) => l.classList.remove("e"));
+    });
+  }
+  const box = (el) => el.getBoundingClientRect();
+  const over = (row) => { const c = row.querySelector(".ctx"); return box(c.firstElementChild).width > box(c).width + 0.5; };
+  let tight = rows.filter((row) => !row.classList.contains("lgx") && over(row));
+  while (tight.length) {
+    const left = tight.map((row) => [row, [...row.querySelectorAll(".ctx .lg:not(.plus):not(.e)")].pop()]);
+    left.forEach(([row, lg]) => (lg ? lg.classList.add("e") : row.classList.add("lgx")));
+    tight = left.filter(([, lg]) => lg).map(([row]) => row).filter(over);
+  }
+  rows.filter((row) => row.classList.contains("lgx") && !row.classList.contains("lgx2"))
+    .filter((row) => box(row.querySelector(".nl")).right > box(row.querySelector(".ctx")).right + 0.5)
+    .forEach((row) => row.classList.add("lgx2"));
 }
 
 function detailHtml(S, data, r) {
   const deep = (data.deep || {})[r.id];
   const legs = (deep ? deep.legs : r.legs).map((l) => {
     const thin = legThin(S, l);
-    const when = l.lv ? '<span class="st lv">LIVE</span>' : l.st ? `<span class="st">${startLabel(l.st)}</span>` : "";
+    const when = l.lv ? '<span class="st lv">LIVE</span>' : l.st ? `<span class="st">${clock(l.st)}</span>` : "";
     const lg = l.lg ? `${SPORT_ICON[l.spt] || SPORT_ICON.other} ${esc(l.lg)} · ` : "";
     return `<div class="leg"><span class="s ${l.s}">${l.s.toUpperCase()}</span>
       <span class="n"><b>${esc(l.n)}</b> ${when}<i>${lg}${esc(l.e)}</i></span>
@@ -445,7 +481,7 @@ function detailHtml(S, data, r) {
   return `<div class="detail">
     ${legs}
     <div class="tiles">${tiles}</div>
-    <div class="facts">${r.side.toUpperCase()} · bet <b>${money(r.stake)}</b> at ${hhmm(r.t)} · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
+    <div class="facts">${r.side.toUpperCase()} · bet <b>${money(r.stake)}</b> at ${clock(r.t)} · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
       · resolves in ${hrs}${flags}${deepLine}</div>
     <div class="actions go">
       <button class="btn primary" data-act="quote" title="Get makers' quotes on the Quote page and bet the best one">Bet in CapyEV</button>
@@ -461,7 +497,7 @@ function detailHtml(S, data, r) {
   </div>`;
 }
 
-export { betCard, betUrl, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
+export { betCard, betUrl, clock, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, money0, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
 
 export default function (component) {
   const { parentElement, setStateValue, setTriggerValue } = component;
@@ -476,6 +512,23 @@ export default function (component) {
     parentElement.appendChild(root);
     shell(root);
     bind(root);
+    // A new width (the window, a scrollbar, the container) or a font arriving changes what fits on line 3.
+    // A new height (more rows, the keyboard) doesn't.
+    let wait = 0;
+    let fitW = -1;
+    root._refit = () => {
+      if (!root.isConnected) {
+        root._ro.disconnect();
+        document.fonts?.removeEventListener("loadingdone", root._refit);
+        return;
+      }
+      clearTimeout(wait);
+      wait = setTimeout(() => { fitW = root.clientWidth; fitCards([...root.querySelectorAll(".row")], true); }, 150);
+    };
+    root._ro = new ResizeObserver(() => { if (root.clientWidth !== fitW) root._refit(); });
+    root._ro.observe(root);
+    document.fonts?.addEventListener("loadingdone", root._refit);
+    document.fonts?.ready.then(root._refit);
   }
   const $ = (name) => root.querySelector(`[data-ref="${name}"]`);
 
@@ -536,6 +589,7 @@ export default function (component) {
     $("rows").innerHTML = shown.length
       ? shown.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows)
       : emptyHtml(D);
+    fitCards([...root.querySelectorAll(".row")]);
     watchSentinel();
   }
 
@@ -567,6 +621,7 @@ export default function (component) {
     const old = root.querySelector(".more");
     if (old) old.remove();
     $("rows").insertAdjacentHTML("beforeend", next.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows));
+    fitCards([...root.querySelectorAll(".row")]);
     watchSentinel();
   }
 
@@ -585,9 +640,19 @@ export default function (component) {
   // filter. Keep the "updated", "ago" and "starts in" labels honest in the meantime.
   if (!root._tick) {
     root._tick = setInterval(() => {
+      if (!root.isConnected) {  // the page was left: stop, and let the old list go
+        clearInterval(root._tick);
+        root._io?.disconnect();
+        return;
+      }
       paintMeta();
       root.querySelectorAll("[data-t]").forEach((el) => { el.textContent = agoTxt(+el.dataset.t); });
-      root.querySelectorAll("[data-st]").forEach((el) => { el.textContent = startsIn(+el.dataset.st); });
+      const moved = [];  // a start label of a new length changes what fits on its line
+      root.querySelectorAll(".row [data-st]").forEach((el) => {
+        const label = startsIn(+el.dataset.st);
+        if (label !== el.textContent) { el.textContent = label; moved.push(el.closest(".row")); }
+      });
+      fitCards(moved, true);
     }, 15000);
   }
 
