@@ -85,9 +85,14 @@ def test_js_pills_that_read_the_same_look_the_same(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_js_starts_in(tmp_path):
-    expr = "JSON.stringify([-1, 0.5, 25.5, 160.5, 600].map((m) => startsIn(Date.now() + m * 60000)))"
-    assert json.loads(run_js(tmp_path, "startsIn", expr)) == ["starting", "in 1m", "in 25m", "in 2h40", "in 10h"]
+def test_js_times_read_as_clock_times(tmp_path):
+    """Bets show the clock time they were placed, and pre-match bets when their first game starts."""
+    now = "new Date(2026, 9, 23, 12, 0).getTime()"  # a Friday, noon local time
+    expr = (f"JSON.stringify([[-1, 0.5, 25.5, 160.5, 600, 1500].map((m) => startsIn({now} + m * 60000, {now})), "
+            f"[clock({now} - 4 * 60000, {now}), clock({now} - 13 * 3600000, {now})]])")
+    starts, clocks = json.loads(run_js(tmp_path, "clock, startsIn", expr).replace("\u202f", " "))
+    assert starts == ["starting", "starts in 1m", "starts in 25m", "starts 2:40 PM", "starts 10:00 PM", "Sat 1:00 PM"]
+    assert clocks == ["11:56 AM", "Thu 11:00 PM"]
 
 
 ROWS = [  # what the filters and sorts look at, for a handful of bets

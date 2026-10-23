@@ -133,6 +133,7 @@ a.btn { text-decoration: none; box-sizing: border-box; }
 .combos .legend b { color: var(--text); }
 .combos .legend .evp b { color: inherit; }  /* the sample pills keep their own text color */
 .combos .legend b.c { color: var(--cyan); }
+.combos .legend i { font-style: normal; }
 .combos .legend .lrow { display: flex; gap: 10px; align-items: center; }
 .combos .legend .ramp { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
 .combos .legend .ramp .evp { justify-content: center; padding: 2px 0; }
@@ -164,17 +165,27 @@ a.btn { text-decoration: none; box-sizing: border-box; }
 .combos .sortbar .seg:first-child button { flex: 1 1 auto; padding: 8px 6px; }
 .combos .seg .sl { flex: none; align-self: center; padding: 0 0 0 7px; color: var(--dim); font-size: 11px; font-weight: 800; }
 
-/* a bet: EV pill first, its stripe and glow stepping up with the edge */
+/* A bet: three lines, each a pair. The bet and the multiplier it got face the EV pill (about equal weight),
+   the fair multipliers face the time it was bet, and the tags, leagues and legs face LIVE or the start time.
+   The stripe, border and glow step up with the edge. */
 .combos .list { display: flex; flex-direction: column; gap: 6px; }
 .combos .row { position: relative; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); overflow: hidden; }
 .combos .row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--hc, transparent); }
-.combos .card { display: flex; gap: 8px; padding: 7px 10px 7px 13px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.combos .card { display: flex; flex-direction: column; gap: 3px; padding: 7px 10px 7px 13px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .combos .card:active { background: rgba(255, 255, 255, 0.03); }
-.combos .lf { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.combos .rt { flex: none; max-width: 48%; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; text-align: right; }
-.combos .card .l1, .combos .card .l2, .combos .card .l3 { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; }
-.combos .card .l1 { height: 27px; }
-.combos .card .l2, .combos .card .l3 { height: 17px; overflow: hidden; color: var(--dim); font-size: 12px; font-weight: 600; }
+.combos .c1, .combos .c2, .combos .c3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; white-space: nowrap; }
+.combos .c1 { height: 28px; }
+.combos .c2, .combos .c3 { height: 17px; color: var(--dim); font-size: 12px; font-weight: 600; }
+
+/* line 1: the bet @ the multiplier it got | units and the EV pill */
+.combos .bet { flex: 0 1 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: baseline; gap: 5px; }
+.combos .stake { font-size: 20px; font-weight: 900; letter-spacing: -0.02em; }
+.combos .stake.big { color: var(--cyan); }
+.combos .bet i { font-style: normal; color: var(--dim); font-size: 12px; font-weight: 700; }
+.combos .bet .m { font-size: 16px; font-weight: 800; }
+.combos .evx { position: relative; flex: none; display: inline-flex; align-items: center; gap: 7px; }
+.combos .evx .fire { position: absolute; top: -8px; right: -8px; font-size: 13px; z-index: 2; pointer-events: none; }
+.combos .u { flex: none; font-size: 14px; font-weight: 900; color: var(--text); }
 
 .combos .evp { flex: none; display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 10px; border-radius: 999px; font-weight: 800; line-height: 1.2; }
 .combos .evp b { font-size: 18px; font-weight: 900; letter-spacing: -0.02em; }
@@ -186,42 +197,43 @@ a.btn { text-decoration: none; box-sizing: border-box; }
 .combos .evp span.lo, .combos .evp span.hi { opacity: 1; padding: 0 5px; border-radius: 6px; font-weight: 900; }
 .combos .evp span.lo { background: #2a0008; color: #ff9aa5; }
 .combos .evp span.hi { background: #002618; color: #7ef0c0; }
-.combos .fire { flex: none; font-size: 15px; margin-left: -3px; }
-.combos .u { flex: none; font-size: 14px; font-weight: 900; color: var(--text); }
 
-.combos .card .l2 { gap: 4px; }
-/* league chips share line 2: a long name gives way with an ellipsis, the "+N" count always shows */
-.combos .lf .l2 .lg:not(.plus) { flex: 0 1 auto; min-width: 20px; overflow: hidden; text-overflow: ellipsis; }
-.combos .lf .l2 .lg:first-of-type { flex-shrink: 0; max-width: 62%; }  /* the first league stays whole when it can */
-.combos .lg { flex: none; padding: 1px 7px 1px 5px; border-radius: 7px; background: #0e1c22; color: #cfe9ef; font-size: 12px; font-weight: 800; }
-.combos .lg.plus { padding: 1px 6px; color: var(--dim); }
+/* line 2: fair mid / cross multipliers (the one the switch picks brighter) | when it was bet */
+.combos .fair { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #8fa9b0; font-size: 13px; font-weight: 700; }
+.combos .fair i { font-style: normal; color: var(--dim); font-size: 11.5px; font-weight: 600; margin: 0 3px; }
+.combos .fair i:first-child { margin-left: 0; }
+.combos .fair .on { color: var(--text); font-weight: 800; }
+.combos .tm { flex: none; display: inline-flex; align-items: baseline; gap: 4px; }
+.combos .tm b { color: #d6eef3; font-size: 12.5px; font-weight: 800; }
+.combos .tm .age::before { content: "· "; }
+
+/* Line 3: NO, SG and ⚠ tags and the league chips as one group that always stays (chips give way first, then
+   the ⚠ tag, with an ellipsis), then the leg preview in what's left. Under 56px the preview can't show a leg,
+   so it wraps onto a second line that .ctx hides. LIVE or the start time sits on the right. */
+.combos .ctx { flex: 1 1 auto; min-width: 0; height: 17px; overflow: hidden; display: flex; flex-wrap: wrap; align-content: flex-start;
+  align-items: center; gap: 4px 6px; }
+.combos .card .tg { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.combos .lg { flex: 0 3 auto; min-width: 20px; overflow: hidden; text-overflow: ellipsis; padding: 1px 7px 1px 5px; border-radius: 7px;
+  background: #0e1c22; color: #cfe9ef; font-size: 12px; font-weight: 800; }
+.combos .lg:first-of-type { flex-shrink: 1; }  /* the first league gives way last */
+.combos .lg.plus { flex: none; padding: 1px 6px; color: var(--dim); }
 .combos .card em { flex: none; font-style: normal; font-size: 10.5px; font-weight: 900; padding: 1px 5px; border-radius: 5px; letter-spacing: 0.02em; }
 .combos em.no { background: var(--neg); color: #22050a; }
 .combos em.sg { color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 200, 87, 0.45); }
 .combos em.wn { color: var(--warn); background: rgba(255, 200, 87, 0.12); }
 .combos .card em.wn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Line 3: the SG and ⚠ tags as one group that always stays (the ⚠ tag shrinks with an ellipsis, CHECK first),
-   then the leg preview in what's left. Under 56px the preview can't show a leg, so it wraps onto a second
-   line that .l3 hides. */
-.combos .lf .l3 { flex-wrap: wrap; align-content: flex-start; row-gap: 4px; }
-.combos .card .tg { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .combos .pv { flex: 1 1 56px; min-width: 56px; overflow: hidden; text-overflow: ellipsis; color: #b4ccd2; font-weight: 700; }
 .combos .pv i { font-style: normal; color: var(--dim); font-weight: 600; }
-
-.combos .rt .l1 { font-size: 13.5px; gap: 4px; }
-.combos .rt .l3 { padding-left: 6px; }  /* room for the LIVE dot's glow */
-.combos .stake { font-weight: 900; }
-.combos .stake.big { color: var(--cyan); }
-.combos .rt .x { color: var(--dim); font-size: 12px; }
-.combos .rt .m { font-weight: 800; }
-.combos .live { display: inline-flex; align-items: center; gap: 4px; color: var(--neg); font-size: 11px; font-weight: 900; letter-spacing: 0.04em; }
+.combos .c3 > .live, .combos .c3 > .pre { flex: none; }
+.combos .live { display: inline-flex; align-items: center; gap: 4px; padding-left: 6px; color: var(--neg); font-size: 11px; font-weight: 900; letter-spacing: 0.04em; }
 .combos .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--neg); box-shadow: 0 0 6px var(--neg); }
 .combos .pre { padding: 0 6px; border-radius: 6px; color: #bcd3d9; font-size: 11px; font-weight: 800; box-shadow: inset 0 0 0 1px var(--line2); }
 
 .combos .row.t1, .combos .row.t2, .combos .row.t3, .combos .row.t4 { border-color: var(--hb, var(--line)); }
-.combos .row.t3 { box-shadow: 0 0 14px -7px var(--hc); background: linear-gradient(105deg, rgba(57, 255, 158, 0.07), var(--panel) 45%); }
+/* hot rows: a wash of green from the pill's side */
+.combos .row.t3 { box-shadow: 0 0 14px -7px var(--hc); background: linear-gradient(255deg, rgba(57, 255, 158, 0.08), var(--panel) 45%); }
 .combos .row.t4 { box-shadow: 0 0 22px -4px var(--hc), inset 0 0 0 1px rgba(57, 255, 158, 0.2);
-  background: radial-gradient(130% 160% at 0% 0%, rgba(57, 255, 158, 0.22), var(--panel) 58%); }
+  background: radial-gradient(130% 160% at 100% 0%, rgba(57, 255, 158, 0.22), var(--panel) 58%); }
 .combos .row.t4::before { width: 5px; box-shadow: 0 0 12px var(--hc); }
 /* +500% and up: a bigger pill with a white ring and a slow shine, so it can't be missed */
 .combos .evp.t4 { position: relative; overflow: hidden; isolation: isolate; }
@@ -256,14 +268,19 @@ a.btn { text-decoration: none; box-sizing: border-box; }
   .combos .card { padding: 8px 8px 8px 12px; }
   .combos .evp { padding: 3px 8px; }
   .combos .evp b { font-size: 16.5px; }
-  .combos .rt .l1 { font-size: 13px; }
+  .combos .stake { font-size: 18.5px; }
+  .combos .bet .m { font-size: 15px; }
+  .combos .row.t4 .u { display: none; }  /* the widest pills: units stay in the open bet's tiles */
 }
-/* Smallest phones (320-350px). Line 2 drops the American odds (still in the open bet) and the switch drops
-   its "EV" label. On hot rows line 1 drops the units (in the open bet's tiles), and from +500% the 🔥 (the
-   ring and glow already say it), so the pill never runs into the stake. */
+/* Smallest phones (320-350px). The switch drops its "EV" label, and hot rows drop their units from line 1
+   (they stay in the open bet's tiles) so the pill never runs into the bet. */
 @media (max-width: 350px) {
-  .combos .rt .od, .combos .seg .sl { display: none; }
-  .combos .row.t3 .lf .u, .combos .row.t4 .lf .u, .combos .row.t4 .lf .fire { display: none; }
+  .combos .seg .sl { display: none; }
+  .combos .stake { font-size: 17px; }
+  .combos .bet .m { font-size: 14px; }
+  .combos .evp b { font-size: 15.5px; }
+  .combos .fair { font-size: 12px; }
+  .combos .row.t3 .u { display: none; }
   .combos .evp span.lo, .combos .evp span.hi { padding: 0 3px; }
   .combos .legend .ramp { gap: 3px; }
   .combos .legend .ramp .evp b { font-size: 11.5px; }

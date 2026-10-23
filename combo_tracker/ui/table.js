@@ -80,7 +80,13 @@ function ago(ms) {
   return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
 }
 const agoTxt = (ms) => (ago(ms) === "now" ? "just now" : `${ago(ms)} ago`);
-const hhmm = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" });
+// Clock time in the phone's own format ("12:45 AM"), with the weekday when it isn't today ("Sat 7:05 PM").
+function clock(ms, now = Date.now()) {
+  if (!isNum(ms)) return "";
+  const d = new Date(ms);
+  const t = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date(now).toDateString() ? t : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${t}`;
+}
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
@@ -237,20 +243,14 @@ function legThin(S, l) {
 }
 const rowThin = (S, r) => r.legs.some((l) => legThin(S, l));
 
-function startLabel(ms) {
+// When a pre-match combo's first game starts: "starts in 25m" within the hour, then "starts 7:05 PM",
+// or "Sat 7:05 PM" on another day.
+function startsIn(ms, now = Date.now()) {
   if (!isNum(ms)) return "";
-  const d = new Date(ms);
-  return d.toDateString() === new Date().toDateString() ? hhmm(ms) : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hhmm(ms)}`;
-}
-// When a pre-match combo's first game starts: "in 25m", "in 2h40", "in 9h", then "Sat 19:05".
-function startsIn(ms) {
-  if (!isNum(ms)) return "";
-  const m = (ms - Date.now()) / 60000;
+  const m = (ms - now) / 60000;
   if (m <= 0) return "starting";
-  if (m < 60) return `in ${Math.max(1, Math.floor(m))}m`;
-  if (m < 180) return `in ${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
-  if (m < 1440) return `in ${Math.round(m / 60)}h`;
-  return startLabel(ms);
+  if (m < 60) return `starts in ${Math.max(1, Math.floor(m))}m`;
+  return new Date(ms).toDateString() === new Date(now).toDateString() ? `starts ${clock(ms, now)}` : clock(ms, now);
 }
 const firstStart = (r) => r.legs.reduce((a, l) => (isNum(l.st) && (a === null || l.st < a) ? l.st : a), null);
 
@@ -365,11 +365,13 @@ function legendHtml() {
     <div class="ramp">${[0.05, 0.15, 0.3, 1, 2.5, 8].map((x) => pill(x)).join("")}</div>
     <p>Pale under +10%, deep green from +10%, bright from +20% and neon by +800%: 🔥 from +200%, a white ring from
       +500%. Edges from +200% are usually a stale leg book, so they carry <em class="wn">⚠ CHECK</em>.</p>
-    <p><b>2.73u</b> Kelly units to bet (set Kelly and unit size with the gear) · <b class="c">$500+</b> bets in cyan ·
+    <p><b>$232</b> @ <b>21.6x</b> the bet and the multiplier it got · <i>fair</i> <b>17.8x</b> / <b>19.0x</b> the fair
+      multipliers at mid / cross (EV = paid ÷ fair − 1) · <b>12:45 AM</b> when it was bet · <b>2.73u</b> Kelly units to
+      bet (set Kelly and unit size with the gear) · <b class="c">$500+</b> bets in cyan ·
       <em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
       leg's book is wide or small · <em class="wn">IN BAND</em> the price sits inside the leg spreads ·
       <em class="wn">NO QUOTE</em> a leg has no market.
-      Tap a bet for its legs, fair odds and Bet in Kalshi.</p>`;
+      Tap a bet for its legs, American odds and Bet in Kalshi.</p>`;
 }
 
 const WARN_ORDER = ["CHECK", "NO QUOTE", "THIN", "IN BAND"];  // most important first, in case the line runs out
@@ -391,25 +393,25 @@ function rowHtml(S, data, r) {
   const fire = tier === "t3" || tier === "t4" ? '<span class="fire">🔥</span>' : "";
   const warns = [...new Set([...r.flags.split(" · "), rowThin(S, r) ? "THIN" : ""])]
     .filter((f) => WARN_ORDER.includes(f)).sort((a, b) => WARN_ORDER.indexOf(a) - WARN_ORDER.indexOf(b));
-  const tags = (r.sg ? '<em class="sg">SG</em>' : "") + (warns.length ? `<em class="wn">⚠ ${warns.join(" · ")}</em>` : "");
+  const tags = (r.side === "no" ? '<em class="no">NO</em>' : "") + (r.sg ? '<em class="sg">SG</em>' : "")
+    + (warns.length ? `<em class="wn">⚠ ${warns.join(" · ")}</em>` : "");
   const legs = r.legs.map((l) => `${l.s === "no" ? "NO " : ""}${l.n}`).join(" · ");
   const st = firstStart(r);
   const when = r.live ? '<span class="live"><i></i>LIVE</span>'
     : st !== null ? `<span class="pre" data-st="${st}">${startsIn(st)}</span>` : "";
-  const no = r.side === "no";
+  // The fair multipliers behind EV mid / EV cross; the one the switch picks is brighter, as in the pill.
+  const fair = (p, on) => `<span${on ? ' class="on"' : ""}>${mult(p)}</span>`;
   const open = S.open === r.id;
+  // Three lines: the bet and the multiplier it got against its EV pill, then the fair multipliers against
+  // the time it was bet, then tags, leagues and legs against LIVE or the start time.
   return `<div class="row ${tier}${open ? " open" : ""}" data-id="${esc(r.id)}" style="${evCardVars(ev, tier)}">
     <div class="card" data-act="toggle">
-      <div class="lf">
-        <div class="l1">${pill}${fire}${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</div>
-        <div class="l2">${no ? '<em class="no">NO</em>' : ""}${sportChips(r, no ? 2 : 3)}</div>
-        <div class="l3">${tags ? `<span class="tg">${tags}</span>` : ""}<span class="pv"><i>${r.L} legs · </i>${esc(legs)}</span></div>
-      </div>
-      <div class="rt">
-        <div class="l1"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b> <span class="x">@</span> <b class="m">${mult(r.price)}</b></div>
-        <div class="l2"><span class="od">${odds(r.price)} · </span>pays ${money0(r.n)}</div>
-        <div class="l3">${when}<span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></div>
-      </div>
+      <div class="c1"><span class="bet"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>
+        <span class="evx">${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}${pill}${fire}</span></div>
+      <div class="c2"><span class="fair"><i>fair</i>${fair(r.fm, mid)}<i>/</i>${fair(r.fc, !mid)}</span>
+        <span class="tm"><b>${clock(r.t)}</b><span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></span></div>
+      <div class="c3"><div class="ctx"><span class="tg">${tags}${sportChips(r, tags ? 2 : 3)}</span>`
+        + `<span class="pv"><i>${r.L} legs · </i>${esc(legs)}</span></div>${when}</div>
     </div>
     ${open ? detailHtml(S, data, r) : ""}
   </div>`;
@@ -419,7 +421,7 @@ function detailHtml(S, data, r) {
   const deep = (data.deep || {})[r.id];
   const legs = (deep ? deep.legs : r.legs).map((l) => {
     const thin = legThin(S, l);
-    const when = l.lv ? '<span class="st lv">LIVE</span>' : l.st ? `<span class="st">${startLabel(l.st)}</span>` : "";
+    const when = l.lv ? '<span class="st lv">LIVE</span>' : l.st ? `<span class="st">${clock(l.st)}</span>` : "";
     const lg = l.lg ? `${SPORT_ICON[l.spt] || SPORT_ICON.other} ${esc(l.lg)} · ` : "";
     return `<div class="leg"><span class="s ${l.s}">${l.s.toUpperCase()}</span>
       <span class="n"><b>${esc(l.n)}</b> ${when}<i>${lg}${esc(l.e)}</i></span>
@@ -443,7 +445,7 @@ function detailHtml(S, data, r) {
   return `<div class="detail">
     ${legs}
     <div class="tiles">${tiles}</div>
-    <div class="facts">${r.side.toUpperCase()} · bet <b>${money(r.stake)}</b> at ${hhmm(r.t)} · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
+    <div class="facts">${r.side.toUpperCase()} · bet <b>${money(r.stake)}</b> at ${clock(r.t)} · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
       · resolves in ${hrs}${flags}${deepLine}</div>
     <div class="actions go">
       <a class="btn primary" href="${esc(betUrl(r.ticker))}" target="_blank" rel="noopener">Bet in Kalshi ${ICON_OUT}</a>
@@ -459,7 +461,7 @@ function detailHtml(S, data, r) {
   </div>`;
 }
 
-export { betCard, betUrl, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
+export { betCard, betUrl, clock, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
 
 export default function (component) {
   const { parentElement, setStateValue, setTriggerValue } = component;
