@@ -87,19 +87,20 @@ function clock(ms, now = Date.now()) {
   const d = new Date(ms);
   const t = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   if (d.toDateString() === new Date(now).toDateString()) return t;
-  const day = Math.abs(ms - now) >= 6 * 864e5 ? { month: "short", day: "numeric" } : { weekday: "short" };
+  const dayNo = (x) => { const y = new Date(x); return Date.UTC(y.getFullYear(), y.getMonth(), y.getDate()) / 864e5; };
+  const day = Math.abs(dayNo(ms) - dayNo(now)) >= 6 ? { month: "short", day: "numeric" } : { weekday: "short" };
   return `${d.toLocaleDateString(undefined, day)} ${t}`;
 }
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
-// Short forms for the cards: $692, $3,712, $12.4k, $250k, $1.2M · 4.58x. From $10k they keep a decimal, so a
-// bigger bet never prints narrower than a smaller one.
+// Short forms for the cards: $692, $3,712, $12.4k, $250k, $1.2M · 4.58x. Up to $100k they keep three figures,
+// so a $12k bet doesn't print smaller than a $4,851 one.
 function money0(x) {
   if (!isNum(x)) return "–";
   const a = Math.abs(x);
   const s = a >= 999500 ? `${(a / 1e6).toFixed(1)}M` : a >= 99950 ? `${Math.round(a / 1e3)}k`
-    : a >= 1e4 ? `${(a / 1e3).toFixed(1)}k` : Math.round(a).toLocaleString();
+    : a >= 9999.5 ? `${(a / 1e3).toFixed(1)}k` : Math.round(a).toLocaleString();
   return `${x < 0 ? "-" : ""}$${s}`;
 }
 function mult(p) {
@@ -363,12 +364,13 @@ function shell(root) {
 function legendHtml() {
   const pill = (x, small) => `<span class="evp ${evTier(x)}${evDark(x) ? " dk" : ""}" style="${evStyle(x)}"><b>${pctShort(x)}</b>`
     + `${small === undefined ? "" : `<i>/</i><span>${pctShort(small)}</span>`}</span>`;
-  return `<p><span class="nw"><b>$232</b> @ <b>21.6x</b></span> the bet and the multiplier it got ·
-      <span class="nw"><b class="c">$500+</b></span> bets in cyan · <span class="nw"><b>2.73u</b></span> Kelly units to bet
-      (set Kelly and unit size with the gear) · <span class="nw"><i>fair</i> <b>17.8x</b> / 19.1x</span> the fair
-      multipliers at mid / cross, the brighter one following the switch (EV = paid ÷ fair − 1) ·
-      <span class="nw"><b>9:19 AM</b> · 2m ago</span> when it was bet · <span class="nw"><b>LIVE</b></span> or
-      <span class="nw"><b>starts 2:40 PM</b></span> when its first game starts.</p>
+  return `<p><span class="nw"><b>$232</b> @ <b>21.6x</b></span> the bet and the multiplier it got;
+      <span class="nw"><b class="c">$500+</b></span> bets in cyan<br>
+      <span class="nw"><b>2.73u</b></span> Kelly units to bet (set Kelly and unit size with the gear)<br>
+      <span class="nw"><i>fair</i> <b>17.8x</b> / 19.1x</span> the fair multipliers at mid / cross, the brighter one
+      following the switch. EV = paid ÷ fair − 1: <span class="nw">21.6 ÷ 17.8 − 1 = +21%</span><br>
+      <span class="nw"><b>9:19 AM</b> · 2m ago</span> when it was bet<br>
+      <span class="nw"><b>LIVE</b></span> or <span class="nw"><b>starts 2:40 PM</b></span> when its first game starts</p>
     <div class="lrow">${pill(0.21, 0.13)}<span>EV <b>mid</b> / EV <b>cross</b>. The big one is what the Mid / Cross
       switch picks: it sets the color, Min EV, Min QK and the EV and QK sorts. The other gets a red chip when it's
       negative (a green one when it's positive on a red pill).</span></div>
@@ -377,7 +379,7 @@ function legendHtml() {
       +500%. Edges from +200% are usually a stale leg book, so they carry <em class="wn">⚠ CHECK</em>.</p>
     <p><em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
       leg's book is wide or small · <em class="wn">IN BAND</em> the price sits inside the leg spreads ·
-      <em class="wn">NO QUOTE</em> a leg has no market. Then the leagues and legs; a tight line shows a league by its
+      <em class="wn">NO QUOTE</em> a leg has no market. Then the leagues and legs; a tight line shows leagues by their
       emoji. Tap a bet for its legs, American odds, what it pays and the buttons to bet it.</p>`;
 }
 
@@ -424,13 +426,28 @@ function rowHtml(S, data, r) {
   </div>`;
 }
 
-// Line 3 never cuts a league in half: on a row whose tags, leagues and leg count don't fit, the leagues show
-// as their emoji and then the ⚠ tag gives way (.lgx). Reads every row first, then writes.
-function fitCards(scope, fresh = false) {
-  if (fresh) scope.querySelectorAll(".row.lgx").forEach((row) => row.classList.remove("lgx"));
-  const tight = [...scope.querySelectorAll(".row:not(.lgx) .ctx")]
-    .filter((c) => c.firstElementChild.getBoundingClientRect().width > c.getBoundingClientRect().width + 0.5);
-  tight.forEach((c) => c.closest(".row").classList.add("lgx"));
+// Line 3 never cuts a league or the leg count in half. Where the tags, leagues and leg count don't fit, the
+// leagues turn into their emoji one at a time from the right (.lg.e); with every league an emoji, the ⚠ tag gives
+// way down to "⚠…" (.lgx); if the leg count still doesn't fit, the leagues go (.lgx2; the open bet lists each
+// leg's). Each round reads every row, then writes.
+function fitCards(rows, fresh = false) {
+  if (fresh) {
+    rows.forEach((row) => {
+      row.classList.remove("lgx", "lgx2");
+      row.querySelectorAll(".lg.e").forEach((l) => l.classList.remove("e"));
+    });
+  }
+  const box = (el) => el.getBoundingClientRect();
+  const over = (row) => { const c = row.querySelector(".ctx"); return box(c.firstElementChild).width > box(c).width + 0.5; };
+  let tight = rows.filter((row) => !row.classList.contains("lgx") && over(row));
+  while (tight.length) {
+    const left = tight.map((row) => [row, [...row.querySelectorAll(".ctx .lg:not(.plus):not(.e)")].pop()]);
+    left.forEach(([row, lg]) => (lg ? lg.classList.add("e") : row.classList.add("lgx")));
+    tight = left.filter(([, lg]) => lg).map(([row]) => row).filter(over);
+  }
+  rows.filter((row) => row.classList.contains("lgx") && !row.classList.contains("lgx2"))
+    .filter((row) => box(row.querySelector(".nl")).right > box(row.querySelector(".ctx")).right + 0.5)
+    .forEach((row) => row.classList.add("lgx2"));
 }
 
 function detailHtml(S, data, r) {
@@ -492,16 +509,18 @@ export default function (component) {
     parentElement.appendChild(root);
     shell(root);
     bind(root);
-    // A new width or a font arriving changes what fits on line 3.
+    // A new width or a font arriving changes what fits on line 3. A new height (the keyboard) doesn't.
     let wait = 0;
-    root._refit = () => {
+    let fitW = -1;
+    root._refit = (e) => {
       if (!root.isConnected) {
         window.removeEventListener("resize", root._refit);
         document.fonts?.removeEventListener("loadingdone", root._refit);
         return;
       }
+      if (e?.type === "resize" && root.clientWidth === fitW) return;
       clearTimeout(wait);
-      wait = setTimeout(() => fitCards(root, true), 150);
+      wait = setTimeout(() => { fitW = root.clientWidth; fitCards([...root.querySelectorAll(".row")], true); }, 150);
     };
     window.addEventListener("resize", root._refit);
     document.fonts?.addEventListener("loadingdone", root._refit);
@@ -566,7 +585,7 @@ export default function (component) {
     $("rows").innerHTML = shown.length
       ? shown.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows)
       : emptyHtml(D);
-    fitCards(root);
+    fitCards([...root.querySelectorAll(".row")]);
     watchSentinel();
   }
 
@@ -598,7 +617,7 @@ export default function (component) {
     const old = root.querySelector(".more");
     if (old) old.remove();
     $("rows").insertAdjacentHTML("beforeend", next.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows));
-    fitCards(root);
+    fitCards([...root.querySelectorAll(".row")]);
     watchSentinel();
   }
 
@@ -617,10 +636,19 @@ export default function (component) {
   // filter. Keep the "updated", "ago" and "starts in" labels honest in the meantime.
   if (!root._tick) {
     root._tick = setInterval(() => {
+      if (!root.isConnected) {  // the page was left: stop, and let the old list go
+        clearInterval(root._tick);
+        root._io?.disconnect();
+        return;
+      }
       paintMeta();
       root.querySelectorAll("[data-t]").forEach((el) => { el.textContent = agoTxt(+el.dataset.t); });
-      root.querySelectorAll("[data-st]").forEach((el) => { el.textContent = startsIn(+el.dataset.st); });
-      fitCards(root);
+      const moved = [];  // a start label of a new length changes what fits on its line
+      root.querySelectorAll(".row [data-st]").forEach((el) => {
+        const label = startsIn(+el.dataset.st);
+        if (label !== el.textContent) { el.textContent = label; moved.push(el.closest(".row")); }
+      });
+      fitCards(moved, true);
     }, 15000);
   }
 

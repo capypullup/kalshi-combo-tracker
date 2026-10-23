@@ -20,7 +20,8 @@ def run_js(tmp_path, names: str, expr: str) -> str:
     module = tmp_path / "table.mjs"
     module.write_text(TABLE_JS.read_text())
     script = f"import {{ {names} }} from {json.dumps(module.as_uri())};process.stdout.write({expr});"
-    env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}  # toLocaleString: "+2,460%"
+    # toLocaleString: "+2,460%"; clock times: a zone with no daylight saving, so day sums hold anywhere
+    env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
     return subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True,
                           check=True, env=env).stdout
 
@@ -97,10 +98,10 @@ def test_js_times_read_as_clock_times(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_js_card_stakes_never_print_narrower_for_more(tmp_path):
-    expr = "JSON.stringify([692, 3712.4, 9999, 12400, 25049, 99949, 99950, 250400, 1234567].map(money0))"
+def test_js_card_stakes_keep_three_figures_up_to_100k(tmp_path):
+    expr = "JSON.stringify([692, 3712.4, 9999.4, 9999.5, 12400, 25049, 99949, 99950, 250400, 1234567].map(money0))"
     assert json.loads(run_js(tmp_path, "money0", expr)) == \
-        ["$692", "$3,712", "$9,999", "$12.4k", "$25.0k", "$99.9k", "$100k", "$250k", "$1.2M"]
+        ["$692", "$3,712", "$9,999", "$10.0k", "$12.4k", "$25.0k", "$99.9k", "$100k", "$250k", "$1.2M"]
 
 
 ROWS = [  # what the filters and sorts look at, for a handful of bets
