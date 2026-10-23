@@ -87,6 +87,7 @@ from combo_tracker.quote import (RfqDesk, RfqError, RfqReaper, explain, extra_le
     ("  kxmvecrosscategory-s2026abc-def1\n", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
     ("https://capyev.streamlit.app/quote?t=KXMVEX-S1-A2&side=no&p=0.8812&n=40", ("KXMVEX-S1-A2", "no", 0.8812)),
     ("https://kalshi.com/markets_by_ticker/KXMVECROSSCATEGORY-S2026ABC-DEF1", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
+    ("https://kalshi.com/combos?marketTicker=KXMVECROSSCATEGORY-S2026ABC-DEF1", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
     ("YES Combo +4579", None),
     ("", None),
     ("capyev.streamlit.app/quote?t=KXMVEX-S1-A2&side=NO&p=0.12", ("KXMVEX-S1-A2", "no", 0.12)),  # no https://
@@ -190,11 +191,14 @@ def test_quotes_are_listed_with_your_user_id():
     assert yes.cost == pytest.approx(10, abs=0.02) and quote_for(got[0], "no") is None
 
 
-def test_accept_sends_the_side_you_buy():
-    desk, s = fake_desk([FakeResp(204, None)])
+def test_accept_names_the_makers_side_like_kalshi_com():
+    """kalshi.com buys a combo's YES with accepted_side "no": the side named is the maker's bid you hit."""
+    desk, s = fake_desk([FakeResp(204, None), FakeResp(204, None)])
     desk.accept("r1", "q1", "yes")
     assert s.calls[0][:2] == ("PUT", "/communications/rfqs/r1/quotes/q1/accept")
-    assert s.calls[0][3] == {"accepted_side": "yes"}
+    assert s.calls[0][3] == {"accepted_side": "no"}
+    desk.accept("r1", "q1", "no")
+    assert s.calls[1][3] == {"accepted_side": "yes"}
 
 
 def test_signature_error_is_explained():
