@@ -5,6 +5,7 @@ Used for tests and for previewing the UI without network access (DEMO=1).
 
 from __future__ import annotations
 
+import hashlib
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -232,29 +233,42 @@ for _name in ("social_trades", "profile_metrics"):
 DemoClient.get_candles = lambda self, tickers, start, end: _social(self).get_candles(tickers, start, end, self.books)
 
 
-def demo_rfqs(client: DemoClient, seed: int = 5) -> list[dict]:
-    """Made-up RFQs behind the demo combo trades, from a handful of requesters (some hiding their ID)."""
-    from .rfq import PLACEHOLDER
+def demo_rfq_book(client: DemoClient, seed: int = 5):
+    """An RfqBook that heard made-up RFQ closes behind the demo combo trades and matched them.
+
+    A handful of requesters, some hiding their ID. Each slip is re-requested every few
+    seconds before the bet; now and then someone else's RFQ for the same combo and
+    size closes at the same moment, and some bets' RFQs were never heard.
+    """
+    from .engine import taker_fee
+    from .rfq import PLACEHOLDER, RfqBook
 
     rng = random.Random(seed)
     codes = [f"{rng.getrandbits(256):064x}" for _ in range(9)]
-    out = []
+    book = RfqBook(client, keep_seconds=10**9, settle=0, wait=0, reveal_per_poll=10**6)
     for t in client.trades:
-        ts = datetime.fromisoformat(t["created_time"])
+        if rng.random() < 0.1:
+            continue
+        ts = datetime.fromisoformat(t["created_time"]).timestamp()
         who = rng.choice(codes + [PLACEHOLDER])
+        count = float(t["count_fp"])
         price = float(t["yes_price_dollars"] if t["taker_side"] == "yes" else t["no_price_dollars"])
-        sized = {"contracts_fp": t["count_fp"]} if rng.random() < 0.6 else {
-            "target_cost_dollars": f"{float(t['count_fp']) * price:.2f}", "target_cost_excludes_fees": True}
-        out.append({"id": f"rfq-{t['trade_id']}", "creator_id": who, "market_ticker": t["ticker"], **sized,
-                    "created_ts": (ts - timedelta(seconds=rng.uniform(2, 6))).isoformat(),
-                    "cancelled_ts": (ts + timedelta(seconds=1)).isoformat(), "status": "closed"})
-        if rng.random() < 0.3:  # an RFQ that never filled
-            out.append({**out[-1], "id": out[-1]["id"] + "-x", "creator_id": rng.choice(codes)})
-    return out
+        size = {"contracts": count, "target": None} if rng.random() < 0.6 else {
+            "contracts": None, "target": round(count * price + taker_fee(price, count), 2)}
+        for back in (15, 10, 5, 1.5):
+            book.add_close(t["ticker"], ts - back, who, rfq_id=f"rfq-{t['trade_id']}-{back}", **size)
+        book.add_close(t["ticker"], ts + rng.uniform(0, 0.5), who, rfq_id=f"rfq-{t['trade_id']}", **size)
+        if rng.random() < 0.1:
+            book.add_close(t["ticker"], ts + rng.uniform(0, 0.4), rng.choice(codes), **size)
+    book.match_trades(client.trades)
+    book.reveal()
+    return book
 
 
 def _get_rfq(self, rfq_id: str) -> dict:
-    return {"id": rfq_id, "creator_id": f"{abs(hash(rfq_id)) % 7:064x}"}  # hidden requesters, revealed
+    """A filled RFQ shows its requester's real ID: here, one of three people who hide theirs."""
+    n = int(hashlib.sha256(rfq_id.encode()).hexdigest(), 16) % 3
+    return {"id": rfq_id, "creator_id": hashlib.sha256(f"hidden-{n}".encode()).hexdigest()}
 
 
 DemoClient.get_rfq = _get_rfq

@@ -3,22 +3,36 @@
 Every combo bet on Kalshi starts as an RFQ (request for quote). Kalshi broadcasts
 each RFQ to every logged-in user with the requester's `creator_id`: a salted hash
 that stays the same for that user across RFQs. The public trade feed has the
-executed combo trades, but no trader ID. An RFQ and the trade it became share:
+executed combo trades, but no trader ID.
 
-- the combo market ticker,
-- the size (the RFQ asks for N contracts, or for $X of cost), and
-- the timing (the trade prints a few seconds after the RFQ was created, and the
-  RFQ closes right after).
+When the requester accepts a quote, the trade prints and Kalshi closes the RFQ in
+the same instant, and the close message carries the market, the size and the
+requester's ID. So for each combo trade we look for an RFQ on the same market, of
+the same size (N contracts, or $X of cost), that closed within a couple of seconds
+of the trade. Most RFQs close without trading: the Kalshi app asks again every few
+seconds while a bet slip is open. Those repeats come from the same person, so:
 
-So for each RFQ we look for combo trades on the same market, of the same size,
-inside its time window. When exactly one RFQ fits a trade and that trade is the
-only fit for the RFQ, the match is "sure"; when several fit, the closest in time
-wins and the match is "likely". The requester accepts a maker's quote, so the
-requester is the taker: their side is the trade's taker side.
+- "sure": every RFQ that fits the trade (and closed about as near to it) is from
+  the same requester;
+- "likely": RFQs from several requesters fit, and the one that closed nearest the
+  trade wins.
+
+A maker's quote can fill a bit less than the requested size, so when no RFQ fits
+exactly, one that asked for somewhat more (up to 2.5x) counts too. Two bets on the
+same combo a moment apart print as one group of fills; if the group fits nothing,
+each fill is matched on its own.
+
+The requester accepts a maker's quote, so the requester is the taker: their side
+is the trade's taker side.
+
+At busy times Kalshi sends about 3,000 RFQs a second (twice that in messages, with
+the closes). So the stream thread skips the RFQs themselves and keeps only the last
+minute of closes, and a second thread polls the trade feed every few seconds and
+matches new combo trades while their RFQ's close is still in memory.
 
 Requesters can choose to hide their ID (everyone then sees one shared placeholder
 hash), but Kalshi reveals the real ID once the RFQ executes, so we look those up
-again after matching.
+after matching.
 
 This needs a Kalshi API key: the RFQ feed isn't public.
 """
@@ -26,18 +40,29 @@ This needs a Kalshi API key: the RFQ feed isn't public.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
+from .bettors import is_tennis
+from .client import COMBO_PREFIX
 from .engine import taker_fee
 
 # sha256("") — what everyone sees as creator_id while a requester hides theirs.
 PLACEHOLDER = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 WS_URL = "wss://api.elections.kalshi.com/trade-api/ws/v2"
 THREAD_NAME = "rfq-stream"
+MATCHER_NAME = "rfq-matcher"
+BEFORE, AFTER = 2.0, 3.0  # an RFQ that filled closed this many seconds before / after its trade
+TENNIS_HINTS = ('"KXATP', '"KXWTA', '"KXITF')  # cheap check before parsing an RFQ's legs
+
+# A closed RFQ: (closed at, creator, contracts, target cost in dollars, RFQ id if the creator is hidden)
+Close = tuple
+STATS = ("rfqs", "closes", "executions", "sure", "likely", "partial", "split", "unmatched", "hidden",
+         "revealed", "unrevealed", "hidden_rfqs", "hidden_closes", "overflows", "resubscribes")
 
 
 def _ts(value) -> float | None:
@@ -56,56 +81,29 @@ def _float(value) -> float | None:
         return None
 
 
-@dataclass
-class Rfq:
-    id: str
-    creator: str
-    ticker: str
-    created: float
-    contracts: float | None = None
-    target: float | None = None  # dollars, including fees unless target_excludes_fees
-    target_excludes_fees: bool = False
-    closed: float | None = None
-    legs: list[dict] = field(default_factory=list)
-
-    @property
-    def hidden(self) -> bool:
-        return self.creator == PLACEHOLDER
-
-    @classmethod
-    def from_api(cls, d: dict) -> "Rfq | None":
-        created = _ts(d.get("created_ts"))
-        if not d.get("id") or not d.get("market_ticker") or created is None:
-            return None
-        contracts = _float(d.get("contracts_fp") or d.get("contracts"))
-        return cls(
-            id=d["id"], creator=d.get("creator_id") or PLACEHOLDER, ticker=d["market_ticker"], created=created,
-            contracts=contracts if contracts else None, target=_float(d.get("target_cost_dollars")) or None,
-            target_excludes_fees=bool(d.get("target_cost_excludes_fees")),
-            closed=_ts(d.get("cancelled_ts") or d.get("deleted_ts")) or (
-                _ts(d.get("updated_ts")) if d.get("status") == "closed" else None),
-            legs=d.get("mve_selected_legs") or [],
-        )
-
-
-@dataclass
+@dataclass(slots=True)
 class Execution:
     """One or more combo fills on a market, same side, within a second or so."""
 
     ticker: str
     side: str
-    ts: float
+    ts: float  # first fill
     count: float
     price: float  # avg price per contract of `side`
     trade_ids: list[str]
+    end: float = 0.0  # last fill
+    parts: list[Execution] = field(default_factory=list)  # each fill on its own, when there are several
 
 
-@dataclass
+@dataclass(slots=True)
 class Match:
-    rfq_id: str
+    rfq_id: str  # kept only for hidden requesters, to look up their real ID
     creator: str
     execution: Execution
-    sure: bool  # the only fit both ways; otherwise the closest in time among several
+    sure: bool  # every RFQ that fit was from this requester
+    tennis: bool = False  # the combo has a tennis leg
+    lag: float = 0.0  # seconds from the trade to the RFQ's close
+    partial: bool = False  # the RFQ asked for more than filled
 
 
 def executions(trades: list[dict], gap: float = 1.5) -> list[Execution]:
@@ -123,126 +121,144 @@ def executions(trades: list[dict], gap: float = 1.5) -> list[Execution]:
                 count = sum(float(g["count_fp"]) for g in group)
                 key = "yes_price_dollars" if side == "yes" else "no_price_dollars"
                 price = sum(float(g[key]) * float(g["count_fp"]) for g in group) / count if count else 0.0
+                parts = [Execution(ticker, side, _ts(g["created_time"]), float(g["count_fp"]), float(g[key]),
+                                   [g["trade_id"]], _ts(g["created_time"])) for g in group] if len(group) > 1 else []
                 out.append(Execution(ticker, side, _ts(group[0]["created_time"]), count, price,
-                                     [g["trade_id"] for g in group]))
+                                     [g["trade_id"] for g in group], _ts(group[-1]["created_time"]), parts))
                 group = []
             if t is not None:
                 group.append(t)
     return out
 
 
-def size_fits(rfq: Rfq, ex: Execution, cost_tol: float = 0.03) -> bool:
+def size_fits(contracts: float | None, target: float | None, ex: Execution, cost_tol: float = 0.03) -> bool:
     """Does this execution have the size the RFQ asked for?"""
-    if rfq.contracts:
-        return abs(ex.count - rfq.contracts) <= max(0.011, 0.001 * rfq.contracts)
-    if rfq.target:
+    if contracts:
+        return abs(ex.count - contracts) <= max(0.011, 0.001 * contracts)
+    if target:
         principal = ex.count * ex.price
-        cost = principal if rfq.target_excludes_fees else principal + taker_fee(ex.price, ex.count)
-        # Contracts come in 0.01 steps, so the cost can miss the target by about a price tick.
-        return abs(cost - rfq.target) <= max(0.05, cost_tol * rfq.target)
+        tol = max(0.05, cost_tol * target)  # contracts come in 0.01 steps, so cost misses by about a tick
+        # A target cost usually includes the taker fee; some requests ask for the cost before fees.
+        return abs(principal + taker_fee(ex.price, ex.count) - target) <= tol or abs(principal - target) <= tol
     return False
 
 
-def match(rfqs: list[Rfq], execs: list[Execution], before: float = 2.0, after_close: float = 15.0,
-          max_open: float = 120.0) -> list[Match]:
-    """Pair RFQs with the executions they became. Each side is used at most once."""
-    by_ticker: dict[str, list[Execution]] = defaultdict(list)
-    for e in execs:
-        by_ticker[e.ticker].append(e)
-    pairs = []
-    fits_per_exec: dict[int, int] = defaultdict(int)
-    fits_per_rfq: dict[str, int] = defaultdict(int)
-    for r in rfqs:
-        end = (r.closed if r.closed is not None else r.created + max_open) + after_close
-        for e in by_ticker.get(r.ticker, ()):
-            if r.created - before <= e.ts <= end and size_fits(r, e):
-                anchor = r.closed if r.closed is not None else r.created
-                pairs.append((abs(e.ts - anchor), r, e))
-                fits_per_exec[id(e)] += 1
-                fits_per_rfq[r.id] += 1
-    pairs.sort(key=lambda x: x[0])
-    used_r, used_e, out = set(), set(), []
-    for _, r, e in pairs:
-        if r.id in used_r or id(e) in used_e:
+def partly_fits(contracts: float | None, target: float | None, ex: Execution, least: float = 0.4,
+                cost_tol: float = 0.03) -> bool:
+    """Is this execution part of what the RFQ asked for? (A quote can fill a bit less.)"""
+    if contracts:
+        return least * contracts <= ex.count <= contracts + max(0.011, 0.001 * contracts)
+    if target:
+        principal = ex.count * ex.price
+        return least * target <= principal + taker_fee(ex.price, ex.count) and principal <= target * (1 + cost_tol) + 0.05
+    return False
+
+
+def pick(closes, ex: Execution, used=()) -> tuple[Close | None, bool, bool]:
+    """The RFQ close that fits this execution best, whether the requester is sure, and whether the size was exact."""
+    near = [c for c in closes if ex.ts - BEFORE <= c[0] <= ex.ts + AFTER]
+    for fits_size in (size_fits, partly_fits):
+        fits = [c for c in near if fits_size(c[2], c[3], ex)]
+        free = [c for c in fits if (ex.ticker, c[0]) not in used]
+        if not free:
             continue
-        used_r.add(r.id)
-        used_e.add(id(e))
-        out.append(Match(r.id, r.creator, e, sure=fits_per_exec[id(e)] == 1 and fits_per_rfq[r.id] == 1))
-    return out
+        best = min(free, key=lambda c: abs(c[0] - ex.ts))
+        # The RFQ that filled closes within a fraction of a second of its trade, so a close well
+        # after or before that (someone else's slip refreshing) doesn't make the match doubtful.
+        rivals = [c for c in fits if abs(c[0] - ex.ts) <= abs(best[0] - ex.ts) + 0.5]
+        creators = {c[1] for c in rivals}
+        # Hidden requesters all share the placeholder, so only a lone fit tells which RFQ (and ID) it was.
+        sure = len(rivals) == 1 or (len(creators) == 1 and PLACEHOLDER not in creators)
+        return best, sure, fits_size is size_fits
+    return None, False, False
 
 
 class RfqBook:
-    """Keeps recent RFQs from Kalshi's websocket (and REST polls) and matches them to
-    combo trades from the collector.
+    """Listens to Kalshi's RFQ stream and names the requester behind each new combo trade.
 
-    `matches` grows for as long as the app runs: trade_id -> Match.
+    One thread reads the websocket and keeps the last `keep_seconds` of RFQ closes;
+    another polls the trade feed every `poll_seconds` and matches new combo trades.
+    New matches wait in `take()` for the bettor tracker.
     """
 
-    def __init__(self, client, combo_trades, keep_minutes: int = 180, reveal_per_cycle: int = 50):
+    def __init__(self, client, keep_seconds: float = 30.0, poll_seconds: float = 5.0, settle: float = 3.0,
+                 wait: float = 12.0, reveal_per_poll: int = 8, max_out: int = 200_000):
         self.client = client
-        self.combo_trades = combo_trades  # minutes -> combo trades in the v2 feed shape
-        self.keep = keep_minutes * 60
-        self.reveal_per_cycle = reveal_per_cycle
+        self.keep = keep_seconds
+        self.poll_seconds = poll_seconds
+        self.settle = settle  # wait this long after a trade so every fill of its execution is in
+        self.wait = wait  # keep trying an unmatched execution this long (its close can arrive late)
+        self.reveal_per_poll = reveal_per_poll
         self.lock = threading.Lock()
-        self.rfqs: dict[str, Rfq] = {}
-        self.matches: dict[str, Match] = {}  # trade_id -> match
-        self.matched_rfqs: set[str] = set()
-        self.revealed: dict[str, str] = {}  # rfq id -> real creator id, for hidden requesters
-        self.stats = defaultdict(int)
+        self.closes: dict[str, list[Close]] = defaultdict(list)  # combo ticker -> closes, oldest first
+        self.used: dict[tuple, float] = {}  # (ticker, closed at) of closes already matched to a trade
+        self.tennis: dict[str, float] = {}  # combo tickers with a tennis leg -> last requested at
+        self.out: deque[Match] = deque(maxlen=max_out)  # matches not yet taken
+        self.recent: deque[Match] = deque(maxlen=200)
+        self.missed: deque[tuple] = deque(maxlen=200)  # (execution, nearest close on its market or None)
+        self.stats: dict[str, int] = dict.fromkeys(STATS, 0)  # every key up front: two threads update it
         self.ws_status = "not started"
         self.last_error: str | None = None
+        self.started: float | None = None
+        self._fresh: list[dict] = []  # combo trades too new to group yet
+        self._waiting: list[Execution] = []  # executions with no fitting close yet
+        self._seen: dict[str, float] = {}  # trade ids already read -> trade time
+        self._since: float | None = None
+        self._reveal: deque[list] = deque(maxlen=5000)  # [match, tries, next try at]
+        self._cmd = 0
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
 
-    # ---- intake ----
-    def ingest(self, d: dict) -> None:
-        r = Rfq.from_api(d)
-        if r is None:
-            return
+    # ---- intake (stream thread) ----
+    def add_close(self, ticker: str, ts: float, creator: str, contracts: float | None, target: float | None,
+                  rfq_id: str | None = None) -> None:
+        creator = sys.intern(creator or PLACEHOLDER)
+        close = (ts, creator, contracts or None, target or None, rfq_id if creator == PLACEHOLDER else None)
         with self.lock:
-            old = self.rfqs.get(r.id)
-            if old is not None:
-                # REST and the stream both report the same RFQ; keep what each knows.
-                r.closed = r.closed or old.closed
-                r.contracts = r.contracts or old.contracts
-                r.target = r.target or old.target
-                if r.creator == PLACEHOLDER:
-                    r.creator = old.creator
-            else:
-                self.stats["rfqs"] += 1
-            self.rfqs[r.id] = r
+            self.closes[ticker].append(close)
+        self.stats["closes"] += 1
+        if creator == PLACEHOLDER:
+            self.stats["hidden_closes"] += 1
 
-    def close(self, rfq_id: str, when: float | None) -> None:
-        with self.lock:
-            r = self.rfqs.get(rfq_id)
-            if r is not None and r.closed is None:
-                r.closed = when or time.time()
+    def _note_tennis(self, body: dict) -> None:
+        ticker = body.get("market_ticker")
+        if ticker and is_tennis(ticker, body.get("mve_selected_legs")):
+            with self.lock:
+                self.tennis[ticker] = time.time()
 
-    def on_message(self, raw: str) -> None:
+    def on_message(self, raw: str) -> str | None:
+        """Handle one stream message. Returns "resubscribe" when Kalshi dropped the subscription."""
+        if raw.startswith('{"type":"rfq_created"'):  # most messages: count them, don't parse them
+            self.stats["rfqs"] += 1
+            if PLACEHOLDER in raw:
+                self.stats["hidden_rfqs"] += 1
+            if any(h in raw for h in TENNIS_HINTS):
+                self._note_tennis(json.loads(raw).get("msg") or {})
+            return None
         msg = json.loads(raw)
         kind, body = msg.get("type"), msg.get("msg") or {}
-        if kind == "rfq_created":
-            self.ingest(body)
-        elif kind == "rfq_deleted":
-            self.close(body.get("id"), _ts(body.get("deleted_ts")))
+        if kind == "rfq_deleted":
+            ts = _ts(body.get("deleted_ts"))
+            if ts is not None and body.get("market_ticker"):
+                self.add_close(body["market_ticker"], ts, body.get("creator_id"), _float(body.get("contracts_fp")),
+                               _float(body.get("target_cost_dollars")), body.get("id"))
+        elif kind == "rfq_created":
+            self.stats["rfqs"] += 1
+            self._note_tennis(body)
         elif kind == "error":
             self.last_error = f"stream: {body}"[:200]
-
-    def poll_rest(self, max_pages: int = 20) -> None:
-        """Catch RFQs the stream missed (e.g. while reconnecting)."""
-        cursor = None
-        cutoff = time.time() - self.keep
-        for _ in range(max_pages):
-            data = self.client.get_rfqs(cursor=cursor)
-            rows = data.get("rfqs") or []
-            for d in rows:
-                self.ingest(d)
-            cursor = data.get("cursor")
-            oldest = min((_ts(d.get("created_ts")) or 0 for d in rows), default=0)
-            if not cursor or not rows or oldest < cutoff:
-                break
+            if body.get("code") == 25:  # "Subscription buffer overflow": we fell behind
+                self.stats["overflows"] += 1
+        elif kind == "unsubscribed":
+            return "resubscribe"
+        return None
 
     # ---- websocket ----
+    def _subscribe(self, ws) -> None:
+        self._cmd += 1
+        ws.send(json.dumps({"id": self._cmd, "cmd": "subscribe", "params": {"channels": ["communications"]}}))
+        self.ws_status = "connected"
+
     def run_stream(self) -> None:
         import websocket  # websocket-client
 
@@ -250,9 +266,11 @@ class RfqBook:
         while not self._stop.is_set():
             try:
                 headers = self.client.auth.headers("GET", "/trade-api/ws/v2")
-                ws = websocket.create_connection(WS_URL, header=[f"{k}: {v}" for k, v in headers.items()], timeout=30)
-                ws.send(json.dumps({"id": 1, "cmd": "subscribe", "params": {"channels": ["communications"]}}))
-                self.ws_status = "connected"
+                # websocket-client's own UTF-8 check is pure Python and caps reading at ~8k messages a
+                # second; Kalshi sends ~6k at busy times and drops a subscriber that falls behind.
+                ws = websocket.create_connection(WS_URL, header=[f"{k}: {v}" for k, v in headers.items()],
+                                                 timeout=30, skip_utf8_validation=True, enable_multithread=False)
+                self._subscribe(ws)
                 backoff = 1.0
                 while not self._stop.is_set():
                     try:
@@ -260,8 +278,9 @@ class RfqBook:
                     except websocket.WebSocketTimeoutException:
                         ws.ping()
                         continue
-                    if raw:
-                        self.on_message(raw)
+                    if raw and self.on_message(raw) == "resubscribe":
+                        self.stats["resubscribes"] += 1
+                        self._subscribe(ws)
                 ws.close()
             except Exception as exc:  # reconnect after network errors
                 self.ws_status = "reconnecting"
@@ -269,51 +288,137 @@ class RfqBook:
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 60)
 
+    # ---- matching (matcher thread) ----
+    def match_trades(self, trades: list[dict], now: float | None = None) -> list[Match]:
+        """Group new combo trades into executions and match each to the RFQ that closed with it."""
+        now = time.time() if now is None else now
+        self._fresh.extend(trades)
+        ready, held = [], []
+        for e in executions(self._fresh):
+            (ready if e.end <= now - self.settle else held).append(e)
+        held_ids = {tid for e in held for tid in e.trade_ids}
+        self._fresh = [t for t in self._fresh if t["trade_id"] in held_ids]
+        self.stats["executions"] += len(ready)
+        found, waiting = [], []
+        with self.lock:
+            for e in sorted(self._waiting + ready, key=lambda e: e.ts):
+                matches = self._match(e)
+                if matches:
+                    found += matches
+                elif now - e.end < self.wait:
+                    waiting.append(e)
+                else:
+                    self.stats["unmatched"] += 1
+                    near = min(self.closes.get(e.ticker, ()), key=lambda c: abs(c[0] - e.ts), default=None)
+                    self.missed.append((e, near))
+        self._waiting = waiting
+        for m in found:
+            self.stats["sure" if m.sure else "likely"] += 1
+            self.stats["partial"] += m.partial
+            self.recent.append(m)
+            if m.creator == PLACEHOLDER:
+                self.stats["hidden"] += 1
+                self._reveal.append([m, 0, now])
+            else:
+                self.out.append(m)
+        return found
+
+    def _match(self, e: Execution) -> list[Match]:
+        """Match one execution (call with the lock held). A group of fills that fits no RFQ may be
+        two bets a moment apart, so then each fill is tried on its own."""
+        best, sure, exact = pick(self.closes.get(e.ticker, ()), e, self.used)
+        if best is not None:
+            self.used[(e.ticker, best[0])] = best[0]
+            e.parts = []
+            return [Match(best[4] or "", best[1], e, sure, e.ticker in self.tennis, best[0] - e.ts, not exact)]
+        found = [m for part in e.parts for m in self._match(part)]
+        if found:
+            self.stats["split"] += 1
+        return found
+
+    def poll_trades(self, now: float | None = None) -> list[Match]:
+        """Read the combo trades since the last poll and match them."""
+        now = time.time() if now is None else now
+        since = self._since if self._since is not None else now
+        # Overlap the last poll a little: a trade can show up in the feed a moment after it happened.
+        combos = [t for t in self.client.iter_trades(datetime.fromtimestamp(since - 5, timezone.utc))
+                  if t["ticker"].startswith(COMBO_PREFIX)]
+        new = [t for t in combos if t["trade_id"] not in self._seen]
+        for t in new:
+            self._seen[t["trade_id"]] = _ts(t["created_time"])
+        self._since = now
+        return self.match_trades(new, now)
+
+    def reveal(self, now: float | None = None) -> None:
+        """Look up the real ID behind hidden requesters whose RFQ filled."""
+        now = time.time() if now is None else now
+        for _ in range(min(self.reveal_per_poll, len(self._reveal))):
+            item = self._reveal.popleft()
+            m, tries, at = item
+            if at > now:
+                self._reveal.append(item)
+                continue
+            try:
+                creator = self.client.get_rfq(m.rfq_id).get("creator_id") or PLACEHOLDER
+            except Exception as exc:
+                self.last_error = f"reveal: {exc!r}"[:200]
+                creator = PLACEHOLDER
+            if creator != PLACEHOLDER:
+                m.creator = sys.intern(creator)
+                self.stats["revealed"] += 1
+                self.out.append(m)
+            elif tries < 2:
+                self._reveal.append([m, tries + 1, now + 60])
+            else:
+                self.stats["unrevealed"] += 1
+
+    def prune(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        cutoff = now - self.keep
+        with self.lock:
+            for ticker in list(self.closes):
+                closes = self.closes[ticker]
+                if closes[-1][0] < cutoff:
+                    del self.closes[ticker]
+                elif closes[0][0] < cutoff:
+                    self.closes[ticker] = [c for c in closes if c[0] >= cutoff]
+            self.used = {k: t for k, t in self.used.items() if t >= cutoff}
+            self.tennis = {k: t for k, t in self.tennis.items() if t >= now - 4 * self.keep}
+        self._seen = {k: t for k, t in self._seen.items() if t >= now - 300}
+
+    def run_matcher(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.poll_trades()
+                self.reveal()
+                self.prune()
+            except Exception as exc:  # keep matching through API hiccups
+                self.last_error = f"matcher: {exc!r}"[:200]
+            self._stop.wait(self.poll_seconds)
+
+    # ---- lifecycle and reads ----
     def start(self) -> "RfqBook":
-        if self._thread is None:
-            self._thread = threading.Thread(target=self.run_stream, daemon=True, name=THREAD_NAME)
-            self._thread.stop = self.stop
-            self._thread.start()
+        if not self._threads:
+            self.started = time.time()
+            self._since = self.started  # earlier trades can't match: their closes weren't heard
+            for target, name in ((self.run_stream, THREAD_NAME), (self.run_matcher, MATCHER_NAME)):
+                thread = threading.Thread(target=target, daemon=True, name=name)
+                thread.stop = self.stop  # lets a reloaded app stop threads built from old code
+                thread.start()
+                self._threads.append(thread)
         return self
 
     def stop(self) -> None:
         self._stop.set()
 
-    # ---- matching ----
-    def match_now(self) -> list[Match]:
-        """Match RFQs to the collector's combo trades; returns the new matches."""
-        now = time.time()
+    def take(self) -> list[Match]:
+        """Matches made since the last call, with a known requester."""
+        out = []
+        while self.out:
+            out.append(self.out.popleft())
+        return out
+
+    def held(self) -> int:
+        """RFQ closes in memory now."""
         with self.lock:
-            self.rfqs = {k: r for k, r in self.rfqs.items() if r.created >= now - self.keep}
-            open_rfqs = [r for k, r in self.rfqs.items() if k not in self.matched_rfqs]
-        trades = [t for t in self.combo_trades(self.keep // 60) if t["trade_id"] not in self.matches]
-        new = match(open_rfqs, executions(trades))
-        for m in new:
-            self.matched_rfqs.add(m.rfq_id)
-            for tid in m.execution.trade_ids:
-                self.matches[tid] = m
-            self.stats["sure" if m.sure else "likely"] += 1
-        self.reveal()
-        return new
-
-    def reveal(self) -> None:
-        """Look up the real ID behind hidden requesters whose RFQ executed."""
-        todo = [m for m in {id(m): m for m in self.matches.values()}.values()
-                if m.creator == PLACEHOLDER and m.rfq_id not in self.revealed][: self.reveal_per_cycle]
-        for m in todo:
-            try:
-                creator = self.client.get_rfq(m.rfq_id).get("creator_id") or PLACEHOLDER
-            except Exception as exc:
-                self.last_error = f"reveal: {exc!r}"[:200]
-                break
-            self.revealed[m.rfq_id] = creator
-            if creator != PLACEHOLDER:
-                m.creator = creator
-                self.stats["revealed"] += 1
-
-    def by_creator(self) -> dict[str, list[Match]]:
-        out: dict[str, list[Match]] = defaultdict(list)
-        for m in {id(m): m for m in self.matches.values()}.values():
-            if m.creator != PLACEHOLDER:
-                out[m.creator].append(m)
-        return dict(out)
+            return sum(len(c) for c in self.closes.values())
