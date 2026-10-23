@@ -1,61 +1,39 @@
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       lookback:
-        description: Minutes of trades to pull
+        description: unused on the probe branch
         default: "15"
       min_stake:
-        description: Minimum bet size in dollars
+        description: unused on the probe branch
         default: "100"
       rfq_seconds:
-        description: Seconds to listen to live RFQs
-        default: "180"
+        description: unused on the probe branch
+        default: "10"
 
 permissions:
   contents: write
 
 jobs:
-  test:
+  probe:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt pytest
-      - run: pytest -q
-      - name: Live check against Kalshi
-        run: |
-          set -o pipefail
-          python scripts/live_check.py ${{ inputs.lookback || '15' }} ${{ inputs.min_stake || '100' }} 2>&1 | tee /tmp/live_check.txt
-      - name: Live check of the Bettors tracker
-        if: always()
-        run: |
-          set -o pipefail
-          echo -e "\n===== Bettors =====" >> /tmp/live_check.txt
-          python scripts/live_bettors.py 12 400 2>&1 | tee -a /tmp/live_check.txt
-      - name: Live check of RFQ matching (needs the API key secrets)
-        if: always()
-        env:
-          KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
-          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
-        run: |
-          set -o pipefail
-          echo -e "\n===== RFQ matching =====" >> /tmp/live_check.txt
-          python scripts/live_rfq.py ${{ inputs.rfq_seconds || '180' }} 2>&1 | tee -a /tmp/live_check.txt
-      - name: Save live check output to the ci-output branch
+      - run: pip install -r requirements.txt playwright && python -m playwright install --with-deps chromium
+      - name: Probe Kalshi links
+        run: python scripts/probe_links.py 2>&1 | tee /tmp/probe.txt
+      - name: Save probe output to the link-probe-output branch
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan ci-output
+          git checkout --orphan link-probe-output
           git rm -rqf .
-          cp /tmp/live_check.txt live_check.txt || echo "no output" > live_check.txt
-          git add live_check.txt
-          git commit -qm "Live check output for ${GITHUB_SHA::7}"
-          git push -qf origin ci-output
+          cp /tmp/probe.txt probe.txt || echo "no output" > probe.txt
+          git add probe.txt
+          git commit -qm "Link probe output for ${GITHUB_SHA::7}"
+          git push -qf origin link-probe-output
