@@ -1,0 +1,58 @@
+name: Tail bot
+# Sends a friend's combo bets to your Telegram seconds after they fill (scripts/tail_bot.py).
+# Start it from Actions → Tail bot → Run workflow; one run lasts up to ~5h50m.
+# Needs the secrets KALSHI_KEY_ID + KALSHI_PRIVATE_KEY (the RFQ stream) and TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
+# Settings → Secrets and variables → Actions → Variables:
+#   TAIL_NICKNAME (their Kalshi nickname), TAIL_LABEL (name in the alerts), TAIL_CODES (known codes),
+#   TAIL_PEEK (1 = also ping quietly when they ask for a quote), APP_URL (adds a Quote it button).
+# Or just send the bot one of their combo bets in Telegram and it finds their code.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to run
+        default: "350"
+      dry_run:
+        description: Print alerts instead of sending (1 = yes)
+        default: "0"
+
+concurrency:
+  group: tail-bot
+  cancel-in-progress: false
+
+jobs:
+  tail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests cryptography websocket-client
+      - name: Codes from earlier runs
+        uses: actions/cache/restore@v4
+        with:
+          path: tail_state.json
+          key: tail-state-${{ github.run_id }}
+          restore-keys: tail-state-
+      - run: python scripts/tail_bot.py
+        env:
+          KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAIL_NICKNAME: ${{ vars.TAIL_NICKNAME }}
+          TAIL_LABEL: ${{ vars.TAIL_LABEL }}
+          TAIL_CODES: ${{ vars.TAIL_CODES }}
+          TAIL_PEEK: ${{ vars.TAIL_PEEK }}
+          APP_URL: ${{ vars.APP_URL }}
+          TAIL_MINUTES: ${{ inputs.minutes || '350' }}
+          DRY_RUN: ${{ inputs.dry_run || '0' }}
+      - name: Remember the codes
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: tail_state.json
+          key: tail-state-${{ github.run_id }}
