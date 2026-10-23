@@ -44,7 +44,7 @@ _reload_if_deployed()
 from combo_tracker.bettors import BettorTracker  # noqa: E402  (after the reload check)
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
-from combo_tracker.demo import DemoClient, demo_rfqs  # noqa: E402
+from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker.rfq import RfqBook  # noqa: E402
@@ -258,23 +258,21 @@ def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
 def get_bettors() -> BettorTracker:
     """One tracker shared by every visitor, started the first time someone opens the page.
 
-    With a Kalshi API key it also listens to RFQs and matches them to the combo
-    collector's trades, which identifies combo bettors by their RFQ code.
+    With a Kalshi API key it also listens to RFQs and matches them to new combo
+    trades, which identifies combo bettors by their RFQ code.
     """
     if DEMO:
         client = DemoClient()
-        rfq = RfqBook(client, lambda m: client.combo_trades(datetime.now(timezone.utc) - timedelta(minutes=m)))
-        for d in demo_rfqs(client):
-            rfq.ingest(d)
-        tracker = BettorTracker(client, every=BETTOR_CYCLE, rfq=rfq)
+        tracker = BettorTracker(client, every=BETTOR_CYCLE, rfq=demo_rfq_book(client))
         tracker.cycle()
         return tracker
-    for name in ("bettor-tracker", "rfq-stream"):
+    for name in ("bettor-tracker", "rfq-stream", "rfq-matcher"):
         _stop_collectors(name)
     auth, problem = _kalshi_auth()
     rfq = None
     if auth is not None:
-        rfq = RfqBook(KalshiClient(rate_per_sec=3, auth=auth), get_source().collector.window).start()
+        # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
+        rfq = RfqBook(KalshiClient(rate_per_sec=4, auth=auth)).start()
     # Its own client and rate limit, so it never slows the combo collector down.
     tracker = BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE, rfq=rfq)
     tracker.auth_problem = problem
@@ -302,8 +300,13 @@ def bettors_view():
                      "RFQ matching is off: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets.")
     elif rfq:
         matched = rfq.get("sure", 0) + rfq.get("likely", 0)
-        notes.append(f"RFQs: {rfq.get('rfqs', 0):,} seen, {matched:,} matched to bets ({rfq.get('sure', 0):,} sure), "
-                     f"{rfq.get('codes', 0)} codes, {rfq.get('linked', 0)} named. Stream {rfq.get('stream')}.")
+        bets = rfq.get("executions", 0)
+        since = f" since {datetime.fromtimestamp(rfq['since'], timezone.utc):%H:%M} UTC" if rfq.get("since") else ""
+        heard = f" from {rfq['rfqs']:,} RFQs" if rfq.get("rfqs") else ""
+        notes.append(f"RFQ matching{since}: {matched:,} of {bets:,} combo bets named ({matched / max(bets, 1):.0%}, "
+                     f"{rfq.get('sure', 0):,} sure){heard}; {rfq.get('codes', 0):,} codes, "
+                     f"the top {rfq.get('shown', 0)} listed, {rfq.get('linked', 0)} linked to a name. "
+                     f"Stream {rfq.get('stream')}.")
     bettor_table(
         key="bt",
         data={
@@ -325,17 +328,22 @@ def bettors_page() -> None:
             "- **Who's listed**: the 40 busiest public names in the last day of Kalshi's tennis trades, any "
             "nickname you add with the search box, and combo bettors identified by **RFQ code** (below).\n"
             "- **RFQ codes**: every combo bet starts as a request for quote, which Kalshi broadcasts to logged-in "
-            "users with the requester's code (a hash that stays the same for that person). A combo trade on the same "
-            "market, with the same size, seconds later is that request filling, so it's that person's bet. **Sure** "
-            "means only one request and one trade fit; otherwise the closest in time wins. When a matched trade shows "
-            "a public nickname in the social feed, the code is linked to that name. Codes only build up while the app "
-            "runs (Kalshi doesn't keep RFQ history), and need an API key in the app's secrets.\n"
+            "users with the requester's code (a hash that stays the same for that person). When the bet fills, Kalshi "
+            "closes the request in the same instant, so a combo trade is matched to the request on the same market, "
+            "with the same size, that closed within a couple of seconds of it. **Sure** means every request that fit "
+            "came from the same person (the app re-asks every few seconds while a slip is open); otherwise the one "
+            "that closed nearest the trade wins. Thousands of people bet combos every hour, so only the 100 biggest "
+            "codes by dollars bet, plus the 50 biggest in tennis, with 3+ bets are listed and priced. When a matched "
+            "trade shows a public nickname in the social feed, the code is linked to that name. Codes only build up "
+            "while the app runs (Kalshi doesn't keep RFQ history), and need an API key in the app's secrets.\n"
             "- Kalshi's main trade feed has no trader ID. Its **social API** (what kalshi.com profiles use, free "
             "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
             "that show their trades. A profile that hides them shows **hidden**, with only Kalshi's own PnL and "
             "markets-traded counts.\n"
-            "- **PNL** is Kalshi's number for the profile (all-time, and 30D underneath). **TRADES** counts the fills "
-            "in our sample (their last 1,000 trades within 30 days); **MKTS** is Kalshi's all-time markets traded.\n"
+            "- **PNL** is Kalshi's number for the profile; **VIEW** switches between all-time and the last 30 days, "
+            "with the other one underneath. For an RFQ code it's what its matched, settled bets made. **TRADES** "
+            "counts the fills in our sample (the bettor's whole history, loaded over a few cycles), and **WIN %** "
+            "is the share of settled ones that won.\n"
             "- **EV** prices every trade against the market's bid/ask mid in the minute it happened (one-minute "
             "candles), after taker fees. A combo is priced from its legs' books. A market maker earns the spread, "
             "so EV is positive; a taker who crosses the spread starts negative.\n"

@@ -24,7 +24,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import requests
 
@@ -214,8 +214,11 @@ class Profile:
     history_at: float = 0.0
     code: str | None = None  # set for a bettor known only by their RFQ creator ID
     linked: str | None = None  # for a code: the public nickname its trades showed
-    sure: int = 0  # for a code: matches where only one RFQ and one trade fit
+    sure: int = 0  # for a code: matches where every RFQ that fit was theirs
     link_tried: set[str] = field(default_factory=set)  # trade ids already looked up in the social feed
+    vol: float = 0.0  # for a code: dollars staked in its matched bets
+    tennis_vol: float = 0.0  # for a code: of vol, on combos with a tennis leg
+    last_bet: float = 0.0  # for a code: when its newest matched bet was
 
 
 @dataclass
@@ -240,13 +243,21 @@ class BettorTracker:
 
     def __init__(self, client, series: list[str] | None = None, feed_hours: float = 24, max_fills: int = 50_000,
                  pages_per_pass: int = 60, price_days: int = 30, top_n: int = 40, every: float = 900, rfq=None,
-                 links_per_cycle: int = 60,
+                 links_per_cycle: int = 60, top_codes: int = 100, top_tennis_codes: int = 50, code_min_bets: int = 3,
+                 max_codes: int = 30_000, max_code_fills: int = 5_000,
                  first_pages: int = 30, more_pages: int = 20, metrics_ttl: float = 3600, history_ttl: float = 1800):
         self.client = client
         self.series = series or TENNIS_SERIES
         self.feed_window = feed_hours * 3600
         self.rfq = rfq  # an rfq.RfqBook when a Kalshi API key is set
         self.links_per_cycle = links_per_cycle
+        # Thousands of people bet combos every hour. Every code keeps its bets, but only the biggest
+        # (and the biggest in tennis) with a few bets get priced, settled and listed.
+        self.top_codes_n = top_codes
+        self.top_tennis_codes = top_tennis_codes
+        self.code_min_bets = code_min_bets
+        self.max_codes = max_codes  # a memory guard: past this, the smallest idle codes are dropped
+        self.max_code_fills = max_code_fills
         self.max_fills = max_fills  # a memory guard; real histories are usually far smaller
         self.pages_per_pass = pages_per_pass  # long histories load over several cycles
         self.price_days = price_days  # fills older than this aren't priced against the book
@@ -267,6 +278,7 @@ class BettorTracker:
         self.wanted: list[str] = []  # nicknames added from the page, analyzed first
         self.markets: dict[str, dict] = {}  # ticker -> {result, final, title, legs}
         self.fair: dict[str, float | None] = {}  # trade_id -> fair YES at trade time
+        self.tennis_hint: set[str] = set()  # combo tickers the RFQ stream saw with a tennis leg
         self.snapshot: BettorSnapshot | None = None
         self.status = "starting"
         self.errors: list[str] = []
@@ -349,21 +361,48 @@ class BettorTracker:
         return [self.profiles[n] for n in dict.fromkeys(order) if n in self.profiles]
 
     # ---- RFQ codes ----
-    def sync_codes(self) -> None:
-        """Turn RFQ matches into per-code fills (the requester took the trade)."""
+    def sync_codes(self) -> int:
+        """Turn new RFQ matches into per-code fills (the requester took the trade). Returns how many."""
         if self.rfq is None:
+            return 0
+        matches = self.rfq.take()
+        for m in matches:
+            e = m.execution
+            key = "#" + m.creator[:10]
+            p = self.profiles.get(key)
+            if p is None:
+                p = self.profiles[key] = Profile(key, sources={"rfq"}, hidden=False, history_done=True, code=m.creator)
+            if e.trade_ids[0] in p.fills:
+                continue
+            p.fills[e.trade_ids[0]] = Fill(e.trade_ids[0], e.ts, e.ticker, e.side, e.price, e.count, True)
+            p.sure += m.sure
+            p.vol += e.price * e.count
+            p.last_bet = max(p.last_bet, e.ts)
+            if m.tennis:
+                p.tennis_vol += e.price * e.count
+                self.tennis_hint.add(e.ticker)
+            if len(p.fills) > self.max_code_fills:
+                del p.fills[next(iter(p.fills))]  # oldest
+        self._cap_codes()
+        return len(matches)
+
+    def _cap_codes(self) -> None:
+        codes = self.code_profiles()
+        if len(codes) <= self.max_codes:
             return
-        self.rfq.match_now()
-        for creator, matches in self.rfq.by_creator().items():
-            key = "#" + creator[:10]
-            p = self.profiles.setdefault(key, Profile(key, hidden=False, history_done=True))
-            p.code = creator
-            p.sources.add("rfq")
-            for m in matches:
-                e = m.execution
-                if e.trade_ids[0] not in p.fills:
-                    p.fills[e.trade_ids[0]] = Fill(e.trade_ids[0], e.ts, e.ticker, e.side, e.price, e.count, True)
-                    p.sure += m.sure
+        keep = {p.nickname for p in self.top_codes()}
+        idle = time.time() - 3600
+        drop = sorted((p for p in codes if p.nickname not in keep and not p.linked),
+                      key=lambda p: (p.last_bet >= idle, p.vol))
+        for p in drop[: len(codes) - int(self.max_codes * 0.8)]:
+            del self.profiles[p.nickname]
+
+    def top_codes(self) -> list[Profile]:
+        """The codes worth analyzing: the biggest by dollars bet, and the biggest in tennis."""
+        codes = [p for p in self.code_profiles() if len(p.fills) >= self.code_min_bets]
+        by_vol = sorted(codes, key=lambda p: -p.vol)[: self.top_codes_n]
+        tennis = sorted((p for p in codes if p.tennis_vol), key=lambda p: -p.tennis_vol)[: self.top_tennis_codes]
+        return list({p.nickname: p for p in by_vol + tennis}.values())
 
     def link_codes(self) -> None:
         """Find which public nickname, if any, is behind each code.
@@ -374,7 +413,7 @@ class BettorTracker:
         """
         takers = {f.trade_id: p.nickname for p in self.profiles.values() if not p.code
                   for f in p.fills.values() if f.taker}
-        codes = sorted((p for p in self.profiles.values() if p.code and not p.linked), key=lambda p: -len(p.fills))
+        codes = sorted((p for p in self.top_codes() if not p.linked), key=lambda p: -p.vol)
         budget = self.links_per_cycle
         for p in codes:
             name = next((takers[t] for t in p.fills if t in takers), None)
@@ -398,7 +437,17 @@ class BettorTracker:
                 prof.sources.add("rfq")
 
     def code_profiles(self) -> list[Profile]:
-        return [p for p in self.profiles.values() if p.code]
+        return [p for p in list(self.profiles.values()) if p.code]
+
+    def _prune_caches(self) -> None:
+        """Forget prices and markets of fills no bettor holds any more (dropped codes)."""
+        fills = [f for p in list(self.profiles.values()) for f in list(p.fills.values())]
+        ids = {f.trade_id for f in fills}
+        tickers = {f.ticker for f in fills}
+        tickers |= {l["market_ticker"] for t in list(tickers) for l in self.markets.get(t, {}).get("legs", ())}
+        self.fair = {k: v for k, v in self.fair.items() if k in ids}
+        self.markets = {k: v for k, v in self.markets.items() if k in tickers}
+        self.tennis_hint &= tickers
 
     # ---- per-bettor data ----
     def refresh_metrics(self, p: Profile, force: bool = False) -> None:
@@ -522,14 +571,16 @@ class BettorTracker:
         for p in list(self.profiles.values()):
             if p.code and p.linked:
                 codes_of[p.linked].append(p.nickname)
+        shown_codes = {p.nickname for p in self.top_codes()}
         rows = []
         for p in list(self.profiles.values()):
             if not p.sources or (p.missing and "you" not in p.sources):
                 continue
-            if p.code and p.linked and p.linked in self.profiles:
-                continue  # shown on the nickname's row
+            if p.code and (p.nickname not in shown_codes or (p.linked and p.linked in self.profiles)):
+                continue  # a small code, or shown on its nickname's row
             fills = sorted(p.fills.values(), key=lambda f: -f.ts)
-            tennis = [f for f in fills if is_tennis(f.ticker, self.markets.get(f.ticker, {}).get("legs"))]
+            tennis = [f for f in fills if f.ticker in self.tennis_hint
+                      or is_tennis(f.ticker, self.markets.get(f.ticker, {}).get("legs"))]
             fs = feed.get(p.nickname, {})
             recent = []
             for f in fills[:15]:
@@ -566,8 +617,8 @@ class BettorTracker:
             feed_since=None if self.feed_oldest is None else datetime.fromtimestamp(self.feed_oldest, timezone.utc),
             feed_trades=self.feed_trades, named_trades=self.feed_named, errors=errors,
             rfq=None if self.rfq is None else {**self.rfq.stats, "stream": self.rfq.ws_status,
-                                                "error": self.rfq.last_error,
-                                                "codes": len(self.code_profiles()),
+                                                "error": self.rfq.last_error, "since": self.rfq.started,
+                                                "codes": len(self.code_profiles()), "shown": len(self.top_codes()),
                                                 "linked": sum(1 for p in self.code_profiles() if p.linked)})
         self.snapshot = snap
 
@@ -597,7 +648,8 @@ class BettorTracker:
         self._step("matching RFQs", self.sync_codes)
         self._step("naming RFQ codes", self.link_codes)
         self.publish()
-        self.analyze(self.candidates() + self.code_profiles())
+        self.analyze(self.candidates() + self.top_codes())
+        self._step("cleaning up", self._prune_caches)
         self.status = "idle"
         self.publish()
 
@@ -619,8 +671,8 @@ class BettorTracker:
                     next_cycle = time.time() + self.every
                 else:
                     self.serve_wanted()
-                    if self.rfq is not None:
-                        self.sync_codes()
+                    if self.rfq is not None and self.sync_codes():
+                        self.publish()
             except Exception as exc:
                 with self.lock:
                     self.errors.append(repr(exc)[:200])
