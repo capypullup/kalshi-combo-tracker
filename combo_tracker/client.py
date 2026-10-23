@@ -22,12 +22,14 @@ MAX_CANDLES = 10_000  # per /markets/candlesticks request, across all its market
 
 
 class RateLimiter:
-    """Spaces requests out to at most `rate` per second across all threads."""
+    """Spaces requests out to at most `rate` per second across all threads.
+    With a parent, each request also waits its turn there and a pause reaches the parent too."""
 
-    def __init__(self, rate: float):
+    def __init__(self, rate: float, parent: "RateLimiter | None" = None):
         self.interval = 1.0 / rate
         self.next_at = 0.0
         self.lock = threading.Lock()
+        self.parent = parent
 
     def wait(self) -> None:
         with self.lock:
@@ -36,11 +38,21 @@ class RateLimiter:
             self.next_at = max(now, self.next_at) + self.interval
         if wait > 0:
             time.sleep(wait)
+        if self.parent:
+            self.parent.wait()
 
     def pause(self, seconds: float) -> None:
         """Hold every caller back, e.g. after a 429."""
         with self.lock:
             self.next_at = max(self.next_at, time.monotonic() + seconds)
+        if self.parent:
+            self.parent.pause(seconds)
+
+
+# Kalshi limits reads per IP (Basic tier: 20/s). The app runs several clients at once (collector,
+# bettor tracker, RFQ feed, Quote page), so they all share this budget, and a 429 slows every one.
+SHARED_RATE = float(os.environ.get("KALSHI_SHARED_RATE", "14"))
+SHARED_LIMITER = RateLimiter(SHARED_RATE)
 
 
 class KalshiAuth:
@@ -108,7 +120,7 @@ class KalshiClient:
         self.base_url = base_url
         self.timeout = timeout
         self.max_workers = max_workers
-        self.limiter = RateLimiter(rate_per_sec)
+        self.limiter = RateLimiter(rate_per_sec, parent=SHARED_LIMITER)
         self.session = requests.Session()
         self.session.headers["Accept"] = "application/json"
         self.session.headers["User-Agent"] = "kalshi-combo-tracker (+https://github.com/capypullup/kalshi-combo-tracker)"
