@@ -7,7 +7,7 @@ const MIN_BET = [5, 10, 50, 100, 500];
 const WINDOWS = [[15, "15m"], [60, "1h"], [180, "3h"]];
 const KELLY = [[1, "Full"], [0.5, "½"], [0.25, "¼"], [0.125, "⅛"]];
 const PAGE = 100;
-const REFRESH_TIMEOUT = 45000;  // ms without an answer before the refresh button gives up
+const REFRESH_TIMEOUT = 60000;  // ms without an answer before the refresh button gives up
 const RULE = "────────────";
 const STORE = "cev-ui-v1";
 

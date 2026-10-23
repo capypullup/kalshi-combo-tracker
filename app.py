@@ -5,9 +5,9 @@ Offline demo: DEMO=1 streamlit run app.py
 
 The table itself is a small custom component (combo_tracker/ui). Filters, sorting,
 expanding a bet and copying its card all run in the browser. Scoring runs in a
-background worker; the page only reads its latest results when the min bet or
-window changes, on refresh (which asks the worker for a fresh poll and score
-first), and to load a bet's full orderbooks.
+background worker; the page only takes its latest results when the min bet or
+window changes and on refresh (which asks the worker for a fresh poll and score
+first), so the list never changes while you read it.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ DEPTH_SECONDS = 60  # how long a "full book" lookup is cached
 MAX_BETS = 600  # newest bets scored per view
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
-REFRESH_WAIT = 30  # seconds the refresh button waits for new scores before saying Kalshi is slow
+REFRESH_WAIT = 45  # seconds the refresh button waits for new scores before saying Kalshi is slow
 
 st.set_page_config(page_title="Combo EV", page_icon="🎯", layout="wide", initial_sidebar_state="collapsed")
 st.html(
@@ -160,13 +160,18 @@ def table_view():
     min_bet, window = st.session_state.min_bet, st.session_state.window
     src = get_source()
     notes, error = [], None
+    # Keep showing the scores you're reading until you refresh or change the filter, even when
+    # this reruns for something else (opening a full book, say) and the worker has newer ones.
+    pinned = st.session_state.get("pinned")
+    snap = pinned["snap"] if pinned and pinned["view"] == (window, min_bet) else None
     try:
-        snap = src.board.peek(window, min_bet)
-        if snap is None:  # first look at this min bet / window; afterwards it updates in the background
-            with st.spinner("Scoring bets for this filter…"):
-                snap = src.board.get(window, min_bet)
-        else:
-            src.board.get(window, min_bet)  # marks the view as open so the worker keeps it fresh
+        if snap is None:
+            snap = src.board.peek(window, min_bet)
+            if snap is None:  # first look at this min bet / window; afterwards it updates in the background
+                with st.spinner("Scoring bets for this filter…"):
+                    snap = src.board.get(window, min_bet)
+            st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
+        src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
@@ -242,6 +247,9 @@ def _watch_refresh() -> None:
         if not (done or moved or time.time() - req["since"] > REFRESH_WAIT):
             return
         req.update(done=True, error=failure, slow=not done)
+        pinned = st.session_state.get("pinned")
+        if pinned and pinned["view"] == req["view"]:
+            del st.session_state.pinned  # so the table takes the new scores
     st.rerun()  # a full run shows the new scores and stops this timer
 
 
@@ -279,7 +287,7 @@ def combo_page() -> None:
             "- **MID ODDS / CROSS ODDS** show the fair prices behind EV MID and EV CROSS as odds: the multiplier a "
             "fair bet would pay, with American odds under it. Compare them with the multiplier the bettor got.\n"
             "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
-            "a few seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
+            "10–15 seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
             "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
             "Kalshi's trade feed has no bettor ID, so these bets are anonymous (the Bettors page covers public profiles)."
         )

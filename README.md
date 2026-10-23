@@ -65,7 +65,7 @@ pytest -q
 2. Go to https://share.streamlit.io, sign in with GitHub, click **Create app**, pick this repo, and set the main file to `app.py`.
 3. Open the URL it gives you on your phone and use **Add to Home Screen**.
 
-A background worker pulls new combo trades every minute and re-scores the filters people have open every 2 minutes, so the page never waits on Kalshi and doesn't change while you're reading it. Tap ↻ to refresh now: the worker pulls the newest trades and leg quotes and re-scores your filter first, and the icon spins until the new bets are in (usually a few seconds; the table stays usable meanwhile). The header says how old the scores are. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
+A background worker pulls new combo trades every minute and re-scores the filters people have open every 2 minutes, so the page never waits on Kalshi and doesn't change while you're reading it. Tap ↻ to refresh now: the worker pulls the newest trades and leg quotes and re-scores your filter first, and the icon spins until the new bets are in (10–15 seconds on a busy night; the table stays usable meanwhile). The header says how old the scores are. Streamlit Community Cloud puts apps to sleep after a while with no visitors. Opening the link wakes it up in about 30 seconds.
 
 ## Layout
 

@@ -200,11 +200,14 @@ class Board:
             return self.snapshots.get((window, float(min_stake)))
 
     def get(self, window: int, min_stake: float) -> Snapshot:
+        self.touch(window, min_stake)
+        return self.peek(window, min_stake) or self._score((window, float(min_stake)))
+
+    def touch(self, window: int, min_stake: float) -> None:
+        """Mark a view as open, so the regular pass keeps scoring it."""
         key = (window, float(min_stake))
         with self.lock:
             self.views[key] = max(self.views.get(key, 0.0), time.time())
-            snap = self.snapshots.get(key)
-        return snap or self._score(key)
 
     def request(self, window: int, min_stake: float) -> float:
         """Ask for this view to be re-scored from trades newer than now. Returns the request time."""
