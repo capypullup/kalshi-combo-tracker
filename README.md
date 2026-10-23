@@ -14,6 +14,14 @@ EV MID +3610.1% (fair -383) · 20u
 EV CRX +3568.4% (fair -363) · 19u
 ```
 
+## Home and the tab bar
+
+The app opens on **Home**, a phone-first list of the best bets right now: combos of $100+ from the last hour whose fair price beats what was paid, best EV (cross) first. Each card shows EV mid / EV cross in a green badge that deepens with the edge (a pale tint under +10%, solid neon with a 🔥 from about +200%), the leagues, start time or LIVE, the bet, its legs, and big **Bet in Kalshi** and **Quote** buttons. Pre-match / Live / All, Min EV and Min bet filter it.
+
+Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app: Combos and Bettors on the left, the cyan capybara button (Home) in the middle, the rest on the right. Tabs are listed in `NAV_TABS` in `app.py`.
+
+## Combos page
+
 - **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number.
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
 - The page is a black and cyan table with rounded type and pill-shaped controls, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (Mid odds / Cross odds, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
@@ -77,6 +85,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/links.py`: the link that opens a market in Kalshi's app
 - `combo_tracker/pipeline.py`: one refresh, end to end
 - `combo_tracker/view.py`: the compact rows the table receives
+- `combo_tracker/home.py`: the Home page's picks and cards
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
 - `combo_tracker/quote.py` + `quote_view.py`: the Quote page (live check, RFQs)
