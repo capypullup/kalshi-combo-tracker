@@ -1,6 +1,7 @@
 """Faster filters (batched event titles, pre-scored Min bets, one build per window) and hiding
 crypto / commodity combos."""
 
+import bisect
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -9,7 +10,7 @@ import pytest
 import requests
 
 from combo_tracker import alerts, financial, pipeline
-from combo_tracker.client import KalshiClient
+from combo_tracker.client import KalshiClient, RateLimiter
 from combo_tracker.collector import Collector
 from combo_tracker.pipeline import Board, Scorer
 
@@ -93,8 +94,9 @@ class Kalshi:
 
     def get_events(self, tickers):
         self.calls["events"] += 1
+        category = {"KXBTC15M": "Crypto", **self.categories}
         return {t: {"event_ticker": t, "title": t, "series_ticker": t.split("-")[0],
-                    "category": self.categories.get(t.split("-")[0], "Sports")} for t in tickers}
+                    "category": category.get(t.split("-")[0], "Sports")} for t in tickers}
 
 
 def test_hidden_combos_dont_shrink_the_list():
@@ -138,7 +140,8 @@ class Resp:
 
 
 def client_with(handler):
-    c = KalshiClient(rate_per_sec=1000)
+    c = KalshiClient()
+    c.limiter = RateLimiter(1000)  # not the app-wide limiter: a test's 429 pause stays in the test
     c.session.get = lambda url, params=None, timeout=None, headers=None: handler(url, params or {})
     return c
 
@@ -258,3 +261,191 @@ def test_refresh_tap_cuts_backfill_short_without_a_gap():
     col.covered_to = col.covered_from = NOW
     col.extend_backfill()
     assert NOW - timedelta(seconds=2500) <= col.covered_from < NOW  # where the scan got to, not the chunk start
+
+
+# ---- review fixes: waiting pages, failures, stale scores ----
+def test_a_page_waits_for_the_first_poll_instead_of_scoring_nothing():
+    trades = []
+    board = Board(Scorer(Kalshi()), trades_for=lambda m: list(trades), every=120, wait_for_trades=5)
+    got = []
+    page = threading.Thread(target=lambda: got.append(board.get(60, 50)))
+    page.start()
+    time.sleep(0.2)
+    assert not got  # the collector hasn't polled yet
+    trades.append(trade(1, "KXMVE-4", stake_contracts=400))
+    board.refresh(trades_as_of=time.time())  # the collector's first poll is in
+    page.join(5)
+    assert len(got[0].rows) == 1
+
+
+def test_a_failed_poll_lets_waiting_pages_go_ahead_and_the_next_ones_not_wait():
+    board = Board(Scorer(Kalshi()), trades_for=lambda m: [trade(1, "KXMVE-4", stake_contracts=400)], every=120,
+                  wait_for_trades=30)
+    got = []
+    page = threading.Thread(target=lambda: got.append(board.get(60, 50)))
+    page.start()
+    time.sleep(0.2)
+    board.poll_failed()
+    page.join(5)
+    assert got and len(got[0].rows) == 1
+    t0 = time.time()
+    board.get(15, 50)
+    assert time.time() - t0 < 1  # Kalshi is down: no 30 s wait for a poll that won't come
+
+
+def test_pages_waiting_on_a_failed_score_report_it_instead_of_all_scoring_again():
+    gate, started = threading.Event(), threading.Event()
+
+    class Failing(Scorer):
+        calls = 0
+
+        def score_bets(self, *args, **kwargs):
+            Failing.calls += 1
+            started.set()
+            gate.wait(5)
+            raise requests.ConnectionError("Kalshi is down")
+
+    board = Board(Failing(Kalshi()), trades_for=lambda m: [trade(1, "KXMVE-4")], every=120, wait_for_running=0.05)
+    worker = threading.Thread(target=board.refresh)
+    worker.start()
+    started.wait(5)
+    errors = []
+
+    def page():
+        try:
+            board.get(60, 100)
+        except Exception as exc:
+            errors.append(exc)
+
+    pages = [threading.Thread(target=page) for _ in range(3)]
+    for p in pages:
+        p.start()
+    time.sleep(0.3)  # several re-checks while the worker is still at it: nobody starts another score
+    gate.set()
+    for p in pages + [worker]:
+        p.join(5)
+    assert Failing.calls == 1 and len(errors) == 3 and all("Kalshi is down" in str(e) for e in errors)
+
+
+def test_old_scores_are_brewed_again_when_asked_with_max_age():
+    board = Board(Scorer(Kalshi()), trades_for=lambda m: [trade(1, "KXMVE-4", stake_contracts=400)], every=120)
+    old = board.get(60, 50)
+    old.fetched_at -= timedelta(hours=8)  # the app sat idle overnight
+    assert board.get(60, 50) is old  # without max_age a page takes what there is
+    new = board.get(60, 50, max_age=600)
+    assert new is not old and new.fetched_at > old.fetched_at + timedelta(hours=7)
+
+
+# ---- review fixes: the scorer ----
+def test_bets_past_the_lookups_are_estimated_at_the_hidden_rate():
+    kalshi = Kalshi(crypto={n for n in range(1, 1001) if n % 10 < 3})  # 30% of combos have a BTC leg
+    trades = [trade(n, f"KXMVE-{n}", minutes_ago=n / 100) for n in range(1, 1001)]
+    snap = Scorer(kalshi, hide=financial.is_financial).score(trades, max_bets=5)
+    assert len(snap.rows) == 5 and snap.over_min_estimated
+    assert 650 < snap.bets_over_min < 750  # 700 sports bets, not 983
+    every = Scorer(kalshi, hide=financial.is_financial).score(trades[:20], max_bets=5)
+    assert not every.over_min_estimated and every.bets_over_min == 14  # all looked up: exact
+
+
+def test_old_cache_entries_are_pruned():
+    scorer = Scorer(Kalshi())
+    now = time.time()
+    scorer.combo_markets.data = {"KXMVE-OLD": (now - 5 * 3600, {}), "KXMVE-NEW": (now - 60, {})}
+    scorer.leg_markets.data = {"OLD-A": (now - 3600, {}), "NEW-A": (now - 30, {})}
+    scorer.pruned_at = 0
+    scorer.score([trade(1, "KXMVE-4")], max_bets=5)
+    assert "KXMVE-OLD" not in scorer.combo_markets.data and "KXMVE-NEW" in scorer.combo_markets.data
+    assert "OLD-A" not in scorer.leg_markets.data and "NEW-A" in scorer.leg_markets.data
+
+
+def test_events_fall_back_to_one_call_each_when_the_list_stops_working():
+    def refused(url, params):
+        if url.endswith("/events"):
+            return Resp(400, {})
+        ticker = url.rsplit("/", 1)[1]
+        return Resp(200, {"event": {"event_ticker": ticker, "title": ticker}})
+
+    c = client_with(refused)
+    c.batch_events_ok = True  # it worked earlier in the day
+    assert set(c.get_events(["A-1", "B-2"])) == {"A-1", "B-2"} and c.batch_events_ok is False
+
+    def ignored(url, params):
+        if url.endswith("/events"):
+            return Resp(200, {"events": []})
+        ticker = url.rsplit("/", 1)[1]
+        return Resp(200, {"event": {"event_ticker": ticker, "title": ticker}})
+
+    c = client_with(ignored)
+    c.batch_events_ok = True
+    assert set(c.get_events(["A-1"])) == {"A-1"} and c.batch_events_ok is False
+
+
+# ---- the collector pages stretches of time at once ----
+class Tape:
+    """Kalshi's trade feed: newest first; min_ts and max_ts in whole seconds, max_ts exclusive."""
+
+    def __init__(self, minutes, per_second=1):
+        self.now = datetime.now(timezone.utc)
+        n = int(minutes * 60 * per_second)
+        self.ts = [(self.now - timedelta(seconds=(i + 0.5) / per_second)).timestamp() for i in range(n)]  # newest first
+        self.trades = [{"trade_id": f"x{i}", "ticker": "KXMVE-1" if i % 3 == 0 else "KXNBAGAME-X", "taker_side": "yes",
+                        "yes_price_dollars": "0.2500", "count_fp": "10.00",
+                        "created_time": datetime.fromtimestamp(t, timezone.utc).isoformat()} for i, t in enumerate(self.ts)]
+        self.calls = []
+        self.stop_at, self.col, self.seen = None, None, 0
+        self.lock = threading.Lock()
+
+    def iter_trades(self, min_ts, max_ts=None, max_pages=0):
+        self.calls.append((min_ts, max_ts))
+        lo, hi = int(min_ts.timestamp()), int(max_ts.timestamp()) if max_ts else None
+        neg = [-t for t in self.ts]  # ascending, for bisect
+        first = 0 if hi is None else bisect.bisect_right(neg, -hi)  # skip ts >= hi
+        for i in range(first, bisect.bisect_right(neg, -lo)):  # down to ts >= lo
+            with self.lock:
+                self.seen += 1
+                if self.seen == self.stop_at:
+                    self.col.poll_now()  # Kenny taps refresh
+            yield self.trades[i]
+
+    def combos(self, older, newer=0.0):
+        """The combo trade ids between `older` and `newer` minutes before the tape's end."""
+        return {t["trade_id"] for t, ts in zip(self.trades, self.ts)
+                if t["ticker"].startswith("KXMVE") and newer * 60 <= self.now.timestamp() - ts <= older * 60}
+
+
+def test_first_poll_and_backfill_page_four_stretches_at_once_without_gaps():
+    tape = Tape(minutes=60)
+    col = Collector(tape, max_window_minutes=45, initial_backfill_minutes=15)
+    col.poll()
+    assert len(tape.calls) == 4 and tape.combos(14.9) <= set(col.trades)
+    col.extend_backfill()
+    assert tape.combos(44.9) <= set(col.trades) and col.coverage_minutes() >= 44
+
+
+def test_a_tap_mid_backfill_keeps_coverage_contiguous():
+    tape = Tape(minutes=200, per_second=5)
+    col = Collector(tape, max_window_minutes=180, initial_backfill_minutes=15)
+    tape.col = col
+    col.poll()
+    tape.seen, tape.stop_at = 0, 6000  # 30 min is 9,000 trades: the tap comes two thirds in
+    col.extend_backfill()
+    covered = col.coverage_minutes()
+    assert 16 < covered < 45  # some of the way: the newest stretch got past its first 1,000
+    assert tape.combos(covered - 0.1) <= set(col.trades)  # everything up to covered_from is in
+    col._wake.clear()
+    tape.stop_at = None
+    for _ in range(8):
+        col.extend_backfill()
+    assert tape.combos(179) <= set(col.trades)
+
+
+def test_a_failed_poll_is_reported():
+    class Down:
+        def iter_trades(self, *args, **kwargs):
+            raise requests.ConnectionError("down")
+
+    failed = threading.Event()
+    col = Collector(Down(), after_error=lambda c: failed.set())
+    col.start()
+    assert failed.wait(5) and "down" in col.last_error
+    col.stop()

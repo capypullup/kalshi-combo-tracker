@@ -67,6 +67,8 @@ HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keep
 MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
 REFRESH_WAIT = 45  # seconds the refresh button waits for new scores before saying Kalshi is slow
+STALE_SECONDS = 600  # a page opened on scores older than this (the app sat idle) brews fresh ones
+TRADES_WAIT = 60  # seconds a page waits for the collector's first poll after start-up or an idle pause
 
 UI = Path(__file__).parent / "combo_tracker" / "ui"
 LOGO = (UI / "capyev.svg").read_text()  # a capybara sipping boba
@@ -212,8 +214,9 @@ def get_source() -> SimpleNamespace:
     # Load the newest 15 minutes first; older history fills in a poll at a time.
     collector = Collector(client, max_window_minutes=MAX_WINDOW, initial_backfill_minutes=15)
     board = Board(scorer, collector.window, every=SCORE_SECONDS, max_bets=MAX_BETS, default_view=HOME_VIEW,
-                  keep=(DEFAULT_VIEW,))
+                  keep=(DEFAULT_VIEW,), wait_for_trades=TRADES_WAIT)
     collector.after_poll = lambda col: board.refresh(trades_as_of=col.poll_started)
+    collector.after_error = lambda col: board.poll_failed()
     collector.start()
     return SimpleNamespace(scorer=scorer, trades_for=collector.window, collector=collector, board=board)
 
@@ -271,6 +274,22 @@ def _quote():
     st.session_state.quote_req = st.session_state.cev.quote
 
 
+def _brew(view: tuple[int, float], message: str):
+    """The view's scores and an error, brewing them first if there are none yet or they're old
+    (the app sat idle). If brewing fails, the old scores stay up with the error."""
+    board = get_source().board
+    snap = board.peek(*view)
+    if snap is not None and time.time() - snap.fetched_at.timestamp() <= STALE_SECONDS:
+        return snap, None
+    try:
+        with st.spinner(message):
+            return board.get(*view, max_age=STALE_SECONDS), None
+    except Exception as exc:
+        if snap is None:
+            raise
+        return snap, f"Couldn't update the scores: {exc}"[:200]
+
+
 @st.fragment
 def table_view():
     go = st.session_state.pop("quote_req", None)
@@ -286,15 +305,14 @@ def table_view():
     pinned = st.session_state.get("pinned")
     snap = pinned["snap"] if pinned and pinned["view"] == (window, min_bet) else None
     try:
-        if snap is None:
-            snap = src.board.peek(window, min_bet)
-            if snap is None:  # first look at this min bet / window; afterwards it updates in the background
-                with st.spinner("Brewing scores for this filter… 🧋"):
-                    snap = src.board.get(window, min_bet)
+        if snap is None:  # first look at this filter; afterwards the worker keeps it fresh
+            snap, error = _brew((window, min_bet), "Brewing scores for this filter… 🧋")
             st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
         src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
-        for other in MIN_BETS:  # and the other Min bets at this window, so switching is instant
-            src.board.touch(window, other)
+        if st.session_state.get("table_ran"):  # after the phone's saved filter has come in
+            for other in MIN_BETS:  # the other Min bets at this window too, so switching is instant
+                src.board.touch(window, other)
+        st.session_state.table_ran = True
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
@@ -306,7 +324,8 @@ def table_view():
         if collector.last_error:
             error = error or _poll_error(collector.last_error)
     if snap and snap.bets_over_min > MAX_BETS:
-        notes.append(f"Showing the newest {snap.bets_scored:,} of {snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
+        about = "about " if snap.over_min_estimated else ""
+        notes.append(f"Showing the newest {snap.bets_scored:,} of {about}{snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
     # The browser spins the refresh icon until `refreshed` echoes its tap. Until then the
     # table's data stays exactly as it was, so a rerun resends almost nothing.
@@ -469,10 +488,7 @@ def home_view():
     src = get_source()
     error = None
     try:
-        snap = src.board.peek(*HOME_VIEW)
-        if snap is None:
-            with st.spinner("Brewing the best bets… 🧋"):
-                snap = src.board.get(*HOME_VIEW)
+        snap, error = _brew(HOME_VIEW, "Brewing the best bets… 🧋")
         src.board.touch(*HOME_VIEW)
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]

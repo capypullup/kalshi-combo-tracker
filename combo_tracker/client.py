@@ -229,17 +229,15 @@ class KalshiClient:
             try:
                 pages = self._parallel(fetch_batch, batches)
             except requests.HTTPError:
-                if self.batch_events_ok:
-                    return {}
-                self.batch_events_ok = False
+                self.batch_events_ok = False  # the list is refused now, whatever worked before
             else:
                 wanted = set(unique)
                 out = {e["event_ticker"]: e for page in pages if page for e in page if e.get("event_ticker") in wanted}
-                if out:
-                    self.batch_events_ok = True
-                if self.batch_events_ok or all(page is None for page in pages):
+                if out or all(page is None for page in pages):
+                    if out:
+                        self.batch_events_ok = True
                     return out
-                self.batch_events_ok = False  # it answered but ignored the list: go one by one
+                # It answered without any of them: the list was ignored (or they're all gone).
 
         def fetch(ticker: str) -> tuple[str, dict | None]:
             try:
@@ -247,7 +245,10 @@ class KalshiClient:
             except requests.RequestException:
                 return ticker, None
 
-        return {t: e for t, e in self._parallel(fetch, unique) if e is not None}
+        found = {t: e for t, e in self._parallel(fetch, unique) if e is not None}
+        if any(found.values()):
+            self.batch_events_ok = False  # one by one finds what the list call didn't: stop asking it
+        return found
 
     def get_orderbooks(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch the raw orderbook for each ticker, keyed by ticker.
