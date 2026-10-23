@@ -1,0 +1,91 @@
+name: Copy-bet probe (throwaway)
+on:
+  push:
+    branches: [claude/copy-bet-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt playwright && python -m playwright install --with-deps chromium webkit
+      - name: Web and app-link files
+        continue-on-error: true
+        run: python scripts/probe_copybet.py 2>&1 | tee /tmp/probe.txt
+      - name: Android manifest
+        continue-on-error: true
+        run: bash scripts/probe_apk.sh 2>&1 | tee /tmp/apk.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe
+          path: |
+            /tmp/out/facts.json
+            /tmp/out/package.txt
+            /tmp/apk/*.apk
+          if-no-files-found: ignore
+      - name: Save output to the copybet-probe-output branch
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p /tmp/save && cp /tmp/probe.txt /tmp/apk.txt /tmp/save/ 2>/dev/null || true
+          cp /tmp/out/*.png /tmp/out/*.json /tmp/out/*.txt /tmp/out/js.tar.gz /tmp/save/ 2>/dev/null || true
+          git checkout --orphan copybet-probe-output
+          git rm -rqf .
+          cp /tmp/save/* . && git add -A . && git commit -qm "Copy-bet probe output for ${GITHUB_SHA::7}"
+          git push -qf origin copybet-probe-output
+
+  android:
+    needs: web
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: probe
+          path: /tmp/dl
+      - name: Lay out the artifact
+        run: |
+          mkdir -p /tmp/out /tmp/apk
+          find /tmp/dl -type f | head -50
+          find /tmp/dl -name '*.apk' -exec cp {} /tmp/apk/ \;
+          find /tmp/dl -name 'facts.json' -exec cp {} /tmp/out/ \;
+          find /tmp/dl -name 'package.txt' -exec cp {} /tmp/out/ \;
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Open links in the app on an emulator
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: bash scripts/probe_emu.sh 2>&1 | tee /tmp/emu.txt
+      - name: Save output to the copybet-android-output branch
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p /tmp/save && cp /tmp/emu.txt /tmp/save/ 2>/dev/null || echo "no output" > /tmp/save/emu.txt
+          cp /tmp/emu/* /tmp/save/ 2>/dev/null || true
+          git checkout --orphan copybet-android-output
+          git rm -rqf .
+          cp /tmp/save/* . && git add -A . && git commit -qm "Copy-bet emulator output for ${GITHUB_SHA::7}"
+          git push -qf origin copybet-android-output
