@@ -791,6 +791,7 @@ def bettors_page() -> None:
             "- **Profiles**: public Kalshi profiles (the busiest names in the tennis feed plus any you add) with their "
             "whole trade history, Kalshi's own PnL, EV against one-minute candles, and **Beat** = PnL − EV with its z. "
             "A profile that hides its trades shows **hidden**.\n"
+            "- Combos with a crypto, commodity or other financial leg aren't recorded at all, as on the other pages.\n"
             "- Bets older than a few days of ordinary bettors are folded into per-day totals; whales' and starred "
             "bettors' bets are kept whole for a year. The recorder saves every 5 minutes, and the page re-reads every 5."
         )

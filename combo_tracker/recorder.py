@@ -259,6 +259,9 @@ class Store:
         bet["L"] = row.get("legs")
         bet["lv"] = bool(row.get("leg_detail")) and is_live(row)
         bet["ti"] = short_legs(row)
+        legs = [l.get("ticker") for l in row.get("leg_detail") or [] if l.get("ticker")]
+        if legs:
+            bet["lt"] = legs  # the legs' market tickers: which markets this bet is really on
         if row.get("hours_to_resolve") is not None:
             bet["x"] = round((now or time.time()) + row["hours_to_resolve"] * 3600)
         if not bet.get("ten"):
@@ -301,6 +304,52 @@ class Store:
                 continue
             done += 1
         return done
+
+    # ---- legs ----
+    def legs_unknown(self, limit: int = 2000) -> list[str]:
+        """Combo tickers of bets whose legs we never kept (bets priced before `lt` existed, or not priced)."""
+        return list(dict.fromkeys(b["tk"] for b in self.bets.values() if "lt" not in b))[:limit]
+
+    def set_legs(self, markets: dict[str, dict]) -> int:
+        """Fill in `lt` from /markets rows (mve_selected_legs). A combo whose row has no legs gets [] so
+        it isn't asked again. Returns how many bets were filled in."""
+        done = 0
+        for b in self.bets.values():
+            m = markets.get(b["tk"])
+            if "lt" in b or m is None:
+                continue
+            b["lt"] = [l.get("market_ticker") or l.get("event_ticker") or "" for l in m.get("mve_selected_legs") or []]
+            done += 1
+        return done
+
+    def drop(self, bet: dict) -> None:
+        """Forget one bet, and what it told us about its bettor's size."""
+        self.bets.pop(bet["id"], None)
+        self._resize(bet["c"])
+
+    def purge(self, is_out) -> int:
+        """Drop every bet with a leg that `is_out(ticker)` rejects (crypto, commodities, ...). Returns how many."""
+        gone = [b for b in self.bets.values() if any(is_out(t) for t in b.get("lt") or ())]
+        for b in gone:
+            del self.bets[b["id"]]
+        for code in {b["c"] for b in gone}:
+            self._resize(code)
+        return len(gone)
+
+    def _resize(self, code: str) -> None:
+        """Recompute a bettor's biggest/first/last from the bets left (folded totals keep their own `big`)."""
+        info = self.codes.get(code)
+        if info is None:
+            return
+        mine = [b for b in self.bets.values() if b["c"] == code]
+        folded = max((v[2] for days in self.buckets.get(code, {}).values() for v in days.values()), default=0.0)
+        if not mine and not folded and not self.is_tagged(code):
+            del self.codes[code]
+            return
+        info["big"] = max([stake(b) for b in mine] + [folded])
+        if mine:
+            info["first"] = min(info.get("first") or mine[0]["t"], min(b["t"] for b in mine))
+            info["last"] = max(b["t"] for b in mine)
 
     # ---- naming ----
     def to_link(self, now: float | None = None, min_age: float = 90, tries: int = 3) -> list[dict]:
@@ -433,6 +482,16 @@ class Store:
         s.buckets = d.get("buckets") or {}
         s.bets = {b["id"]: b for b in d.get("bets") or []}
         return s
+
+
+def financial_filter():
+    """`is_financial(ticker)` from combo_tracker.financial (crypto, commodities, financials: Kenny only bets
+    sports), or None while that module isn't in this checkout yet."""
+    try:
+        from . import financial
+    except ImportError:
+        return None
+    return financial.is_financial
 
 
 # ---- the tables the app shows ----

@@ -66,9 +66,11 @@ auth = KalshiAuth.from_env()
 if auth is None:
     sys.exit("The recorder needs a Kalshi API key: set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY.")
 
+is_fin = recorder.financial_filter()  # crypto/commodity/financial legs: Kenny only bets sports
 print(f"Recorder: whales bet ${whale_min:,.0f}+ (then ${track_min:,.0f}+ counts), tennis bets ${tennis_min:,.0f}+; "
       f"{minutes:.0f} min; data locked with {recorder.key_label(auth, secret)}; "
-      f"{'dry run' if dry else 'saving to ' + recorder.BRANCH}; alerts {'on' if tg else 'off'}", flush=True)
+      f"{'dry run' if dry else 'saving to ' + recorder.BRANCH}; alerts {'on' if tg else 'off'}; "
+      f"financial legs {'dropped' if is_fin else 'kept (no financial.py here yet)'}", flush=True)
 
 store = recorder.Store(whale_min, track_min, tennis_min)
 saved = None
@@ -100,7 +102,7 @@ scorer = Scorer(client, quote_ttl=15)
 book = RfqBook(client)
 tracker = BettorTracker(KalshiClient(rate_per_sec=4), every=900)  # public profiles, on its own thread
 pending: deque = deque()  # (bet, match) waiting to be priced
-counts = dict.fromkeys(("kept", "priced", "unpriced", "settled", "folded", "linked", "lookups", "alerts", "errors"), 0)
+counts = dict.fromkeys(("kept", "priced", "unpriced", "settled", "folded", "linked", "lookups", "alerts", "errors", "fin"), 0)
 sent: dict[str, float] = {}  # alert keys -> when
 
 
@@ -166,6 +168,10 @@ def price_some(limit: int = 6, until: float | None = None) -> None:
             counts["priced"] += 1
         else:
             counts["unpriced"] += 1
+        if is_fin and any(is_fin(t) for t in bet.get("lt") or ()):
+            store.drop(bet)  # a crypto, commodity or financial leg: not a bet we follow
+            counts["fin"] += 1
+            continue
         if store.is_tagged(bet["c"]):
             try:
                 alert(bet, m, rows)
@@ -179,6 +185,18 @@ def settle() -> None:
     if tickers:
         counts["settled"] += store.settle(client.get_markets(tickers, batch_size=100))
     counts["folded"] += store.fold()
+
+
+def legs() -> None:
+    """Legs of bets kept before their legs were (or could be) recorded, then purge the financial ones."""
+    tickers = store.legs_unknown()
+    if tickers:
+        store.set_legs(client.get_markets(tickers, batch_size=100))
+    if is_fin:
+        gone = store.purge(is_fin)
+        counts["fin"] += gone
+        if gone:
+            print(f"{time.strftime('%H:%M:%S')} dropped {gone} earlier bets with a financial leg", flush=True)
 
 
 def link(limit: int = 12) -> None:
@@ -224,6 +242,8 @@ def profile_live(now: float, hours: float = recorder.LIVE_HOURS) -> list[dict]:
         for f in list(p.fills.values()):
             m = tracker.markets.get(f.ticker) or {}
             if now - f.ts > hours * 3600 or m.get("final"):
+                continue
+            if is_fin and any(is_fin(l.get("market_ticker") or l.get("event_ticker") or "") for l in m.get("legs") or ()):
                 continue
             fair_yes = tracker.fair.get(f.trade_id)
             fair = None if fair_yes is None else (fair_yes if f.side == "yes" else 1 - fair_yes)
@@ -281,8 +301,10 @@ threading.Thread(target=run_tracker, daemon=True, name="profile-tracker").start(
 book.start()
 started = time.time()
 deadline = started + minutes * 60
-last = {"save": started, "settle": started - 540, "link": started, "profiles": started, "tags": started, "log": started}
-jobs = [("settle", 600, settle), ("link", 120, link), ("profiles", 1800, profiles), ("tags", 60, read_tags)]
+last = {"save": started, "settle": started - 540, "legs": started - 570, "link": started, "profiles": started,
+        "tags": started, "log": started}
+jobs = [("settle", 600, settle), ("legs", 600, legs), ("link", 120, link), ("profiles", 1800, profiles),
+        ("tags", 60, read_tags)]
 while time.time() < deadline:
     try:
         for m in book.take():
@@ -305,7 +327,7 @@ while time.time() < deadline:
             s = book.stats
             print(f"{time.strftime('%H:%M:%S')} stream={book.ws_status} rfqs={s['rfqs']:,} combo bets={s['executions']:,} "
                   f"named={s['sure'] + s['likely']:,} | this run: kept {counts['kept']}, priced {counts['priced']} "
-                  f"({counts['unpriced']} not), settled {counts['settled']}, folded {counts['folded']}, named "
+                  f"({counts['unpriced']} not), settled {counts['settled']}, folded {counts['folded']}, financial {counts['fin']}, named "
                   f"{counts['linked']} of {counts['lookups']} looked up, alerts {counts['alerts']}, errors {counts['errors']} | "
                   f"whales {sum(map(store.is_whale, store.codes)):,}, codes {len(store.codes):,}, bets {len(store.bets):,}, "
                   f"waiting {len(pending)} | profiles: {tracker.status}, {len(tracker.profiles)} | stream error: {book.last_error}",

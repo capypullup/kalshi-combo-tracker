@@ -306,3 +306,20 @@ def test_fetch_and_push_files_keep_a_lease(tmp_path):
     subprocess.run(["git", "-C", a, "remote", "set-url", "origin", str(tmp_path / "gone.git")], check=True)
     with pytest.raises(recorder.GitError, match="fetching"):
         recorder.fetch_files(cwd=a)  # a broken remote is an error, never "no data yet"
+
+
+def test_financial_legs_are_dropped_and_purged():
+    s = Store()
+    b = s.consider(match(WHALE, 1, 6000))
+    s.price(b, row())
+    assert b["lt"] == ["KXNBAGAME-26OCT23LALBOS-LAL", "KXNBATOTAL-X"]  # the legs' tickers travel with the bet
+    s.consider(match(WHALE, 2, 9000))  # never priced: its legs are unknown until asked
+    assert s.legs_unknown() == ["KXMVE-2"]
+    assert s.set_legs({"KXMVE-2": {"mve_selected_legs": [{"market_ticker": "KXBTC15M-1", "side": "yes"}]}}) == 1
+    assert s.legs_unknown() == [] and s.codes[WHALE]["big"] == 9000
+    assert s.purge(lambda t: t.startswith("KXBTC")) == 1
+    assert set(s.bets) == {"t1"} and s.codes[WHALE]["big"] == 6000  # the whale's size no longer counts the BTC bet
+    s.drop(b)
+    assert not s.bets and WHALE not in s.codes
+    f = recorder.financial_filter()
+    assert f is None or callable(f)
