@@ -62,6 +62,7 @@ class DemoClient:
                 "expected_expiration_time": (now + timedelta(hours=rng.uniform(1, 120))).isoformat(),
                 "mve_selected_legs": [{"event_ticker": self.leg_markets[t]["event_ticker"],
                                        "market_ticker": t, "side": sides[t]} for t in legs],
+                "mve_collection_ticker": "KXMVECROSSCATEGORY-R",
             }
             if rng.random() < 0.7:
                 self.combo_markets[cticker].update(status="finalized", result="yes" if rng.random() < 0.3 else "no")
@@ -81,6 +82,19 @@ class DemoClient:
                     "no_price_dollars": f"{1 - price:.4f}", "count_fp": f"{count:.2f}",
                     "created_time": (now - timedelta(minutes=rng.uniform(0, 180))).isoformat(),
                 })
+
+        # Near-certain legs nobody has combined yet, for the Quote page's extra legs. Their own
+        # random stream keeps the rest of the demo data the same.
+        locks = random.Random(seed + 1)
+        for series, game, _, _, event_title in GAMES:
+            ticker, p = f"{series}-{game}-LOCK", locks.uniform(0.84, 0.97)
+            side_yes = locks.random() < 0.6
+            mid = p if side_yes else 1 - p
+            self.leg_markets[ticker] = {"ticker": ticker, "event_ticker": f"{series}-{game}", "status": "active",
+                                        "yes_sub_title": f"{event_title.split(':')[0]}: no upset" if side_yes else
+                                        f"{event_title.split(':')[0]}: upset",
+                                        "yes_bid_dollars": f"{mid - 0.005:.4f}", "yes_ask_dollars": f"{mid + 0.005:.4f}",
+                                        "yes_bid_size_fp": "800.00", "yes_ask_size_fp": "650.00"}
 
     def combo_trades(self, min_ts: datetime, max_pages: int = 200) -> list[dict]:
         return [t for t in self.trades if datetime.fromisoformat(t["created_time"]) >= min_ts]
