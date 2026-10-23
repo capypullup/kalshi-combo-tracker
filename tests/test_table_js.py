@@ -88,11 +88,19 @@ def test_js_pills_that_read_the_same_look_the_same(tmp_path):
 def test_js_times_read_as_clock_times(tmp_path):
     """Bets show the clock time they were placed, and pre-match bets when their first game starts."""
     now = "new Date(2026, 9, 23, 12, 0).getTime()"  # a Friday, noon local time
-    expr = (f"JSON.stringify([[-1, 0.5, 25.5, 160.5, 600, 1500].map((m) => startsIn({now} + m * 60000, {now})), "
+    expr = (f"JSON.stringify([[-1, 0.5, 25.5, 160.5, 600, 1500, 8 * 1440].map((m) => startsIn({now} + m * 60000, {now})), "
             f"[clock({now} - 4 * 60000, {now}), clock({now} - 13 * 3600000, {now})]])")
     starts, clocks = json.loads(run_js(tmp_path, "clock, startsIn", expr).replace("\u202f", " "))
-    assert starts == ["starting", "starts in 1m", "starts in 25m", "starts 2:40 PM", "starts 10:00 PM", "Sat 1:00 PM"]
+    assert starts == ["starting", "starts in 1m", "starts in 25m", "starts 2:40 PM", "starts 10:00 PM", "starts Sat 1:00 PM",
+                      "starts Oct 31 12:00 PM"]  # a week out shows the date, so it can't read as this week
     assert clocks == ["11:56 AM", "Thu 11:00 PM"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_js_card_stakes_never_print_narrower_for_more(tmp_path):
+    expr = "JSON.stringify([692, 3712.4, 9999, 12400, 25049, 99949, 99950, 250400, 1234567].map(money0))"
+    assert json.loads(run_js(tmp_path, "money0", expr)) == \
+        ["$692", "$3,712", "$9,999", "$12.4k", "$25.0k", "$99.9k", "$100k", "$250k", "$1.2M"]
 
 
 ROWS = [  # what the filters and sorts look at, for a handful of bets

@@ -80,21 +80,26 @@ function ago(ms) {
   return m < 1 ? "now" : m < 60 ? `${Math.floor(m)}m` : `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, "0")}`;
 }
 const agoTxt = (ms) => (ago(ms) === "now" ? "just now" : `${ago(ms)} ago`);
-// Clock time in the phone's own format ("12:45 AM"), with the weekday when it isn't today ("Sat 7:05 PM").
+// Clock time in the phone's own format ("12:45 AM"), with the weekday when it isn't today ("Sat 7:05 PM"),
+// or the date from 6 days away ("Nov 1 1:00 PM"), where a weekday would read as this week.
 function clock(ms, now = Date.now()) {
   if (!isNum(ms)) return "";
   const d = new Date(ms);
   const t = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return d.toDateString() === new Date(now).toDateString() ? t : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${t}`;
+  if (d.toDateString() === new Date(now).toDateString()) return t;
+  const day = Math.abs(ms - now) >= 6 * 864e5 ? { month: "short", day: "numeric" } : { weekday: "short" };
+  return `${d.toLocaleDateString(undefined, day)} ${t}`;
 }
 const cents = (x) => (isNum(x) ? `${Math.round(x * 100)}¢` : "—");
 const money = (x) => (isNum(x) ? `${x < 0 ? "-" : ""}$${Math.abs(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–");
 const qty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(n) ? 0 : 1 });
-// Short forms for the cards: $692, $3,712, $17k, $1.2M · 4.58x
+// Short forms for the cards: $692, $3,712, $12.4k, $250k, $1.2M · 4.58x. From $10k they keep a decimal, so a
+// bigger bet never prints narrower than a smaller one.
 function money0(x) {
   if (!isNum(x)) return "–";
   const a = Math.abs(x);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}k` : Math.round(a).toLocaleString();
+  const s = a >= 999500 ? `${(a / 1e6).toFixed(1)}M` : a >= 99950 ? `${Math.round(a / 1e3)}k`
+    : a >= 1e4 ? `${(a / 1e3).toFixed(1)}k` : Math.round(a).toLocaleString();
   return `${x < 0 ? "-" : ""}$${s}`;
 }
 function mult(p) {
@@ -244,13 +249,12 @@ function legThin(S, l) {
 const rowThin = (S, r) => r.legs.some((l) => legThin(S, l));
 
 // When a pre-match combo's first game starts: "starts in 25m" within the hour, then "starts 7:05 PM",
-// or "Sat 7:05 PM" on another day.
+// "starts Sat 7:05 PM" on another day. Always "starts", so it never reads as the time it was bet.
 function startsIn(ms, now = Date.now()) {
   if (!isNum(ms)) return "";
   const m = (ms - now) / 60000;
   if (m <= 0) return "starting";
-  if (m < 60) return `starts in ${Math.max(1, Math.floor(m))}m`;
-  return new Date(ms).toDateString() === new Date(now).toDateString() ? `starts ${clock(ms, now)}` : clock(ms, now);
+  return m < 60 ? `starts in ${Math.max(1, Math.floor(m))}m` : `starts ${clock(ms, now)}`;
 }
 const firstStart = (r) => r.legs.reduce((a, l) => (isNum(l.st) && (a === null || l.st < a) ? l.st : a), null);
 
@@ -263,7 +267,7 @@ function leagues(r) {
 function sportChips(r, max) {
   const all = leagues(r);
   const shown = all.length > max ? all.slice(0, max - 1) : all;
-  const chip = ([lg, spt]) => `<span class="lg">${SPORT_ICON[spt] || SPORT_ICON.other} ${esc(lg)}</span>`;
+  const chip = ([lg, spt]) => `<span class="lg">${SPORT_ICON[spt] || SPORT_ICON.other}<span> ${esc(lg)}</span></span>`;
   return shown.map(chip).join("") + (all.length > shown.length ? `<span class="lg plus">+${all.length - shown.length}</span>` : "");
 }
 
@@ -359,19 +363,22 @@ function shell(root) {
 function legendHtml() {
   const pill = (x, small) => `<span class="evp ${evTier(x)}${evDark(x) ? " dk" : ""}" style="${evStyle(x)}"><b>${pctShort(x)}</b>`
     + `${small === undefined ? "" : `<i>/</i><span>${pctShort(small)}</span>`}</span>`;
-  return `<div class="lrow">${pill(0.21, 0.13)}<span>EV <b>mid</b> / EV <b>cross</b>. The big one is what the Mid / Cross
+  return `<p><span class="nw"><b>$232</b> @ <b>21.6x</b></span> the bet and the multiplier it got ·
+      <span class="nw"><b class="c">$500+</b></span> bets in cyan · <span class="nw"><b>2.73u</b></span> Kelly units to bet
+      (set Kelly and unit size with the gear) · <span class="nw"><i>fair</i> <b>17.8x</b> / 19.1x</span> the fair
+      multipliers at mid / cross, the brighter one following the switch (EV = paid ÷ fair − 1) ·
+      <span class="nw"><b>9:19 AM</b> · 2m ago</span> when it was bet · <span class="nw"><b>LIVE</b></span> or
+      <span class="nw"><b>starts 2:40 PM</b></span> when its first game starts.</p>
+    <div class="lrow">${pill(0.21, 0.13)}<span>EV <b>mid</b> / EV <b>cross</b>. The big one is what the Mid / Cross
       switch picks: it sets the color, Min EV, Min QK and the EV and QK sorts. The other gets a red chip when it's
       negative (a green one when it's positive on a red pill).</span></div>
     <div class="ramp">${[0.05, 0.15, 0.3, 1, 2.5, 8].map((x) => pill(x)).join("")}</div>
     <p>Pale under +10%, deep green from +10%, bright from +20% and neon by +800%: 🔥 from +200%, a white ring from
       +500%. Edges from +200% are usually a stale leg book, so they carry <em class="wn">⚠ CHECK</em>.</p>
-    <p><b>$232</b> @ <b>21.6x</b> the bet and the multiplier it got · <i>fair</i> <b>17.8x</b> / <b>19.0x</b> the fair
-      multipliers at mid / cross (EV = paid ÷ fair − 1) · <b>12:45 AM</b> when it was bet · <b>2.73u</b> Kelly units to
-      bet (set Kelly and unit size with the gear) · <b class="c">$500+</b> bets in cyan ·
-      <em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
+    <p><em class="no">NO</em> the bettor took NO · <em class="sg">SG</em> two legs on one game · <em class="wn">⚠ THIN</em> a
       leg's book is wide or small · <em class="wn">IN BAND</em> the price sits inside the leg spreads ·
-      <em class="wn">NO QUOTE</em> a leg has no market.
-      Tap a bet for its legs, American odds and Bet in Kalshi.</p>`;
+      <em class="wn">NO QUOTE</em> a leg has no market. Then the leagues and legs; a tight line shows a league by its
+      emoji. Tap a bet for its legs, American odds, what it pays and the buttons to bet it.</p>`;
 }
 
 const WARN_ORDER = ["CHECK", "NO QUOTE", "THIN", "IN BAND"];  // most important first, in case the line runs out
@@ -406,15 +413,24 @@ function rowHtml(S, data, r) {
   // the time it was bet, then tags, leagues and legs against LIVE or the start time.
   return `<div class="row ${tier}${open ? " open" : ""}" data-id="${esc(r.id)}" style="${evCardVars(ev, tier)}">
     <div class="card" data-act="toggle">
-      <div class="c1"><span class="bet"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>
-        <span class="evx">${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}${pill}${fire}</span></div>
+      <div class="c1"><span class="lead"><span class="bet"><b class="stake${r.stake >= BIG_BET ? " big" : ""}">${money0(r.stake)}</b><i>@</i><b class="m">${mult(r.price)}</b></span>`
+        + `${u >= 0.005 ? `<span class="u">${fmtU(u)}</span>` : ""}</span><span class="evx">${pill}${fire}</span></div>
       <div class="c2"><span class="fair"><i>fair</i>${fair(r.fm, mid)}<i>/</i>${fair(r.fc, !mid)}</span>
         <span class="tm"><b>${clock(r.t)}</b><span class="age" data-t="${r.t}">${agoTxt(r.t)}</span></span></div>
-      <div class="c3"><div class="ctx"><span class="tg">${tags}${sportChips(r, tags ? 2 : 3)}</span>`
-        + `<span class="pv"><i>${r.L} legs · </i>${esc(legs)}</span></div>${when}</div>
+      <div class="c3"><div class="ctx"><span class="tg">${tags}${sportChips(r, tags ? 2 : 3)}<span class="nl">${r.L} leg${r.L === 1 ? "" : "s"}</span></span>`
+        + `<span class="pv"><i>· </i>${esc(legs)}</span></div>${when}</div>
     </div>
     ${open ? detailHtml(S, data, r) : ""}
   </div>`;
+}
+
+// Line 3 never cuts a league in half: on a row whose tags, leagues and leg count don't fit, the leagues show
+// as their emoji and then the ⚠ tag gives way (.lgx). Reads every row first, then writes.
+function fitCards(scope, fresh = false) {
+  if (fresh) scope.querySelectorAll(".row.lgx").forEach((row) => row.classList.remove("lgx"));
+  const tight = [...scope.querySelectorAll(".row:not(.lgx) .ctx")]
+    .filter((c) => c.firstElementChild.getBoundingClientRect().width > c.getBoundingClientRect().width + 0.5);
+  tight.forEach((c) => c.closest(".row").classList.add("lgx"));
 }
 
 function detailHtml(S, data, r) {
@@ -461,7 +477,7 @@ function detailHtml(S, data, r) {
   </div>`;
 }
 
-export { betCard, betUrl, clock, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
+export { betCard, betUrl, clock, counts, evHeat, evShown, evStyle, evTier, hydrate, loadUi, money0, pctShort, startsIn, visibleRows };  // for tests/test_table_js.py
 
 export default function (component) {
   const { parentElement, setStateValue, setTriggerValue } = component;
@@ -476,6 +492,20 @@ export default function (component) {
     parentElement.appendChild(root);
     shell(root);
     bind(root);
+    // A new width or a font arriving changes what fits on line 3.
+    let wait = 0;
+    root._refit = () => {
+      if (!root.isConnected) {
+        window.removeEventListener("resize", root._refit);
+        document.fonts?.removeEventListener("loadingdone", root._refit);
+        return;
+      }
+      clearTimeout(wait);
+      wait = setTimeout(() => fitCards(root, true), 150);
+    };
+    window.addEventListener("resize", root._refit);
+    document.fonts?.addEventListener("loadingdone", root._refit);
+    document.fonts?.ready.then(root._refit);
   }
   const $ = (name) => root.querySelector(`[data-ref="${name}"]`);
 
@@ -536,6 +566,7 @@ export default function (component) {
     $("rows").innerHTML = shown.length
       ? shown.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows)
       : emptyHtml(D);
+    fitCards(root);
     watchSentinel();
   }
 
@@ -567,6 +598,7 @@ export default function (component) {
     const old = root.querySelector(".more");
     if (old) old.remove();
     $("rows").insertAdjacentHTML("beforeend", next.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows));
+    fitCards(root);
     watchSentinel();
   }
 
@@ -588,6 +620,7 @@ export default function (component) {
       paintMeta();
       root.querySelectorAll("[data-t]").forEach((el) => { el.textContent = agoTxt(+el.dataset.t); });
       root.querySelectorAll("[data-st]").forEach((el) => { el.textContent = startsIn(+el.dataset.st); });
+      fitCards(root);
     }, 15000);
   }
 
