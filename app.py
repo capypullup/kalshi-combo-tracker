@@ -50,6 +50,7 @@ from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
+from combo_tracker import tools_view  # noqa: E402
 from combo_tracker.rfq import RfqBook  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
@@ -305,6 +306,7 @@ def nav() -> None:
         st.page_link(PAGES[0], label="Combos")
         st.page_link(PAGES[1], label="Bettors")
         st.page_link(PAGES[2], label="Quote")
+        st.page_link(PAGES[3], label="Tools")
 
 
 def combo_page() -> None:
@@ -501,7 +503,14 @@ def quote_page() -> None:
         )
 
 
+# ---------- Tools page ----------
+def tools_page() -> None:
+    nav()
+    tools_view.render()
+
+
 PAGES = [st.Page(combo_page, title="Combos", default=True),
          st.Page(bettors_page, title="Bettors", url_path="bettors"),
-         st.Page(quote_page, title="Quote", url_path="quote")]
+         st.Page(quote_page, title="Quote", url_path="quote"),
+         st.Page(tools_page, title="Tools", url_path="tools")]
 st.navigation(PAGES, position="hidden").run()
