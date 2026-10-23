@@ -230,7 +230,12 @@ with sync_playwright() as p:
             visit(page, f"https://kalshi.com/combos?marketTicker={t}", f"{engine}-combos-param", shots, share=True)
             try:  # open the slip's bottom sheet and read it
                 sheet = page.locator("text=/MARKETS? COMBO/i").first
-                sheet.click(timeout=8000)
+                box = sheet.bounding_box()
+                print("sheet box", box)
+                page.mouse.click(372, box["y"] + 20)  # the chevron on the sheet's right
+                page.wait_for_timeout(2500)
+                if "pays" in page.inner_text("body")[-400:]:
+                    sheet.dispatch_event("click")
                 page.wait_for_timeout(3000)
                 body = page.inner_text("body")
                 names = facts.get("leg_names") or []
