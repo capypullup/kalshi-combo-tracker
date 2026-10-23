@@ -1,0 +1,18 @@
+key check: {'kind': 'Ed25519', 'fingerprint': '0bf5870f2a75', 'key_id_end': 'e97b', 'read': 'ok', 'write': 'ok', 'scopes': ['read', 'write']}
+batch with repeated tickers returns: ['KXNBAGAME-26OCT22DENOKC-OKC', 'KXNFLGAME-26OCT22NECHI-CHI']
+
+KXMVECROSSCATEGORY-S2026UTJ2CZBNT7T7VY7P-WHLB4G7UZ | 2 legs | KXMVECROSSCATEGORY-R | fair YES 0.4651 (2.15x)
+  [combo] +1.4s YES 2.04x fee in | 20.38 contracts | cost $10.00 | EV mid -5.2% | two-sided False
+  [combo] +1.4s YES 1.66x fee in | 16.58 contracts | cost $10.01 | EV mid -22.9% | two-sided True
+  [combo] +1.4s YES 1.41x fee in | 14.08 contracts | cost $10.00 | EV mid -34.5% | two-sided True
+  [combo] +1.4s YES 1.23x fee in | 12.26 contracts | cost $10.00 | EV mid -43.0% | two-sided False
+  [combo] +7.8s YES 1.97x fee in | 19.70 contracts | cost $10.00 | EV mid -8.4% | two-sided True
+  [combo] quotes: 5
+  [combo] cancelled
+
+extra-leg candidates: 16 | first: [('KXLIGAEXPGAME-26OCT22ADOCAH-CAH', 'no', 0.965, 'Other'), ('KXBTC15M-26OCT222300-00', 'yes', 0.956, 'Other'), ('KXITFMATCH-26OCT22HAOPEL-PEL', 'yes', 0.955, 'Tennis'), ('KXITFWMATCH-26OCT22KHOHAN-KHO', 'yes', 0.925, 'Tennis'), ('KXNCAAFGAME-26OCT23PITTMIA-MIA', 'yes', 0.925, 'CFB')]
+  bigger combo: KXMVECROSSCATEGORY-S2026S6XPMOC376BXKSUW-ADW4YLNH2
+  [+no KXLIGAEXPGAME-26OCT22ADOCAH-CAH] +1.1s YES 2.02x fee in | 20.18 contracts | cost $10.01 | EV mid -9.5% | two-sided False
+  [+no KXLIGAEXPGAME-26OCT22ADOCAH-CAH] +1.1s YES 1.19x fee in | 11.90 contracts | cost $10.00 | EV mid -46.6% | two-sided False
+  [+no KXLIGAEXPGAME-26OCT22ADOCAH-CAH] quotes: 2
+  [+no KXLIGAEXPGAME-26OCT22ADOCAH-CAH] cancelled
