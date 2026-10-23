@@ -10,8 +10,8 @@ YES Combo +4579
 NO Mookie Betts: 2+ (Milwaukee vs Los Angeles D: Home Runs)
 NO Freddy Peralta: 6+ (Cleveland vs Tampa Bay: Strikeouts)
 ────────────
-EV MID +3610.1% (fair -383) · 20u
-EV CRX +3568.4% (fair -363) · 19u
+EV MID +3610.1% (fair -383 / 1.26x) · 20u
+EV CRX +3568.4% (fair -363 / 1.28x) · 19u
 ```
 
 ## Home and the tab bar
@@ -22,7 +22,7 @@ Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app
 
 ## Combos page
 
-- **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number.
+- **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number. The card shows each fair price as American odds and as a payout multiplier (`fair -383 / 1.26x`).
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
 - The page is a black and cyan table with rounded type and pill-shaped controls, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (Mid odds / Cross odds, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
 - Toggles at the top: **Min EV**, **Min QK** (Kelly units) and **Min bet** chips, a **Window** (15m, 1h, 3h), **Indep. only** to hide same-game combos, **Mid / Cross** to pick which EV the minimums use, **Hide thin** to drop combos with an unreliable leg book, **Pregame / Live**, and a search box for leg names. The gear icon sets the Kelly fraction, unit size and what counts as thin (default: a leg spread over 3¢ or under 50 contracts at the top of book). Your choices are remembered on your phone.

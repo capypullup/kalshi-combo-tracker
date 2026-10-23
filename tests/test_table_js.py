@@ -37,7 +37,7 @@ def test_js_bet_card_matches_python(tmp_path):
 
     out = run_js(tmp_path, "betCard", f"betCard({{kelly: 0.5, unitPct: 2}}, {json.dumps(slim)})")
     assert out == bet_card(row, kelly_mult=0.5, unit_pct=2)
-    assert out.endswith("EV CRX +3568.4% (fair -363) · 19u")
+    assert out.endswith("EV CRX +3568.4% (fair -363 / 1.28x) · 19u")
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
