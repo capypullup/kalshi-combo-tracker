@@ -14,10 +14,14 @@ echo "apkeep: $URL"; curl -sL "$URL" -o /tmp/apkeep && chmod +x /tmp/apkeep
 PKG=""
 for p in $PKGS; do
   echo "== apkeep $p"
-  /tmp/apkeep -a "$p" "$APK" 2>&1 | tail -5
+  /tmp/apkeep -a "$p" -d apk-pure "$APK" 2>&1 | tail -5
   if ls "$APK" | grep -q "$p"; then PKG=$p; break; fi
   echo "== direct APKPure $p"
-  curl -sL -A "Mozilla/5.0" -o "$APK/$p.xapk" "https://d.apkpure.com/b/XAPK/$p?version=latest"
+  for u in "https://d.apkpure.com/b/XAPK/$p?version=latest" "https://d.apkpure.net/b/XAPK/$p?version=latest" \
+           "https://d.apkpure.com/b/APK/$p?version=latest"; do
+    curl -sL -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36" -o "$APK/$p.xapk" -w "  $u -> %{http_code} %{size_download}B\n" "$u"
+    unzip -tq "$APK/$p.xapk" >/dev/null 2>&1 && break
+  done
   if unzip -tq "$APK/$p.xapk" >/dev/null 2>&1; then PKG=$p; break; else rm -f "$APK/$p.xapk"; fi
 done
 ls -la "$APK"

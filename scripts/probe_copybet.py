@@ -78,12 +78,20 @@ try:
     for t in page.get("trades", []):
         if t["ticker"].startswith(COMBO_PREFIX) and t["ticker"] not in tickers:
             tickers.append(t["ticker"])
-    for tk in tickers[:12]:  # prefer a short combo, easier to read in a screenshot
-        m = client._get(f"/markets/{tk}")["market"]
+    print(f"{len(tickers)} combo tickers on the first trades page")
+    for tk in tickers[:40]:  # prefer a short, open combo, easier to read in a screenshot
+        try:
+            m = client._get(f"/markets/{tk}")["market"]
+        except Exception as exc:
+            print("skip", tk, repr(exc)[:120])
+            continue
         if m.get("status") == "active" and 2 <= len(m.get("mve_selected_legs") or []) <= 4:
             combo = m
             break
-    combo = combo or client._get(f"/markets/{tickers[0]}")["market"]
+        combo = combo or (m if m.get("status") == "active" else None)
+    if combo is None:  # fall back to the markets list
+        page = client._get("/markets", {"mve_filter": "only", "status": "open", "limit": 50})
+        combo = next(m for m in page.get("markets", []) if m.get("mve_selected_legs"))
     legs = combo.get("mve_selected_legs") or []
     names = []
     for leg in legs:
@@ -227,6 +235,24 @@ with sync_playwright() as p:
             visit(page, f"https://kalshi.com/markets_by_ticker/{facts['leg']}", f"{engine}-mbt-leg", shots, share=True)
         if engine == "chromium":
             visit(page, "https://kalshi.com/combos", f"{engine}-combos-list", shots)
+            try:
+                card = page.locator("button:has-text('pays $')").first
+                card.click(timeout=8000)
+                page.wait_for_timeout(5000)
+                print("after tapping the first popular combo:", page.url)
+                print("   body:", page.inner_text("body")[:1500].replace("\n", " | "))
+                print("   buttons:", buttons(page)[:40])
+                page.screenshot(path=str(OUT / "chromium-popular-combo.png"))
+                shots.append("chromium-popular-combo.png")
+                for sel in ["[aria-label*='hare' i]", "button:has-text('Share')"]:
+                    loc = page.locator(sel)
+                    print("share candidates", sel, loc.count())
+                    if loc.count():
+                        loc.first.click(timeout=5000)
+                        page.wait_for_timeout(2500)
+                        print("   captured", page.evaluate("window.__cap || []"))
+            except Exception as exc:
+                print("popular combo ERR", repr(exc)[:300])
         ctx.close()
         browser.close()
 
