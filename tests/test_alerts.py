@@ -71,6 +71,11 @@ def test_pick_leaves_out_same_game_legs():
     assert same["same_game_legs"] == 1 and same["ev_pct_mid"] > 0.4
     assert alerts.pick([same], TIERS, OFF, set()) == []
     assert alerts.pick([same], TIERS, OFF, set(), skip_same_game=False) == [same]
+    tennis = row(legs=[leg("KXATPMATCH-26OCT23STRBER", "KXATPMATCH-26OCT23STRBER-STR"),
+                       leg("KXATPSETWINNER-26OCT23STRBER-2", "KXATPSETWINNER-26OCT23STRBER-2-STR")])  # match + set 2
+    assert tennis["same_game_legs"] == 1 and alerts.pick([tennis], TIERS, OFF, set()) == []
+    races = row(legs=[leg("SENATEGA-26", "SENATEGA-26-D"), leg("SENATENC-26", "SENATENC-26-D")])  # two Senate races
+    assert races["same_game_legs"] == 0 and alerts.pick([races], TIERS, OFF, set()) == [races]
 
 
 def test_pick_leaves_out_combos_over_five_legs_or_two_leagues():

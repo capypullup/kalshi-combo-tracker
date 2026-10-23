@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from combo_tracker.engine import build_bets, score_bet, taker_fee
+from combo_tracker.engine import _game_key, build_bets, score_bet, taker_fee
 from combo_tracker.orderbook import LegBook
 
 NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
@@ -83,6 +83,25 @@ def test_score_yes_bet():
     assert row["same_game_legs"] == 1
     assert row["hours_to_resolve"] == pytest.approx(6.0)
     assert row["min_fill_pct"] == 1.0
+
+
+def test_game_key_ignores_set_and_race_parts():
+    # Event tickers seen on live combo legs (2026-10-23)
+    match = _game_key("KXATPMATCH-26OCT23STRBER")
+    assert match == "26OCT23STRBER" == _game_key("KXATPSETWINNER-26OCT23STRBER-2") == _game_key("KXATPGTOTAL-26OCT23STRBER")
+    assert _game_key("KXNBARACE-26OCT23CHIMIL-10") == _game_key("KXNBAGAME-26OCT23CHIMIL") == _game_key("KXNBAPTS-26OCT23CHIMIL")
+    assert _game_key("KXMLBHIT-26OCT232000TBMIL") == _game_key("KXMLBGAME-26OCT232000TBMIL") == "26OCT232000TBMIL"
+    assert _game_key("KXCS2GAME-26OCT240600BBTS") != _game_key("KXDOTA2GAME-26OCT241000BBTS")
+    assert _game_key("KXMLBRFI") == "KXMLBRFI"
+    assert _game_key("KXPGATOUR-BUBC26") == _game_key("KXPGAMAKECUT-BUBC26")  # one tournament
+
+
+def test_game_key_keeps_dated_events_apart():
+    assert _game_key("SENATEGA-26") != _game_key("SENATENC-26") != _game_key("GOVPARTYFL-26")
+    assert _game_key("KXMLB-26") != _game_key("KXWNBA-26")
+    assert _game_key("KXHIGHNY-26OCT23") != _game_key("KXHIGHCHI-26OCT23")
+    assert _game_key("KXBTC15M-26OCT230915") != _game_key("KXETH15M-26OCT230915")
+    assert _game_key("SENATEGA-26") == "SENATEGA-26"  # two markets of one race are still one event
 
 
 def test_score_no_bet_mirrors_yes():
