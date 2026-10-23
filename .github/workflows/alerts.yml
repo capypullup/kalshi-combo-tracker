@@ -2,7 +2,7 @@ name: Notification bot
 # Always-on alerts: each run watches for ~5h50m, and the hourly schedule queues the next
 # run behind it (one running + one waiting), so there's no gap between runs.
 # Change the thresholds in Settings → Secrets and variables → Actions → Variables:
-#   ALERT_MIN_BET (dollars, default 500), ALERT_MIN_EV (percent, default 10),
+#   ALERT_TIERS (bet size:min EV %, default "500:20,1000:10"), ALERT_SKIP_THIN (default 1; 0 keeps thin books),
 #   ALERT_EV_BASIS (mid or crx, default mid), APP_URL (your CapyEV link, adds a Quote it button).
 # Sends with the secrets TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (or NTFY_TOPIC). Without them, it only prints.
 on:
@@ -43,8 +43,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          ALERT_MIN_BET: ${{ vars.ALERT_MIN_BET }}
-          ALERT_MIN_EV: ${{ vars.ALERT_MIN_EV }}
+          ALERT_TIERS: ${{ vars.ALERT_TIERS }}
+          ALERT_SKIP_THIN: ${{ vars.ALERT_SKIP_THIN }}
           ALERT_EV_BASIS: ${{ vars.ALERT_EV_BASIS }}
           APP_URL: ${{ vars.APP_URL }}
           ALERT_MINUTES: ${{ inputs.minutes || '350' }}

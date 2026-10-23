@@ -1,8 +1,9 @@
 """Notification bot: push every combo bet over $X with EV above Y% to your phone.
 
 Runs a loop for ALERT_MINUTES (the GitHub workflow restarts it, see .github/workflows/alerts.yml):
-pull the newest combo trades every minute, score bets of at least ALERT_MIN_BET dollars
-against the leg books, and send each new one with EV above ALERT_MIN_EV percent to your
+pull the newest combo trades every minute, score the big bets against the leg books, and
+send each new one that clears its size tier (ALERT_TIERS, "500:20,1000:10" = $500+ bets need
++20% EV, $1,000+ need +10%) and has no thin leg book (ALERT_SKIP_THIN=0 keeps those) to your
 Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) or ntfy topic (NTFY_TOPIC). With
 neither set (or DRY_RUN=1) it prints the alerts instead. ALERT_SENT_FILE keeps what was
 sent, so the next run doesn't repeat it.
@@ -29,8 +30,9 @@ def setting(name: str, default: str = "") -> str:
     return os.environ.get(name, "").strip() or default
 
 
-min_bet = float(setting("ALERT_MIN_BET", "500"))
-min_ev = float(setting("ALERT_MIN_EV", "10")) / 100
+tiers = alerts.parse_tiers(setting("ALERT_TIERS", "500:20,1000:10"))
+skip_thin = setting("ALERT_SKIP_THIN", "1") != "0"
+min_bet = tiers[0][0]
 basis = setting("ALERT_EV_BASIS", "mid").lower()  # "mid" or "crx" (crossing the spread)
 minutes = float(setting("ALERT_MINUTES", "350"))
 every = float(setting("ALERT_EVERY", "60"))
@@ -45,7 +47,8 @@ if setting("DRY_RUN", "0") != "1":
         sender = alerts.Telegram(setting("TELEGRAM_BOT_TOKEN"), setting("TELEGRAM_CHAT_ID") or None)
     elif setting("NTFY_TOPIC"):
         sender = alerts.Ntfy(setting("NTFY_TOPIC"))
-print(f"bets ≥ ${min_bet:,.0f} with EV {basis.upper()} > {min_ev * 100:.0f}% · every {every:.0f}s for {minutes:.0f} min · "
+rules = ", ".join(f"${stake:,.0f}+ at {ev * 100:+.0f}%" for stake, ev in tiers)
+print(f"EV {basis.upper()}: {rules}{', no thin books' if skip_thin else ''} · every {every:.0f}s for {minutes:.0f} min · "
       f"{type(sender).__name__ if sender else 'dry run (printing only)'}", flush=True)
 
 # ticker|side -> when it was sent; kept 12 hours
@@ -67,7 +70,7 @@ while time.time() < deadline:
         col.poll()
         snap = scorer.score(col.window(window), min_stake=min_bet, max_bets=5000)
         rows = snap.rows if not ok else [r for r in snap.rows if r["minutes_ago"] <= fresh]
-        hits = alerts.pick(rows, min_bet, min_ev, set(sent), basis)
+        hits = alerts.pick(rows, tiers, set(sent), basis, skip_thin)
         for row in hits:
             if sender:
                 sender.send(row, basis, app_url)
