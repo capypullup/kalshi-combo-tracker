@@ -163,8 +163,9 @@ def settle() -> None:
 
 def link(limit: int = 12) -> None:
     # Names we already know from public histories: a kept bet whose trade shows a taker there.
+    fresh = time.time() - 2 * recorder.DAY  # a kept bet is at most a couple of days old when it's still unnamed
     takers = {f.trade_id: p.nickname for p in list(tracker.profiles.values()) if not p.code
-              for f in list(p.fills.values()) if f.taker}
+              for f in list(p.fills.values()) if f.taker and f.ts >= fresh}
     for b in store.bets.values():
         if b["id"] in takers and not store.codes.get(b["c"], {}).get("name"):
             store.name(b["c"], takers[b["id"]])
