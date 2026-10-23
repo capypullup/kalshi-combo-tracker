@@ -115,16 +115,16 @@ class Collector:
     def poll(self) -> None:
         start = time.time()
         now = datetime.fromtimestamp(start, timezone.utc)
-        if self.covered_to is not None and now - self.covered_to > self.initial_backfill:
-            # Back after a long pause (nobody had the app open): start over from the newest
-            # trades rather than paging through the whole gap at once.
+        if self.covered_to is None or now - self.covered_to > self.initial_backfill:
+            # The first poll, or back after a long pause (nobody had the app open): load the
+            # newest trades rather than paging through the whole gap. Until that has worked, the
+            # trades held and their coverage stay as they were, so a failed scan is simply redone.
+            since = now - self.initial_backfill
+            self._scan(since, slices=self.slices)
             with self.lock:
-                self.trades.clear()
-                self.covered_from = self.covered_to = None
-        if self.covered_to is None:
-            self.covered_to = now
-            self._scan(now - self.initial_backfill, progress=True, slices=self.slices)
-            self.covered_from = now - self.initial_backfill
+                if self.covered_to is not None:  # what's from before the gap goes; backfill reloads it
+                    self.trades = {k: t for k, t in self.trades.items() if t[0] >= since.timestamp()}
+                self.covered_from, self.covered_to = since, now
         else:
             # Overlap a few seconds so trades stamped just before the last poll aren't missed.
             gap = now - self.covered_to

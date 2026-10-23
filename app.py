@@ -51,7 +51,7 @@ from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
-from combo_tracker.pipeline import Board, Scorer  # noqa: E402
+from combo_tracker.pipeline import Board, Scorer, TradesUnavailable  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
 from combo_tracker.rfq import RfqBook  # noqa: E402
@@ -274,6 +274,17 @@ def _quote():
     st.session_state.quote_req = st.session_state.cev.quote
 
 
+def _touch_combos(board) -> None:
+    """Keep the Combos view open so the worker keeps it fresh, and the other Min bets at its window,
+    so switching is instant. Before the phone's saved filter has come in (the page's first run),
+    the other Min bets are held for 5 minutes only, in case it's another window."""
+    window, min_bet = st.session_state.window, st.session_state.min_bet
+    board.touch(window, min_bet)
+    for other in MIN_BETS:
+        board.touch(window, other, hold=None if st.session_state.get("table_ran") else 300)
+    st.session_state.table_ran = True
+
+
 def _brew(view: tuple[int, float], message: str):
     """The view's scores and an error, brewing them first if there are none yet or they're old
     (the app sat idle). If brewing fails, the old scores stay up with the error."""
@@ -284,6 +295,8 @@ def _brew(view: tuple[int, float], message: str):
     try:
         with st.spinner(message):
             return board.get(*view, max_age=STALE_SECONDS), None
+    except TradesUnavailable:
+        return snap, "Kalshi is slow to send the latest trades, so these are the last scores. Tap ↻ in a minute."
     except Exception as exc:
         if snap is None:
             raise
@@ -308,11 +321,7 @@ def table_view():
         if snap is None:  # first look at this filter; afterwards the worker keeps it fresh
             snap, error = _brew((window, min_bet), "Brewing scores for this filter… 🧋")
             st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
-        src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
-        if st.session_state.get("table_ran"):  # after the phone's saved filter has come in
-            for other in MIN_BETS:  # the other Min bets at this window too, so switching is instant
-                src.board.touch(window, other)
-        st.session_state.table_ran = True
+        _touch_combos(src.board)
     except Exception as exc:  # network / API errors should not blank the page
         snap, error = None, f"Couldn't score bets: {exc}"[:200]
 
@@ -324,7 +333,7 @@ def table_view():
         if collector.last_error:
             error = error or _poll_error(collector.last_error)
     if snap and snap.bets_over_min > MAX_BETS:
-        about = "about " if snap.over_min_estimated else ""
+        about = "about " if getattr(snap, "over_min_estimated", False) else ""  # pinned before a deploy: no field
         notes.append(f"Showing the newest {snap.bets_scored:,} of {about}{snap.bets_over_min:,} bets ≥ ${min_bet:,}.")
 
     # The browser spins the refresh icon until `refreshed` echoes its tap. Until then the
@@ -398,8 +407,11 @@ def _watch_refresh() -> None:
 
 @st.fragment(run_every=60)
 def _heartbeat() -> None:
-    """Tells the background workers a page is open, so they keep polling Kalshi (see activity.py)."""
+    """Tells the background workers a page is open, so they keep polling Kalshi (see activity.py),
+    and keeps an open Combos filter scored while you read it."""
     activity.seen()
+    if st.session_state.get("page") == COMBOS.title and st.session_state.get("table_ran"):
+        _touch_combos(get_source().board)
 
 
 def nav() -> None:

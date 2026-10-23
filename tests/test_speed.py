@@ -12,7 +12,7 @@ import requests
 from combo_tracker import alerts, financial, pipeline
 from combo_tracker.client import KalshiClient, RateLimiter
 from combo_tracker.collector import Collector
-from combo_tracker.pipeline import Board, Scorer
+from combo_tracker.pipeline import Board, Scorer, TradesUnavailable
 
 
 @pytest.fixture(autouse=True)
@@ -336,6 +336,67 @@ def test_old_scores_are_brewed_again_when_asked_with_max_age():
     assert new is not old and new.fetched_at > old.fetched_at + timedelta(hours=7)
 
 
+def test_old_scores_stay_up_while_kalshi_sends_no_trades():
+    trades = [trade(1, "KXMVE-4", stake_contracts=400)]
+    scorer = CountingScorer(Kalshi())
+    board = Board(scorer, trades_for=lambda m: list(trades), every=120, wait_for_trades=30)
+    board.refresh(trades_as_of=time.time())
+    old = board.peek(60, 100)
+    old.fetched_at -= timedelta(minutes=30)  # the app sat idle
+    with board.polled:
+        board.trades_as_of -= 1800
+    trades.clear()  # say the collector lost them
+    board.poll_failed()  # and Kalshi is down
+    n = len(scorer.views)
+    with pytest.raises(TradesUnavailable):
+        board.get(60, 100, max_age=600)
+    assert board.peek(60, 100) is old and len(scorer.views) == n  # nothing scored over the old list
+
+
+def test_pages_waiting_on_another_pages_failed_score_report_it_too():
+    gate, started = threading.Event(), threading.Event()
+
+    class Failing(Scorer):
+        calls = 0
+
+        def score_bets(self, *args, **kwargs):
+            Failing.calls += 1
+            started.set()
+            gate.wait(5)
+            raise requests.ConnectionError("Kalshi is down")
+
+    board = Board(Failing(Kalshi()), trades_for=lambda m: [trade(1, "KXMVE-4")], every=120, wait_for_running=0.05)
+    errors = []
+
+    def page():
+        try:
+            board.get(15, 5)
+        except Exception as exc:
+            errors.append(exc)
+
+    pages = [threading.Thread(target=page) for _ in range(3)]
+    pages[0].start()
+    started.wait(5)
+    for p in pages[1:]:
+        p.start()
+    time.sleep(0.3)
+    gate.set()
+    for p in pages:
+        p.join(5)
+    assert Failing.calls == 1 and len(errors) == 3
+
+
+def test_a_view_held_briefly_is_forgotten_unless_touched_again(monkeypatch):
+    board = Board(Scorer(Kalshi()), trades_for=lambda m: [], every=0, forget_after=1800)
+    board.touch(180, 5, hold=300)  # the first run's guess at the phone's window
+    board.touch(60, 5, hold=300)
+    clock = time.time() + 400
+    monkeypatch.setattr(pipeline.time, "time", lambda: clock)
+    board.touch(60, 5)  # the phone's filter is the 1h one after all
+    board.refresh(force=True)
+    assert (180, 5.0) not in board.views and (60, 5.0) in board.views
+
+
 # ---- review fixes: the scorer ----
 def test_bets_past_the_lookups_are_estimated_at_the_hidden_rate():
     kalshi = Kalshi(crypto={n for n in range(1, 1001) if n % 10 < 3})  # 30% of combos have a BTC leg
@@ -437,6 +498,45 @@ def test_a_tap_mid_backfill_keeps_coverage_contiguous():
     for _ in range(8):
         col.extend_backfill()
     assert tape.combos(179) <= set(col.trades)
+
+
+def test_a_failed_first_poll_is_redone_and_history_still_loads():
+    tape = Tape(minutes=60)
+
+    class Flaky:
+        down = True
+
+        def iter_trades(self, *args, **kwargs):
+            if self.down:
+                raise requests.ConnectionError("down")
+            return tape.iter_trades(*args, **kwargs)
+
+    feed = Flaky()
+    col = Collector(feed, max_window_minutes=45, initial_backfill_minutes=15)
+    with pytest.raises(requests.ConnectionError):
+        col.poll()
+    assert col.covered_to is None and col.coverage_minutes() == 0
+    feed.down = False
+    col.poll()
+    col.extend_backfill()
+    assert tape.combos(44.9) <= set(col.trades) and col.coverage_minutes() >= 44
+
+
+def test_after_a_pause_old_trades_stay_until_the_new_ones_are_in():
+    tape = Tape(minutes=60)
+    col = Collector(tape, max_window_minutes=180, initial_backfill_minutes=15)
+    col.poll()
+    before = set(col.trades)
+    col.covered_to -= timedelta(minutes=30)  # nobody had the app open for half an hour
+    col.covered_from -= timedelta(minutes=30)
+    old_to = col.covered_to
+    tape.iter_trades = lambda *a, **k: (_ for _ in ()).throw(requests.ConnectionError("down"))
+    with pytest.raises(requests.ConnectionError):
+        col.poll()
+    assert set(col.trades) == before and col.covered_to == old_to  # a failed restart changes nothing
+    del tape.iter_trades
+    col.poll()
+    assert col.coverage_minutes() < 16 and tape.combos(14.9) <= set(col.trades)
 
 
 def test_a_failed_poll_is_reported():

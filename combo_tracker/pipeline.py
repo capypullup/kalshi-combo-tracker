@@ -23,6 +23,10 @@ class Snapshot:
     over_min_estimated: bool = False  # bets_over_min counts hidden combos past the lookups at the rate seen
 
 
+class TradesUnavailable(RuntimeError):
+    """Kalshi's trade feed isn't answering, so there's nothing newer to score."""
+
+
 class TTLCache:
     def __init__(self, ttl_seconds: float | None):
         self.ttl = ttl_seconds
@@ -289,9 +293,15 @@ class Board:
             if snap is not None and (max_age is None or asked - snap.fetched_at.timestamp() <= max_age):
                 return snap
             self._wait_for_trades(asked)
+            if snap is not None and not self._trades_current():
+                raise TradesUnavailable("Kalshi isn't sending trades right now")  # keep the old scores up
             if self._claim(key):
                 try:
                     return self._score(key)
+                except Exception as exc:  # pages waiting on this score report it rather than retry
+                    with self.lock:
+                        self.failed[key] = (time.time(), repr(exc)[:200])
+                    raise
                 finally:
                     self._release(key)
             with self.lock:
@@ -302,6 +312,10 @@ class Board:
                     when, error = self.failed.get(key, (0.0, None))
                 if error and when >= asked:
                     raise RuntimeError(error)  # the score this page waited on failed: don't pile on
+
+    def _trades_current(self) -> bool:
+        return not self.wait_for_trades or (self.trades_as_of is not None
+                                            and time.time() - self.trades_as_of <= self.trades_current)
 
     def _wait_for_trades(self, asked: float) -> None:
         """Wait (up to wait_for_trades seconds after `asked`) for a recent poll, or a failed one."""
@@ -323,11 +337,13 @@ class Board:
             self.poll_failed_at = time.time()
             self.polled.notify_all()
 
-    def touch(self, window: int, min_stake: float) -> None:
-        """Mark a view as open, so the regular pass keeps scoring it."""
+    def touch(self, window: int, min_stake: float, hold: float | None = None) -> None:
+        """Mark a view as open, so the regular pass keeps scoring it (for `hold` seconds if
+        given, rather than forget_after, unless it's touched again)."""
         key = (window, float(min_stake))
+        at = time.time() if hold is None else time.time() - max(0.0, self.forget_after - hold)
         with self.lock:
-            self.views[key] = max(self.views.get(key, 0.0), time.time())
+            self.views[key] = max(self.views.get(key, 0.0), at)
 
     def request(self, window: int, min_stake: float) -> float:
         """Ask for this view to be re-scored from trades newer than now. Returns the request time."""

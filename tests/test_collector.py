@@ -224,7 +224,8 @@ def test_after_a_long_pause_the_collector_starts_over_from_the_newest_trades():
     c.add("gap", "KXMVECROSS-B", 30)
     col = Collector(c, max_window_minutes=180, initial_backfill_minutes=15)
     col.covered_from = col.covered_to = datetime.now(timezone.utc) - timedelta(minutes=45)
-    col.trades = {"old": ("stale",)}
+    col.trades = {"old": ((datetime.now(timezone.utc) - timedelta(minutes=50)).timestamp(), "old", "KXMVECROSS-A",
+                          "yes", 0.25, 10.0)}
     c.add("new", "KXMVECROSS-C", 5)
     col.poll()
     assert set(col.trades) == {"new"}  # the 30-minute gap isn't paged through all at once
