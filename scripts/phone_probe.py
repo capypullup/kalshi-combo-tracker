@@ -141,7 +141,7 @@ def wake_if_asleep(page: Page) -> float | None:
 
 
 def shot(page: Page, name: str, out_dir: Path | None, show: bool) -> None:
-    img = page.screenshot(type="jpeg", quality=50)
+    img = page.screenshot(type="jpeg", quality=40, scale="css")
     if out_dir:
         (out_dir / f"{name}.jpg").write_bytes(img)
     if show:  # CI logs: decode the block between the markers to see it
@@ -167,6 +167,23 @@ def blocked_tabs(page: Page, frame: Frame) -> list[dict]:
     return res
 
 
+def what_shows(page: Page) -> dict:
+    """When the app doesn't come up: where the browser ended up and what it shows."""
+    out = {"url": page.url, "frames": [f.url for f in page.frames]}
+    try:
+        out["title"] = page.title()
+        out["text"] = page.evaluate("() => document.body ? document.body.innerText.slice(0, 1500) : ''")
+        out["buttons"] = page.evaluate("() => [...document.querySelectorAll('button, a')].map(b => (b.innerText || '').trim()).filter(Boolean).slice(0, 30)")
+    except Exception as exc:
+        out["read_error"] = str(exc)[:200]
+    for f in page.frames[1:4]:
+        try:
+            out.setdefault("frame_text", []).append(f.evaluate("() => document.body ? document.body.innerText.slice(0, 600) : ''"))
+        except Exception:
+            pass
+    return out
+
+
 def first_load(page: Page, wire: Wire, url: str, timeout: float) -> dict:
     t0 = time.time()
     page.goto(url, wait_until="commit", timeout=timeout * 1000)
@@ -177,7 +194,8 @@ def first_load(page: Page, wire: Wire, url: str, timeout: float) -> dict:
         out["was_asleep"] = True
     frame = app_frame(page, timeout)
     if frame is None:
-        out["error"] = "no app frame"
+        out["error"] = "the app never showed up"
+        out["page"] = what_shows(page)
         return out
     out["frame_ms"] = round((time.time() - t0) * 1000)
     frame.wait_for_selector(".st-key-tabbar", state="visible", timeout=timeout * 1000)
@@ -228,8 +246,9 @@ def run(url: str, profile: str, rounds: int, out_dir: Path | None, show: bool, t
         try:
             res["first_load"] = first_load(page, wire, url, timeout)
         except Exception as exc:
-            res["first_load"] = {"error": str(exc)[:300]}
-            shot(page, f"{profile}-failed", out_dir, show)
+            res["first_load"] = {"error": str(exc)[:300], "page": what_shows(page)}
+        if "error" in res["first_load"]:
+            shot(page, f"{engine}-{profile}-failed", out_dir, show)
             browser.close()
             return res
         frame = app_frame(page, 5)

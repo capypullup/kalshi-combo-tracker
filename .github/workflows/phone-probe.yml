@@ -32,20 +32,20 @@ jobs:
         run: |
           for i in 1 2 3; do
             curl -sS -o /dev/null -w "kalshi %{time_connect}s connect %{time_total}s total\n" https://api.elections.kalshi.com/trade-api/v2/exchange/status
-            curl -sS -o /dev/null -w "app health %{http_code} %{time_connect}s connect %{time_total}s total\n" "${URL%/}/~/+/_stcore/health"
+            curl -sS -o /dev/null -w "app page %{http_code} %{time_connect}s connect %{time_total}s total %{size_download}B\n" "$URL"
           done
       - name: First look, no throttling (with screenshots)
         continue-on-error: true
-        run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show
+        run: python scripts/phone_probe.py "$URL" --profile none --rounds 1 --show --timeout 150
       - name: iPhone layout in WebKit (with screenshots)
         continue-on-error: true
-        run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show
+        run: python scripts/phone_probe.py "$URL" --engine webkit --profile none --rounds 1 --show --timeout 150
       - name: Recent iPhone on good 5G / Wi-Fi
         continue-on-error: true
-        run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3
+        run: python scripts/phone_probe.py "$URL" --profile fast --rounds 3 --timeout 150
       - name: Mid-range phone on slow 4G
         continue-on-error: true
-        run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2
+        run: python scripts/phone_probe.py "$URL" --profile slow4g --rounds 2 --timeout 150
       - name: The app without Streamlit Cloud's page around it (/~/+/)
         continue-on-error: true
-        run: python scripts/phone_probe.py "${URL%/}/~/+/" --profile fast --rounds 2 --show
+        run: python scripts/phone_probe.py "${URL%/}/~/+/" --profile fast --rounds 2 --show --timeout 150
