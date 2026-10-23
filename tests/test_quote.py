@@ -191,11 +191,14 @@ def test_quotes_are_listed_with_your_user_id():
     assert yes.cost == pytest.approx(10, abs=0.02) and quote_for(got[0], "no") is None
 
 
-def test_accept_sends_the_side_you_buy():
-    desk, s = fake_desk([FakeResp(204, None)])
+def test_accept_names_the_makers_side_like_kalshi_com():
+    """kalshi.com buys a combo's YES with accepted_side "no": the side named is the maker's bid you hit."""
+    desk, s = fake_desk([FakeResp(204, None), FakeResp(204, None)])
     desk.accept("r1", "q1", "yes")
     assert s.calls[0][:2] == ("PUT", "/communications/rfqs/r1/quotes/q1/accept")
-    assert s.calls[0][3] == {"accepted_side": "yes"}
+    assert s.calls[0][3] == {"accepted_side": "no"}
+    desk.accept("r1", "q1", "no")
+    assert s.calls[1][3] == {"accepted_side": "yes"}
 
 
 def test_signature_error_is_explained():

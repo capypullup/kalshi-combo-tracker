@@ -610,8 +610,8 @@ def _bet_buttons(desk, quotes: list, unit: float) -> None:
                 f'({_units(q.cost, unit)}) · pays ${q.contracts:,.2f} if it hits · EV mid {_pct(ev)}'
                 + ('<br><span class="warn">This quote is −EV at the legs\' mid.</span>' if ev is not None and ev <= 0
                    else "")
-                + ('<br><span class="dim">This maker also bids your side. CapyEV reads Kalshi\'s accept as "buy '
-                   f'{q.side.upper()}" (from its docs; no bet has checked it yet), so check the fill below.</span>'
+                + ('<br><span class="dim">This maker also bids your side. CapyEV accepts the way kalshi.com does, '
+                   'but no CapyEV bet has checked it yet, so check the fill below.</span>'
                    if q.two_sided else "") + f'<br><span class="dim">{html.escape(r["label"])} · {html.escape(r["ticker"])}</span></div></div>')
         # Callbacks, not st.rerun: they run before the next run, whether Streamlit reruns the fragment or the page.
         with st.container(horizontal=True):
@@ -711,7 +711,7 @@ def _open_in_kalshi(c: LiveCheck) -> None:
     with st.container(horizontal=True, vertical_alignment="center"):
         st.link_button("Bet on kalshi.com", bet_url(c.ticker), icon=":material/open_in_new:")
         st.caption("Opens Kalshi's combo builder in your browser with this combo in the slip. The Kalshi app "
-                   "can't open a combo from a link." + (" :orange[It may start on YES: switch the slip to NO.]"
+                   "can't open a combo from a link." + (" :orange[kalshi.com only buys YES on a combo: bet this NO here.]"
                                                         if c.side == "no" else ""))
     with st.expander("Legs to copy"):
         st.code("\n".join(f"{l['side'].upper()} {l['leg']} ({l['event_title']})" for l in legs), language=None)

@@ -329,10 +329,13 @@ class RfqDesk:
     def accept(self, rfq_id: str, quote_id: str, side: str) -> None:
         """Take a quote: buy `side` at the maker's price. The maker then has 3 s to confirm.
 
-        Kalshi's REST docs only say "the side of the quote to accept". Its FIX docs map a BUY (which
-        takes the maker's NO bid) to AcceptedSide = Yes, so accepted_side is the side you buy.
+        accepted_side names the maker's bid you hit, the opposite of the side you buy. Kalshi's REST
+        docs only say "the side of the quote to accept", but kalshi.com sends "no" when you buy a
+        combo (YES) in its combo builder, and "no" when you tap a quote's "Yes" price (1 - no_bid)
+        on its RFQ page (both read from its site code, 2026-10-23).
         """
-        self._send("PUT", f"/communications/rfqs/{rfq_id}/quotes/{quote_id}/accept", body={"accepted_side": side})
+        taken = "no" if side == "yes" else "yes"
+        self._send("PUT", f"/communications/rfqs/{rfq_id}/quotes/{quote_id}/accept", body={"accepted_side": taken})
 
     def fills(self, ticker: str) -> list[dict]:
         """Your newest fills on one market."""
