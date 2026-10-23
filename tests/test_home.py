@@ -61,6 +61,8 @@ def test_js_ev_badge_scale(tmp_path):
 def test_js_bet_link_matches_python(tmp_path):
     ticker = "KXMVECROSSCATEGORY-S2026ABC-123"
     assert run_js(tmp_path, f"H.betUrl({json.dumps(ticker)})") == bet_url(ticker)
+    leg = "KXNBAGAME-26OCT21ATLORL-ATL"
+    assert run_js(tmp_path, f"H.betUrl({json.dumps(leg)})") == bet_url(leg)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
