@@ -5,7 +5,7 @@ import pytest
 
 from combo_tracker.bettors import BettorTracker, Fill, Profile
 from combo_tracker.demo import DemoClient, demo_rfq_book
-from combo_tracker.rfq import PLACEHOLDER, Execution, Match, RfqBook, executions, pick, size_fits
+from combo_tracker.rfq import PLACEHOLDER, Execution, Match, RfqBook, executions, partly_fits, pick, size_fits
 
 T0 = datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc)
 T = T0.timestamp()
@@ -26,6 +26,7 @@ def test_executions_group_fills_a_second_apart():
     big = next(e for e in ex if len(e.trade_ids) == 2)
     assert big.count == 100 and big.price == pytest.approx(0.22)
     assert (big.ts, big.end) == (T, T + 0.5)
+    assert [(p.count, p.trade_ids) for p in big.parts] == [(60, ["a"]), (40, ["b"])]
     assert len(ex) == 2
 
 
@@ -37,25 +38,29 @@ def test_size_fits_contracts_and_target_cost():
     assert size_fits(None, 20.0, e)  # asked for the cost before fees
     assert not size_fits(None, 30.0, e)
     assert not size_fits(None, None, e)
+    assert partly_fits(None, 30.0, e) and partly_fits(120.0, None, e)  # a quote filled less than asked
+    assert not partly_fits(None, 60.0, e) and not partly_fits(90.0, None, e)
 
 
 def test_pick_is_sure_when_every_fit_is_one_requester():
     e = executions([tr("a")])[0]
     slip = [close(-10), close(-1.2), close(0.05)]  # the app re-asked while the slip was open
-    best, sure = pick(slip, e)
-    assert best == close(0.05) and sure
-    best, sure = pick(slip + [close(1.0, creator="c2")], e)  # someone else asked for the same bet
+    assert pick(slip, e) == (close(0.05), True, True)
+    assert pick(slip + [close(1.5, creator="c2")], e)[1]  # someone else's slip refreshing a second later
+    best, sure, _ = pick(slip + [close(0.3, creator="c2")], e)  # someone else closed the same bet just then
     assert best == close(0.05) and not sure
-    assert pick([close(0.0, contracts=5.0)], e) == (None, False)  # wrong size
-    assert pick([close(-30), close(6)], e) == (None, False)  # closed too early / too late
-    best, _ = pick(slip, e, used={("KXMVE-A", T + 0.05)})  # that close already went to another trade
+    assert pick([close(0.0, contracts=5.0)], e) == (None, False, False)  # wrong size
+    assert pick([close(0.1, contracts=120.0)], e) == (close(0.1, contracts=120.0), True, False)  # filled less
+    assert pick([close(0.1, contracts=120.0), close(0.2, creator="c2")], e)[0] == close(0.2, creator="c2")
+    assert pick([close(-30), close(6)], e) == (None, False, False)  # closed too early / too late
+    best, _, _ = pick(slip, e, used={("KXMVE-A", T + 0.05)})  # that close already went to another trade
     assert best == close(-1.2)
 
 
 def test_pick_hidden_requesters_are_sure_only_alone():
     e = executions([tr("a")])[0]
     assert pick([close(0.1, creator=PLACEHOLDER, rid="r1")], e)[1]
-    best, sure = pick([close(0.1, creator=PLACEHOLDER, rid="r1"), close(-1, creator=PLACEHOLDER, rid="r0")], e)
+    best, sure, _ = pick([close(0.1, creator=PLACEHOLDER, rid="r1"), close(0.3, creator=PLACEHOLDER, rid="r0")], e)
     assert best[4] == "r1" and not sure
 
 
@@ -97,6 +102,15 @@ def test_match_trades_waits_for_late_fills_and_late_closes():
     book.match_trades([], now=T + 40)  # waited long enough: no RFQ for it
     assert book.stats["executions"] == 3 and book.stats["sure"] == 2 and book.stats["unmatched"] == 1
     assert book.missed[-1][0].trade_ids == ["c"] and book.missed[-1][1] is None
+
+
+def test_two_bets_a_moment_apart_are_matched_one_by_one():
+    book = RfqBook(DemoClient(), settle=0)
+    book.add_close("KXMVE-A", T + 0.1, "c1", 25.0, None)
+    book.add_close("KXMVE-A", T + 0.6, "c2", 75.0, None)
+    found = book.match_trades([tr("a", count=25), tr("b", sec=0.5, count=75)], now=T + 5)
+    assert sorted((m.creator, m.execution.trade_ids[0]) for m in found) == [("c1", "a"), ("c2", "b")]
+    assert book.stats["split"] == 1 and book.stats["executions"] == 1
 
 
 def test_hidden_requester_is_looked_up_after_matching():

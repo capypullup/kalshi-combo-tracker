@@ -12,9 +12,15 @@ the same size (N contracts, or $X of cost), that closed within a couple of secon
 of the trade. Most RFQs close without trading: the Kalshi app asks again every few
 seconds while a bet slip is open. Those repeats come from the same person, so:
 
-- "sure": every RFQ that fits the trade is from the same requester;
+- "sure": every RFQ that fits the trade (and closed about as near to it) is from
+  the same requester;
 - "likely": RFQs from several requesters fit, and the one that closed nearest the
   trade wins.
+
+A maker's quote can fill a bit less than the requested size, so when no RFQ fits
+exactly, one that asked for somewhat more (up to 2.5x) counts too. Two bets on the
+same combo a moment apart print as one group of fills; if the group fits nothing,
+each fill is matched on its own.
 
 The requester accepts a maker's quote, so the requester is the taker: their side
 is the trade's taker side.
@@ -38,7 +44,7 @@ import sys
 import threading
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .bettors import is_tennis
@@ -55,8 +61,8 @@ TENNIS_HINTS = ('"KXATP', '"KXWTA', '"KXITF')  # cheap check before parsing an R
 
 # A closed RFQ: (closed at, creator, contracts, target cost in dollars, RFQ id if the creator is hidden)
 Close = tuple
-STATS = ("rfqs", "closes", "executions", "sure", "likely", "unmatched", "hidden", "revealed", "unrevealed",
-         "overflows", "resubscribes")
+STATS = ("rfqs", "closes", "executions", "sure", "likely", "partial", "split", "unmatched", "hidden",
+         "revealed", "unrevealed", "hidden_rfqs", "hidden_closes", "overflows", "resubscribes")
 
 
 def _ts(value) -> float | None:
@@ -86,6 +92,7 @@ class Execution:
     price: float  # avg price per contract of `side`
     trade_ids: list[str]
     end: float = 0.0  # last fill
+    parts: list[Execution] = field(default_factory=list)  # each fill on its own, when there are several
 
 
 @dataclass(slots=True)
@@ -96,6 +103,7 @@ class Match:
     sure: bool  # every RFQ that fit was from this requester
     tennis: bool = False  # the combo has a tennis leg
     lag: float = 0.0  # seconds from the trade to the RFQ's close
+    partial: bool = False  # the RFQ asked for more than filled
 
 
 def executions(trades: list[dict], gap: float = 1.5) -> list[Execution]:
@@ -113,8 +121,10 @@ def executions(trades: list[dict], gap: float = 1.5) -> list[Execution]:
                 count = sum(float(g["count_fp"]) for g in group)
                 key = "yes_price_dollars" if side == "yes" else "no_price_dollars"
                 price = sum(float(g[key]) * float(g["count_fp"]) for g in group) / count if count else 0.0
+                parts = [Execution(ticker, side, _ts(g["created_time"]), float(g["count_fp"]), float(g[key]),
+                                   [g["trade_id"]], _ts(g["created_time"])) for g in group] if len(group) > 1 else []
                 out.append(Execution(ticker, side, _ts(group[0]["created_time"]), count, price,
-                                     [g["trade_id"] for g in group], _ts(group[-1]["created_time"])))
+                                     [g["trade_id"] for g in group], _ts(group[-1]["created_time"]), parts))
                 group = []
             if t is not None:
                 group.append(t)
@@ -133,16 +143,34 @@ def size_fits(contracts: float | None, target: float | None, ex: Execution, cost
     return False
 
 
-def pick(closes, ex: Execution, used=()) -> tuple[Close | None, bool]:
-    """The RFQ close that fits this execution best, and whether the requester is sure."""
-    fits = [c for c in closes if ex.ts - BEFORE <= c[0] <= ex.ts + AFTER and size_fits(c[2], c[3], ex)]
-    free = [c for c in fits if (ex.ticker, c[0]) not in used]
-    if not free:
-        return None, False
-    creators = {c[1] for c in fits}
-    # Hidden requesters all share the placeholder, so only a lone fit tells which RFQ (and ID) it was.
-    sure = len(fits) == 1 or (len(creators) == 1 and PLACEHOLDER not in creators)
-    return min(free, key=lambda c: abs(c[0] - ex.ts)), sure
+def partly_fits(contracts: float | None, target: float | None, ex: Execution, least: float = 0.4,
+                cost_tol: float = 0.03) -> bool:
+    """Is this execution part of what the RFQ asked for? (A quote can fill a bit less.)"""
+    if contracts:
+        return least * contracts <= ex.count <= contracts + max(0.011, 0.001 * contracts)
+    if target:
+        principal = ex.count * ex.price
+        return least * target <= principal + taker_fee(ex.price, ex.count) and principal <= target * (1 + cost_tol) + 0.05
+    return False
+
+
+def pick(closes, ex: Execution, used=()) -> tuple[Close | None, bool, bool]:
+    """The RFQ close that fits this execution best, whether the requester is sure, and whether the size was exact."""
+    near = [c for c in closes if ex.ts - BEFORE <= c[0] <= ex.ts + AFTER]
+    for fits_size in (size_fits, partly_fits):
+        fits = [c for c in near if fits_size(c[2], c[3], ex)]
+        free = [c for c in fits if (ex.ticker, c[0]) not in used]
+        if not free:
+            continue
+        best = min(free, key=lambda c: abs(c[0] - ex.ts))
+        # The RFQ that filled closes within a fraction of a second of its trade, so a close well
+        # after or before that (someone else's slip refreshing) doesn't make the match doubtful.
+        rivals = [c for c in fits if abs(c[0] - ex.ts) <= abs(best[0] - ex.ts) + 0.5]
+        creators = {c[1] for c in rivals}
+        # Hidden requesters all share the placeholder, so only a lone fit tells which RFQ (and ID) it was.
+        sure = len(rivals) == 1 or (len(creators) == 1 and PLACEHOLDER not in creators)
+        return best, sure, fits_size is size_fits
+    return None, False, False
 
 
 class RfqBook:
@@ -153,8 +181,8 @@ class RfqBook:
     New matches wait in `take()` for the bettor tracker.
     """
 
-    def __init__(self, client, keep_seconds: float = 45.0, poll_seconds: float = 5.0, settle: float = 3.0,
-                 wait: float = 15.0, reveal_per_poll: int = 8, max_out: int = 200_000):
+    def __init__(self, client, keep_seconds: float = 30.0, poll_seconds: float = 5.0, settle: float = 3.0,
+                 wait: float = 12.0, reveal_per_poll: int = 8, max_out: int = 200_000):
         self.client = client
         self.keep = keep_seconds
         self.poll_seconds = poll_seconds
@@ -189,6 +217,8 @@ class RfqBook:
         with self.lock:
             self.closes[ticker].append(close)
         self.stats["closes"] += 1
+        if creator == PLACEHOLDER:
+            self.stats["hidden_closes"] += 1
 
     def _note_tennis(self, body: dict) -> None:
         ticker = body.get("market_ticker")
@@ -200,6 +230,8 @@ class RfqBook:
         """Handle one stream message. Returns "resubscribe" when Kalshi dropped the subscription."""
         if raw.startswith('{"type":"rfq_created"'):  # most messages: count them, don't parse them
             self.stats["rfqs"] += 1
+            if PLACEHOLDER in raw:
+                self.stats["hidden_rfqs"] += 1
             if any(h in raw for h in TENNIS_HINTS):
                 self._note_tennis(json.loads(raw).get("msg") or {})
             return None
@@ -270,10 +302,9 @@ class RfqBook:
         found, waiting = [], []
         with self.lock:
             for e in sorted(self._waiting + ready, key=lambda e: e.ts):
-                best, sure = pick(self.closes.get(e.ticker, ()), e, self.used)
-                if best is not None:
-                    self.used[(e.ticker, best[0])] = best[0]
-                    found.append(Match(best[4] or "", best[1], e, sure, e.ticker in self.tennis, best[0] - e.ts))
+                matches = self._match(e)
+                if matches:
+                    found += matches
                 elif now - e.end < self.wait:
                     waiting.append(e)
                 else:
@@ -283,12 +314,26 @@ class RfqBook:
         self._waiting = waiting
         for m in found:
             self.stats["sure" if m.sure else "likely"] += 1
+            self.stats["partial"] += m.partial
             self.recent.append(m)
             if m.creator == PLACEHOLDER:
                 self.stats["hidden"] += 1
                 self._reveal.append([m, 0, now])
             else:
                 self.out.append(m)
+        return found
+
+    def _match(self, e: Execution) -> list[Match]:
+        """Match one execution (call with the lock held). A group of fills that fits no RFQ may be
+        two bets a moment apart, so then each fill is tried on its own."""
+        best, sure, exact = pick(self.closes.get(e.ticker, ()), e, self.used)
+        if best is not None:
+            self.used[(e.ticker, best[0])] = best[0]
+            e.parts = []
+            return [Match(best[4] or "", best[1], e, sure, e.ticker in self.tennis, best[0] - e.ts, not exact)]
+        found = [m for part in e.parts for m in self._match(part)]
+        if found:
+            self.stats["split"] += 1
         return found
 
     def poll_trades(self, now: float | None = None) -> list[Match]:

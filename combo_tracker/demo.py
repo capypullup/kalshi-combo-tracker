@@ -237,8 +237,8 @@ def demo_rfq_book(client: DemoClient, seed: int = 5):
     """An RfqBook that heard made-up RFQ closes behind the demo combo trades and matched them.
 
     A handful of requesters, some hiding their ID. Each slip is re-requested every few
-    seconds before the bet; now and then someone else asks for the same combo and
-    size at the same moment, and some bets' RFQs were never heard.
+    seconds before the bet; now and then someone else's RFQ for the same combo and
+    size closes at the same moment, and some bets' RFQs were never heard.
     """
     from .engine import taker_fee
     from .rfq import PLACEHOLDER, RfqBook
@@ -259,7 +259,7 @@ def demo_rfq_book(client: DemoClient, seed: int = 5):
             book.add_close(t["ticker"], ts - back, who, rfq_id=f"rfq-{t['trade_id']}-{back}", **size)
         book.add_close(t["ticker"], ts + rng.uniform(0, 0.5), who, rfq_id=f"rfq-{t['trade_id']}", **size)
         if rng.random() < 0.1:
-            book.add_close(t["ticker"], ts + 1, rng.choice(codes), **size)
+            book.add_close(t["ticker"], ts + rng.uniform(0, 0.4), rng.choice(codes), **size)
     book.match_trades(client.trades)
     book.reveal()
     return book
