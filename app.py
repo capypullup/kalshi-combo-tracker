@@ -50,7 +50,7 @@ from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
-from combo_tracker.keys import find_secret, kalshi_auth  # noqa: E402
+from combo_tracker.keys import find_secret, kalshi_auth, key_rejected  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
@@ -539,21 +539,11 @@ def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
     return auth, (None if auth else problem or missing)
 
 
-_RFQ_LOCK = threading.Lock()
-
-
 def _sync_rfq(tracker: BettorTracker, auth: KalshiAuth | None) -> None:
     """Start RFQ matching once the app has a key, or switch it to a new key, without a reboot."""
-    if DEMO or auth is None:
-        return
-    with _RFQ_LOCK:
-        rfq = tracker.rfq
-        if rfq is None:
-            # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
-            tracker.rfq = RfqBook(KalshiClient(rate_per_sec=4, auth=auth)).start()
-        elif (rfq.client.auth is None or rfq.client.auth.key_id != auth.key_id
-              or rfq.client.auth.fingerprint() != auth.fingerprint()):
-            rfq.client.auth = auth  # the stream signs its next reconnect with it
+    if not DEMO and auth is not None:
+        # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
+        tracker.use_key(auth, lambda a: RfqBook(KalshiClient(rate_per_sec=4, auth=a)))
 
 
 @st.cache_resource
@@ -593,8 +583,13 @@ def bettors_view():
         notes.append(f"Tennis feed since {snap.feed_since:%H:%M} UTC: {snap.named_trades:,} of "
                      f"{snap.feed_trades:,} trades show a public name.")
     rfq = snap.rfq if snap else None
-    if rfq is None and not DEMO:
-        notes.append("RFQ matching is starting: names show up as combo bets fill." if auth else
+    live = None if DEMO else tracker.rfq  # newer than the snapshot, which can be 15 minutes old
+    stream = live.ws_status if live else (rfq or {}).get("stream")
+    if stream == "reconnecting" and key_rejected(live.last_error if live else rfq.get("error")):
+        notes.append("RFQ matching can't connect: Kalshi turned down the API key, so check that "
+                     "KALSHI_KEY_ID and KALSHI_PRIVATE_KEY come from the same key.")
+    elif rfq is None and not DEMO:
+        notes.append(f"RFQ matching is starting: names show up as combo bets fill. Stream {stream}." if live else
                      f"RFQ matching is off: {problem}.")
     elif rfq:
         matched = rfq.get("sure", 0) + rfq.get("likely", 0)
@@ -604,7 +599,7 @@ def bettors_view():
         notes.append(f"RFQ matching{since}: {matched:,} of {bets:,} combo bets named ({matched / max(bets, 1):.0%}, "
                      f"{rfq.get('sure', 0):,} sure){heard}; {rfq.get('codes', 0):,} codes, "
                      f"the top {rfq.get('shown', 0)} listed, {rfq.get('linked', 0)} linked to a name. "
-                     f"Stream {rfq.get('stream')}.")
+                     f"Stream {stream}.")
     bettor_table(
         key="bt",
         data={

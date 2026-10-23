@@ -4,7 +4,9 @@ can't be used, in words that say what to fix."""
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
+from functools import lru_cache
 
 from .client import KalshiAuth
 
@@ -49,6 +51,12 @@ def _near_misses(secrets: Mapping) -> list[str]:
     return out[:4]
 
 
+@lru_cache(maxsize=4)
+def _load(key_id: str, key: str) -> KalshiAuth:
+    """Each key is parsed once: an RSA key takes ~45 ms, and pages ask for it on every run."""
+    return KalshiAuth(key_id, key)
+
+
 def kalshi_auth(secrets: Mapping | None, env: Mapping | None = None) -> tuple[KalshiAuth | None, str | None]:
     """The API key, or None and why, as a phrase that reads after "RFQ matching is off: "."""
     key_id, key = find_secret(secrets, KEY_ID, env), find_secret(secrets, PRIVATE_KEY, env)
@@ -61,7 +69,15 @@ def kalshi_auth(secrets: Mapping | None, env: Mapping | None = None) -> tuple[Ka
         hint = f". Rename {', '.join(odd)} to match" if odd else ""
         return None, f"the app's secrets have no {missing}{have}{hint}"
     try:
-        return KalshiAuth(key_id, key), None
+        return _load(key_id, key), None
     except Exception as exc:  # the parsers' messages never include the key itself
         return None, (f"{PRIVATE_KEY} couldn't be read as a private key ({type(exc).__name__}). Paste the whole key "
                       f"file, -----BEGIN and -----END lines included")
+
+
+_REJECTED = re.compile(r"status 401|401 Client Error|INCORRECT_API_KEY", re.I)
+
+
+def key_rejected(error: str | None) -> bool:
+    """Whether an RFQ stream or API error says Kalshi turned the key down."""
+    return bool(error and _REJECTED.search(error))
