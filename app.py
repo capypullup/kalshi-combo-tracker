@@ -268,7 +268,7 @@ def _quote():
 @st.fragment
 def table_view():
     go = st.session_state.pop("quote_req", None)
-    if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
+    if go:  # "Bet in CapyEV" on an open bet: check and quote it on the Quote page (quote_view reads these params)
         st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
                                                "n": f"{go['n']:g}"})

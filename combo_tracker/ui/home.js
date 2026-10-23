@@ -1,5 +1,5 @@
 // Home: the best +EV combos as big cards, so a bet can be copied in two taps on a phone.
-// Filters run in the browser; only refresh and "Quote it" go back to Python.
+// Filters run in the browser; only refresh and "Bet in CapyEV" go back to Python.
 
 const STORE = "cev-home-v1";
 const MIN_EV = [0, 0.1, 0.25, 1];

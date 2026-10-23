@@ -1,5 +1,5 @@
 // Combo EV table: filters, sorting and expansion all run in the browser, so they're
-// instant. Only min bet, window, refresh, "load full book" and "Quote it" go back to Python.
+// instant. Only min bet, window, refresh, "load full book" and "Bet in CapyEV" go back to Python.
 // Each bet is a card led by its EV mid / cross, colored on the same green scale as Home.
 
 const MIN_EV = [null, 0, 5, 10, 20, 50];

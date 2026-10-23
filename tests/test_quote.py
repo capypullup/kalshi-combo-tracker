@@ -87,6 +87,7 @@ from combo_tracker.quote import (RfqDesk, RfqError, RfqReaper, explain, extra_le
     ("  kxmvecrosscategory-s2026abc-def1\n", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
     ("https://capyev.streamlit.app/quote?t=KXMVEX-S1-A2&side=no&p=0.8812&n=40", ("KXMVEX-S1-A2", "no", 0.8812)),
     ("https://kalshi.com/markets_by_ticker/KXMVECROSSCATEGORY-S2026ABC-DEF1", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
+    ("https://kalshi.com/combos?marketTicker=KXMVECROSSCATEGORY-S2026ABC-DEF1", ("KXMVECROSSCATEGORY-S2026ABC-DEF1", None, None)),
     ("YES Combo +4579", None),
     ("", None),
     ("capyev.streamlit.app/quote?t=KXMVEX-S1-A2&side=NO&p=0.12", ("KXMVEX-S1-A2", "no", 0.12)),  # no https://

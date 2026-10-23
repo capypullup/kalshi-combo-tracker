@@ -122,7 +122,7 @@ def _ctx_from(r: dict, scored_at: datetime | None) -> dict:
 
 
 def _params(ctx: dict) -> dict:
-    """The link for this bet (what Quote it on the Combos page sends)."""
+    """The link for this bet (what Bet in CapyEV on the Combos page sends)."""
     out = {"t": ctx["ticker"]}
     if ctx.get("side"):
         out["side"] = ctx["side"]
@@ -309,6 +309,8 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
             ss.q_check = last
         c = last["check"]
         st.html(_verdict_html(c, ctx.get("row") if same else None, ctx.get("seen_at")))
+        with st.expander("Combo book, fills and legs"):  # folded, so the quotes sit right under the verdict
+            st.html(_details_html(c))
 
     st.fragment(live_part, run_every=WATCH_SECONDS if watch else None)()
 
@@ -334,7 +336,7 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False,
 
 def _landing(rows: list[dict], scored_at) -> None:
     st.html('<div class="qv"><div class="dim" style="text-align:center;padding:2px 0 8px">On the Combos page, open a bet '
-            "and tap Quote it, or copy its ticker and tap Paste here. Or pick a recent bet:</div></div>")
+            "and tap Bet in CapyEV, or copy its ticker and tap Paste here. Or pick a recent bet:</div></div>")
     options = {f"{r['ticker']}|{r['side']}": r for r in rows[:200]}
     if not options:
         st.caption("No recent bets yet. They show up a minute or two after the app starts.")
@@ -388,8 +390,14 @@ def _verdict_html(c: LiveCheck, then: dict | None, seen_at: datetime | None) -> 
 
     if then is not None:
         out.append(_moves_html(c, then, seen_at))
+    return '<div class="qv">' + "".join(out) + "</div>"
 
-    out.append(f"<h4>Combo book · buy {c.side.upper()}</h4>")
+
+def _details_html(c: LiveCheck) -> str:
+    """The evidence behind the verdict: the combo's own book, its newest fills and the legs' books."""
+    now = c.checked_at
+    s = c.scored
+    out = [f"<h4>Combo book · buy {c.side.upper()}</h4>"]
     if c.book_levels:
         out.append('<div class="chips">' + "".join(
             f'<span class="{"pos" if p <= c.price + 1e-9 else ""}">{mult(p)} × {n:,.0f}</span>'
