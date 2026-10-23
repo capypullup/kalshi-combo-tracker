@@ -75,9 +75,13 @@ st.html(
     .block-container {padding: 0.4rem 0.5rem 3rem; max-width: 760px;}
     [data-testid="stVerticalBlock"] {gap: 0.25rem;}
     /* The bottom tab bar, like Kalshi's app: the pages around a cyan capybara button that goes Home. */
-    .block-container {padding-bottom: calc(96px + env(safe-area-inset-bottom));}
-    .st-key-tabbar {position: fixed; left: 0; right: 0; bottom: 0; z-index: 999990; gap: 0; align-items: flex-end;
-        justify-content: space-around; padding: 6px max(6px, calc(50vw - 380px)) calc(6px + env(safe-area-inset-bottom));
+    .block-container {padding-bottom: calc(96px + var(--host-lift, 0px) + env(safe-area-inset-bottom));}
+    /* Streamlit Cloud's badges sit over the app's bottom right. HOST_BADGES_JS sets --host-right to keep the
+       tabs left of them, or --host-lift to raise the tabs above them when they're too wide for that. */
+    .st-key-tabbar {position: fixed; left: 0; right: 0; bottom: 0; z-index: 999990; gap: 0;
+        align-items: flex-end; --capy: clamp(46px, calc((100vw - var(--host-right, 0px)) / 5 - 4px), 58px);
+        justify-content: space-around; padding: 6px max(6px, calc(50vw - 380px), var(--host-right, 0px))
+        calc(6px + var(--host-lift, 0px) + env(safe-area-inset-bottom)) max(6px, calc(50vw - 380px));
         background: rgba(3, 6, 8, 0.985); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
         border-top: 1px solid #12222a;}
     .st-key-tabbar > div {flex: 1 1 0; min-width: 0; width: auto !important; display: flex; justify-content: center;}
@@ -89,11 +93,12 @@ st.html(
     .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a span,
     .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a p {color: #e6fbff;}
     .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a span[data-testid="stIconMaterial"] {color: #00e5ff;}
-    .st-key-tabbar [class*="st-key-capy"] a {width: 58px; height: 58px; margin-top: -24px; padding: 0; border-radius: 50%;
+    .st-key-tabbar [class*="st-key-capy"] a {width: var(--capy); height: var(--capy); margin-top: calc(var(--capy) * -0.41);
+        padding: 0; border-radius: 50%;
         justify-content: center; background: radial-gradient(circle at 35% 30%, #7ff4ff 0%, #00e5ff 38%, #00a9c4 100%) !important;
         border: 3px solid #000 !important; box-shadow: 0 0 0 1.5px rgba(0, 229, 255, 0.55), 0 0 22px rgba(0, 229, 255, 0.45),
         0 6px 14px rgba(0, 0, 0, 0.6);}
-    .st-key-tabbar [class*="st-key-capy"] a::before {content: ""; width: 42px; height: 42px;
+    .st-key-tabbar [class*="st-key-capy"] a::before {content: ""; width: calc(var(--capy) * 0.72); height: calc(var(--capy) * 0.72);
         background: url("__LOGO_URI__") center / contain no-repeat;}
     .st-key-tabbar [class*="st-key-capy"] a > * {display: none;}
     .st-key-tabbar .st-key-capy_on a {box-shadow: 0 0 0 2px #e6fbff, 0 0 28px rgba(0, 229, 255, 0.7),
@@ -130,6 +135,47 @@ TOUCH_ICON_JS = """<script>
   const tab = () => (document.querySelector("link[rel='shortcut icon']") || {}).href;
   fetch(touch, { method: "HEAD" })  // without static serving this is the app's HTML page, not the icon
     .then((r) => set((r.headers.get("content-type") || "").startsWith("image/") ? touch : tab()), () => set(tab()));
+})();
+</script>"""
+
+# Streamlit Cloud draws its badges (the Streamlit logo, the creator's avatar, and "Manage app" for the
+# owner) on its own page, over the bottom right of the app, where they caught taps meant for the
+# right-hand tabs. They can't be moved from inside the app, so this measures them and sets
+# --host-right, which keeps the tabs to their left, or --host-lift, which raises the bar above them
+# when keeping left would squeeze the tabs too much. Elsewhere it sets nothing.
+HOST_BADGES_JS = """<script>
+(() => {
+  if (window.__capyHostBadges) return;  // once per page load; the observers keep it current
+  window.__capyHostBadges = true;
+  let host, frame;
+  try { if (window.top !== window) { host = window.top; frame = window.frameElement; } } catch (e) {}
+  if (!host || !frame) return;
+  const root = document.documentElement;
+  let queued = false;
+  const fit = () => {
+    queued = false;
+    const H = host.innerHeight, W = host.innerWidth, box = frame.getBoundingClientRect();
+    let left = W, top = H;
+    for (const el of host.document.body.querySelectorAll("*")) {
+      if (el === frame || el.contains(frame)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8 || r.width > W * 0.6 || r.bottom < H - 120 || r.top > H || r.right < 0) continue;
+      const cs = host.getComputedStyle(el);
+      if (cs.position === "static" || cs.position === "relative" || cs.visibility === "hidden" || cs.display === "none"
+          || +cs.opacity === 0 || cs.pointerEvents === "none") continue;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+    }
+    const room = left < W ? Math.max(0, Math.ceil(box.right - left) + 4) : 0;
+    const side = room <= box.width * 0.4;  // past that, five tabs get too narrow to tap
+    root.style.setProperty("--host-right", (side ? room : 0) + "px");
+    root.style.setProperty("--host-lift", (side || top >= H ? 0 : Math.max(0, Math.ceil(box.bottom - top) + 4)) + "px");
+  };
+  const later = () => { if (!queued) { queued = true; host.requestAnimationFrame(fit); } };
+  fit();
+  new host.MutationObserver(later).observe(host.document.body, { childList: true, subtree: true, attributes: true });
+  host.addEventListener("resize", later);
+  [500, 1500, 4000, 10000].forEach((ms) => setTimeout(later, ms));  // the badges slide in after the app
 })();
 </script>"""
 
@@ -316,7 +362,7 @@ def _watch_refresh() -> None:
 
 def nav() -> None:
     """The tab bar fixed to the bottom of every page (the Streamlit header is hidden), with Home in the middle."""
-    st.html(TOUCH_ICON_JS, unsafe_allow_javascript=True)
+    st.html(TOUCH_ICON_JS + HOST_BADGES_JS, unsafe_allow_javascript=True)
     here = st.session_state.get("page")
     half = len(NAV_TABS) // 2
     with st.container(horizontal=True, key="tabbar"):

@@ -9,7 +9,7 @@ on:
         required: true
   push:
     branches: [claude/project-thread-5a1fxl]
-    paths: [scripts/phone_probe.py, .github/workflows/phone-probe.yml]
+    paths: [scripts/phone_probe.py, scripts/check_host_badges.py, app.py, .github/workflows/phone-probe.yml]
 
 concurrency:
   group: phone-probe
@@ -29,27 +29,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install playwright && python -m playwright install --with-deps chromium webkit
-      - name: Round trips to Kalshi and Streamlit Cloud from this runner
+      - name: The tab bar fix inside a real Streamlit Cloud page
         continue-on-error: true
-        run: |
-          for i in 1 2 3; do
-            curl -sS -o /dev/null -w "kalshi %{time_connect}s connect %{time_total}s total\n" https://api.elections.kalshi.com/trade-api/v2/exchange/status
-            curl -sS -o /dev/null -w "streamlit.app %{http_code} %{time_connect}s connect %{time_total}s total\n" https://llm-examples.streamlit.app/
-          done
-      - name: What Streamlit Cloud draws over any app on a phone
-        continue-on-error: true
-        run: |
-          for app in $PUBLIC_APPS; do
-            python scripts/phone_probe.py "$app" --overlays-only --profile none --show --timeout 120
-          done
-          python scripts/phone_probe.py "${PUBLIC_APPS%% *}" --overlays-only --engine webkit --profile none --show --timeout 120
-      - name: A Streamlit Cloud app's first load on a phone
-        continue-on-error: true
-        run: |
-          for p in fast fast slow4g slow4g; do
-            python scripts/phone_probe.py "${PUBLIC_APPS%% *}" --overlays-only --profile $p --timeout 150
-          done
-          python scripts/phone_probe.py "${PUBLIC_APPS%% *}~/+/" --overlays-only --profile fast --show --timeout 120
+        run: python scripts/check_host_badges.py "${PUBLIC_APPS%% *}"
       - name: Your app, first look
         if: env.URL != ''
         continue-on-error: true
