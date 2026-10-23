@@ -1,14 +1,13 @@
-"""Phone alerts for big +EV combo bets, sent through ntfy (https://ntfy.sh).
+"""Phone alerts for big +EV combo bets, sent by a Telegram bot or through ntfy (https://ntfy.sh).
 
-ntfy is free and needs no account: install its app, subscribe to a topic name only
-you know, and every message posted to that topic shows up as a push notification.
-scripts/alert_bot.py runs the loop; this module picks the bets and writes the messages.
+Both are free. Telegram has no daily cap; ntfy needs no account but its free tier
+allows about 250 messages a day. scripts/alert_bot.py runs the loop; this module
+picks the bets and writes the messages.
 """
 
 from __future__ import annotations
 
-import json
-import re
+import time
 
 import requests
 
@@ -17,6 +16,7 @@ from .links import bet_url
 from .view import is_live
 
 NTFY_URL = "https://ntfy.sh"
+TELEGRAM_URL = "https://api.telegram.org"
 THIN_SPREAD = 0.03  # same default as the Combos page's Hide thin
 THIN_SIZE = 50
 
@@ -41,15 +41,12 @@ def thin(row: dict) -> bool:
                for l in row["leg_detail"])
 
 
-def tier(ev: float) -> tuple[int, str]:
-    """ntfy priority and emoji tag: the bigger the edge, the louder the ping."""
-    if ev >= 5:
-        return 5, "rocket"
-    if ev >= 1:
-        return 5, "moneybag"
-    if ev >= 0.5:
-        return 4, "fire"
-    return 3, "green_circle"
+TIERS = [(5, 5, "rocket", "🚀"), (1, 5, "moneybag", "💰"), (0.5, 4, "fire", "🔥"), (-1, 3, "green_circle", "🟢")]
+
+
+def tier(ev: float) -> tuple[int, str, str]:
+    """ntfy priority, ntfy emoji tag and emoji: the bigger the edge, the louder the ping."""
+    return next((p, tag, emoji) for floor, p, tag, emoji in TIERS if ev >= floor)
 
 
 def title(row: dict, basis: str = "mid") -> str:
@@ -76,33 +73,64 @@ def body(row: dict) -> str:
     ])
 
 
-def message(row: dict, topic: str, basis: str = "mid", app_url: str | None = None) -> dict:
-    """The JSON ntfy takes on its root URL (title, body, tap action, buttons)."""
-    priority, tag = tier(ev_of(row, basis))
-    actions = [{"action": "view", "label": "Bet in Kalshi", "url": bet_url(row["ticker"])}]
+def buttons(row: dict, app_url: str | None = None) -> list[tuple[str, str]]:
+    out = [("Bet in Kalshi", bet_url(row["ticker"]))]
     if app_url:
         q = f"t={row['ticker']}&side={row['side']}&p={row['price']:.4f}&n={row['contracts']:.0f}"
-        actions.append({"action": "view", "label": "Quote it", "url": f"{app_url.rstrip('/')}/quote?{q}"})
-    return {"topic": topic, "title": title(row, basis), "message": body(row), "priority": priority,
-            "tags": [tag], "click": bet_url(row["ticker"]), "actions": actions}
-
-
-_SIDE = re.compile(r"\b(YES|NO)\b")
-
-
-def sent_keys(topic: str, since: str = "12h", session=requests) -> set[str]:
-    """Alerts already on the topic (ntfy keeps 12 hours), so a restarted bot doesn't repeat them."""
-    resp = session.get(f"{NTFY_URL}/{topic}/json", params={"poll": "1", "since": since}, timeout=15)
-    resp.raise_for_status()
-    out = set()
-    for line in resp.text.splitlines():
-        msg = json.loads(line)
-        side = _SIDE.search(msg.get("title", ""))
-        click = msg.get("click", "")
-        if msg.get("event") == "message" and side and "/markets_by_ticker/" in click:
-            out.add(f"{click.rsplit('/', 1)[1]}|{side.group(1).lower()}")
+        out.append(("Quote it", f"{app_url.rstrip('/')}/quote?{q}"))
     return out
 
 
-def send(msg: dict, session=requests) -> None:
-    session.post(NTFY_URL, json=msg, timeout=15).raise_for_status()
+def message(row: dict, topic: str, basis: str = "mid", app_url: str | None = None) -> dict:
+    """The JSON ntfy takes on its root URL (title, body, tap action, buttons)."""
+    priority, tag, _ = tier(ev_of(row, basis))
+    return {"topic": topic, "title": title(row, basis), "message": body(row), "priority": priority,
+            "tags": [tag], "click": bet_url(row["ticker"]),
+            "actions": [{"action": "view", "label": label, "url": url} for label, url in buttons(row, app_url)]}
+
+
+def telegram_message(row: dict, chat_id: str, basis: str = "mid", app_url: str | None = None) -> dict:
+    """sendMessage JSON: bold title line, the body, and link buttons under it."""
+    emoji = tier(ev_of(row, basis))[2]
+    head = f"{emoji} {title(row, basis)}"
+    return {"chat_id": chat_id, "text": f"{head}\n{body(row)}", "entities": [{"type": "bold", "offset": 0, "length": len(head.encode("utf-16-le")) // 2}],
+            "link_preview_options": {"is_disabled": True},
+            "reply_markup": {"inline_keyboard": [[{"text": label, "url": url} for label, url in buttons(row, app_url)]]}}
+
+
+class Ntfy:
+    def __init__(self, topic: str, session=requests):
+        self.topic, self.session = topic, session
+
+    def send(self, row: dict, basis: str = "mid", app_url: str | None = None) -> None:
+        self.session.post(NTFY_URL, json=message(row, self.topic, basis, app_url), timeout=15).raise_for_status()
+
+
+class Telegram:
+    """Sends as your bot. Without a chat ID it uses the chat that last messaged the bot."""
+
+    def __init__(self, token: str, chat_id: str | None = None, session=requests):
+        self.url, self.session = f"{TELEGRAM_URL}/bot{token}", session
+        self.chat_id = chat_id or self.find_chat()
+
+    def find_chat(self) -> str:
+        resp = self.session.get(f"{self.url}/getUpdates", timeout=15)
+        resp.raise_for_status()
+        chats = [u["message"]["chat"]["id"] for u in resp.json().get("result", []) if "message" in u]
+        if not chats:
+            raise RuntimeError("no chat found: open your bot in Telegram, send it any message, then rerun "
+                               "(or set TELEGRAM_CHAT_ID)")
+        chat_id = str(chats[-1])
+        self.post({"chat_id": chat_id, "text": f"CapyEV alerts are on. Your chat ID is {chat_id}: add it as the "
+                                               "TELEGRAM_CHAT_ID secret so this keeps working after a day."})
+        return chat_id
+
+    def post(self, payload: dict) -> None:
+        resp = self.session.post(f"{self.url}/sendMessage", json=payload, timeout=15)
+        if resp.status_code == 429:  # Telegram says how long to wait
+            time.sleep(float(resp.json().get("parameters", {}).get("retry_after", 3)))
+            resp = self.session.post(f"{self.url}/sendMessage", json=payload, timeout=15)
+        resp.raise_for_status()
+
+    def send(self, row: dict, basis: str = "mid", app_url: str | None = None) -> None:
+        self.post(telegram_message(row, self.chat_id, basis, app_url))

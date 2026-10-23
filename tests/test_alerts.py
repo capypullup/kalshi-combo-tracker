@@ -44,20 +44,39 @@ def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     assert alerts.tier(0.12)[0] < alerts.tier(0.6)[0] < alerts.tier(8.0)[0]
 
 
-def test_sent_keys_reads_back_earlier_alerts():
+def test_telegram_message_bolds_title_and_adds_buttons():
+    msg = alerts.telegram_message(row(price=0.18), "42", app_url="https://capyev.streamlit.app")
+    head = msg["text"].split("\n")[0]
+    assert head == "🔥 +67% EV · $540 YES 2-leg combo"
+    assert msg["entities"][0]["length"] == len(head) + 1  # the emoji is two UTF-16 units
+    assert [b["text"] for b in msg["reply_markup"]["inline_keyboard"][0]] == ["Bet in Kalshi", "Quote it"]
+
+
+def test_telegram_finds_the_chat_that_messaged_the_bot():
+    posted = []
+
     class Resp:
-        text = "\n".join([
-            '{"event":"open"}',
-            '{"event":"message","title":"+50% EV · $600 YES 2-leg combo","click":"https://kalshi.com/markets_by_ticker/KXMVECOMBO-1"}',
-            '{"event":"message","title":"+20% EV · $900 NO 3-leg combo","click":"https://kalshi.com/markets_by_ticker/KXMVECOMBO-9"}',
-        ])
+        status_code = 200
+
+        def __init__(self, data=None):
+            self.data = data
+
+        def json(self):
+            return self.data
 
         def raise_for_status(self):
             pass
 
     class Session:
-        def get(self, url, params, timeout):
-            assert url == "https://ntfy.sh/my-topic/json" and params["poll"] == "1"
+        def get(self, url, timeout):
+            assert url == "https://api.telegram.org/botTOKEN/getUpdates"
+            return Resp({"result": [{"message": {"chat": {"id": 7}}}, {"message": {"chat": {"id": 99}}}]})
+
+        def post(self, url, json, timeout):
+            posted.append(json)
             return Resp()
 
-    assert alerts.sent_keys("my-topic", session=Session()) == {"KXMVECOMBO-1|yes", "KXMVECOMBO-9|no"}
+    bot = alerts.Telegram("TOKEN", session=Session())
+    assert bot.chat_id == "99" and "99" in posted[0]["text"]
+    bot.send(row())
+    assert posted[1]["chat_id"] == "99" and "YES Hawks" in posted[1]["text"]
