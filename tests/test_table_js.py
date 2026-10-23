@@ -46,7 +46,10 @@ def test_js_bet_card_matches_python(tmp_path):
 def test_js_bet_link_matches_python(tmp_path):
     ticker = "KXMVECROSSCATEGORY-S2026L76DQIJNMS46XWZS-NRA3G3JTU"
     assert run_js(tmp_path, "betUrl", f"betUrl({json.dumps(ticker)})") == bet_url(ticker)
-    assert bet_url(ticker) == f"https://kalshi.com/markets_by_ticker/{ticker}"
+    assert bet_url(ticker) == f"https://kalshi.com/combos?marketTicker={ticker}"
+    leg = "KXNBAGAME-26OCT21ATLORL-ATL"  # a single market keeps its page link
+    assert run_js(tmp_path, "betUrl", f"betUrl({json.dumps(leg)})") == bet_url(leg)
+    assert bet_url(leg) == f"https://kalshi.com/markets_by_ticker/{leg}"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

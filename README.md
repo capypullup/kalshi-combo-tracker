@@ -16,7 +16,7 @@ EV CRX +3568.4% (fair -363 / 1.28x) · 19u
 
 ## Home and the tab bar
 
-The app opens on **Home**, a phone-first list of the best bets right now: combos of $100+ from the last hour whose fair price beats what was paid, best EV (cross) first. Each card shows EV mid / EV cross in a green badge that deepens with the edge (a pale tint under +10%, solid neon with a 🔥 from about +200%), the leagues, start time or LIVE, the bet, its legs, and big **Bet in Kalshi** and **Quote** buttons. Pre-match / Live / All, Min EV and Min bet filter it.
+The app opens on **Home**, a phone-first list of the best bets right now: combos of $100+ from the last hour whose fair price beats what was paid, best EV (cross) first. Each card shows EV mid / EV cross in a green badge that deepens with the edge (a pale tint under +10%, solid neon with a 🔥 from about +200%), the leagues, start time or LIVE, the bet, its legs, and big **Bet in CapyEV** and **kalshi.com** buttons. Pre-match / Live / All, Min EV and Min bet filter it.
 
 Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app: Combos and Bettors on the left, the cyan capybara button (Home) in the middle, the rest on the right. Tabs are listed in `NAV_TABS` in `app.py`.
 
@@ -27,7 +27,8 @@ Pages switch from a tab bar fixed to the bottom of the screen, like Kalshi's app
 - The page is a black and cyan table with rounded type and pill-shaped controls, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (Mid odds / Cross odds, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
 - Toggles at the top: **Min EV**, **Min QK** (Kelly units) and **Min bet** chips, a **Window** (15m, 1h, 3h), **Indep. only** to hide same-game combos, **Mid / Cross** to pick which EV the minimums use, **Hide thin** to drop combos with an unreliable leg book, **Pregame / Live**, and a search box for leg names. The gear icon sets the Kelly fraction, unit size and what counts as thin (default: a leg spread over 3¢ or under 50 contracts at the top of book). Your choices are remembered on your phone.
 - The list scrolls endlessly and shows the newest bets first after every refresh (the app scores the newest 600 bets in each view). Tap a column header to sort differently, or a row to open it: each leg with its odds, bid / ask (`*` marks a thin book) and LIVE or its start time, fair odds, net EV after fees, flags, a book button that walks the full leg orderbooks at the bet's size, and **Copy bet card**.
-- **Bet in Kalshi** on an open bet opens that exact combo in the Kalshi app, ready to buy. It links to `kalshi.com/markets_by_ticker/<combo ticker>`, a path Kalshi's iOS and Android apps open; without the app, kalshi.com opens its combo builder with the combo in the bet slip. Kalshi quotes it fresh, so compare its price with the fair odds before you buy (a NO bet gets a reminder to check the side). **Quote it** opens the Quote page with the bet filled in.
+- **Bet in CapyEV** on an open bet opens the Quote page with the bet filled in: it asks makers for quotes at your Kelly size and bets the best quote once you confirm (see Quote below).
+- **kalshi.com** opens Kalshi's combo builder in your browser with that exact combo in the bet slip, via `kalshi.com/combos?marketTicker=<combo ticker>`, the link Kalshi's own shared combos use. The Kalshi app can't load a combo from a link: iOS hands `kalshi.com/markets_by_ticker/*` links to the app, which opens without the combo, and the app doesn't claim `/combos`, so this link stays in the browser (sign in to kalshi.com there once). Kalshi quotes it fresh, so compare its price with the fair odds before you buy (kalshi.com only buys YES on a combo, so a NO bet gets a reminder to use Bet in CapyEV).
 - Flags: `SG` same-game legs (correlated), `THIN` a thin leg book, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%. LIVE uses each game's scheduled start from Kalshi's public schedule (`/milestones`); a combo is live once any leg's game has started (red dot in the row). Legs Kalshi doesn't schedule count as live within 3h of their expected settlement.
 
 All data comes from Kalshi's free public API. No API key is needed.
@@ -53,7 +54,7 @@ Add a third secret, `TRADE_PIN` (a passphrase or 6+ digits), to bet from the Quo
 
 ## Quote page
 
-Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or Copy ticker, then the big **Paste ticker** button). A ticker, a CapyEV `/quote?t=TICKER&side=yes&p=0.25&n=100` link or a Kalshi `markets_by_ticker` link all work.
+Built for copying a bet from the Combos page: open a bet, tap **Bet in CapyEV** (or Copy ticker, then the big **Paste ticker** button). A ticker, a CapyEV `/quote?t=TICKER&side=yes&p=0.25&n=100` link or a Kalshi `combos?marketTicker=` or `markets_by_ticker` link all work.
 
 - **Verdict**: LIVE when the combo's own orderbook has resting orders at or under the price, or the same side filled at that price in the last 90 s (the picked bet's own fills don't count); LIKELY when the newest fill was at the price a few minutes ago; MOVED when newer fills are worse; STALE when nothing has filled since.
 - **Since HH:MM**: fair odds and EV when CapyEV scored the bet vs now, and which legs moved. A +EV line from two minutes ago can be gone.
@@ -61,7 +62,7 @@ Built for copying a bet from the Combos page: open a bet, tap **Quote it** (or C
 - **Quotes** (needs the API key): pasting a combo sends a real RFQ at your size, in units (1u = $1,000 and ¼ Kelly by default, editable under Sizing; the Kelly size at the best price now is preselected). Quotes list the odds after your fee, cost, EV MID/CROSS and Kelly units at that price. RFQs hide your ID from makers and close after 45 s. Kalshi allows one open request per combo, so if you have one open on the same combo (its slip in the Kalshi app, say), it's closed first.
 - **Bet** (needs `TRADE_PIN`) takes the best quote after a confirm step that shows its EV: you buy at the maker's price for the quoted size, the maker confirms within 3 s, and the page shows the fill. If Kalshi stops answering mid-bet, the page says the bet may have gone through: check the Kalshi app before betting again. One bet is capped at 3u.
 - **Add legs**: near-certain legs (80–98.5%, tight books) on other games, by sport, from legs people combined in the last 15 minutes. Pick some and quote the bigger combo next to the original: makers price whole combos, so an extra leg sometimes costs less than its odds.
-- **Bet in Kalshi** opens the combo's slip in the Kalshi app.
+- **Bet on kalshi.com** opens Kalshi's combo builder in your browser with the combo in the slip.
 
 ## Notification bot
 
@@ -118,7 +119,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/orderbook.py`: per-leg book math (bid/ask/mid, depth, walking the book)
 - `combo_tracker/engine.py`: groups fills into bets and computes fair prices, EV, Kelly and flags
 - `combo_tracker/format.py`: the text bet card
-- `combo_tracker/links.py`: the link that opens a market in Kalshi's app
+- `combo_tracker/links.py`: the link that puts a market in a Kalshi bet slip (kalshi.com's combo builder for a combo)
 - `combo_tracker/pipeline.py`: one refresh, end to end
 - `combo_tracker/view.py`: the compact rows the table receives
 - `combo_tracker/home.py`: the Home page's picks and cards

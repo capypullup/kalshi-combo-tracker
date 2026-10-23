@@ -1,5 +1,5 @@
 // Combo EV table: filters, sorting and expansion all run in the browser, so they're
-// instant. Only min bet, window, refresh, "load full book" and "Quote it" go back to Python.
+// instant. Only min bet, window, refresh, "load full book" and "Bet in CapyEV" go back to Python.
 // Each bet is a card led by its EV mid / cross, colored on the same green scale as Home.
 
 const MIN_EV = [null, 0, 5, 10, 20, 50];
@@ -14,8 +14,10 @@ const REFRESH_TIMEOUT = 60000;  // ms without an answer before the refresh butto
 const RULE = "────────────";
 const STORE = "cev-ui-v1";
 const LOGO = "__LOGO__";  // app.py puts the CapyEV logo (capyev.svg) here
-// Kalshi's app opens these links; its website puts the combo in its bet slip. Same as links.bet_url (tested).
-const betUrl = (ticker) => `https://kalshi.com/markets_by_ticker/${encodeURIComponent(ticker)}`;
+// kalshi.com's combo builder with the combo in its slip (the Kalshi app can't open one from a link).
+// Same as links.bet_url (tested).
+const betUrl = (ticker) => (/^KXMVE/i.test(ticker) ? "https://kalshi.com/combos?marketTicker="
+  : "https://kalshi.com/markets_by_ticker/") + encodeURIComponent(ticker);
 // Same icons as the Home page.
 const SPORT_ICON = { football: "🏈", basketball: "🏀", baseball: "⚾", hockey: "🏒", tennis: "🎾", soccer: "⚽",
                      mma: "🥊", boxing: "🥊", golf: "⛳", racing: "🏎️", esports: "🎮", cricket: "🏏", crypto: "🪙",
@@ -446,10 +448,10 @@ function detailHtml(S, data, r) {
     <div class="facts">${r.side.toUpperCase()} · bet <b>${money(r.stake)}</b> at ${hhmm(r.t)} · <b>${qty(r.n)}</b> contracts at <b>$${r.price.toFixed(4)}</b> (${odds(r.price)}) · pays <b>${money(r.n)}</b><br>Net after fees <b>${money(r.net)}</b> (fee ${money(r.fee)})
       · resolves in ${hrs}${flags}${deepLine}</div>
     <div class="actions go">
-      <a class="btn primary" href="${esc(betUrl(r.ticker))}" target="_blank" rel="noopener">Bet in Kalshi ${ICON_OUT}</a>
-      <button class="btn" data-act="quote" title="Get a live quote on the Quote page">Quote it</button>
+      <button class="btn primary" data-act="quote" title="Get makers' quotes on the Quote page and bet the best one">Bet in CapyEV</button>
+      <a class="btn" href="${esc(betUrl(r.ticker))}" target="_blank" rel="noopener" title="kalshi.com's combo builder with this combo in the slip">kalshi.com ${ICON_OUT}</a>
     </div>
-    ${r.side === "no" ? '<div class="sidenote">This bet is <b>NO</b> on the combo. Check the side in Kalshi before you buy.</div>' : ""}
+    ${r.side === "no" ? '<div class="sidenote">This bet is <b>NO</b> on the combo. kalshi.com only buys YES on a combo, so use Bet in CapyEV.</div>' : ""}
     <div class="actions">
       <span class="bk">${isNum(r.cb) || isNum(r.ca) ? `combo bid ${cents(r.cb)}<br>combo ask ${cents(r.ca)}` : "no resting<br>combo orders"}</span>
       <button class="btn" data-act="depth" title="Load full leg orderbooks">${ICON_BOOK}</button>
