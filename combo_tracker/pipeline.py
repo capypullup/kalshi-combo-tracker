@@ -160,7 +160,7 @@ class Scorer:
         return events
 
     def _leg_markets(self, tickers: list[str], max_age: float | None = None) -> dict[str, dict]:
-        return self.leg_markets.get_many(tickers, lambda t: self.client.get_markets(t, batch_size=100), max_age)
+        return self.leg_markets.get_many(tickers, lambda t: self.client.get_markets(t, batch_size=200), max_age)
 
     def rescore_with_depth(self, row: dict, trades: list[dict], group: bool = True) -> dict:
         """Re-score one bet using the full orderbook of every leg."""

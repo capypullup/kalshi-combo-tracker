@@ -55,10 +55,25 @@ SHARED_RATE = float(os.environ.get("KALSHI_SHARED_RATE", "14"))
 SHARED_LIMITER = RateLimiter(SHARED_RATE)
 
 # Some public routes have a lower limit of their own, per IP. Measured 2026-10-23 without a key,
-# with paced calls and no retries: the trade feed 429s from 5 calls a second and the /events list
-# from about 5 (/markets takes 25+), and each route's limit is separate from the others'. These
-# pace those routes, and a 429 on one pauses only that route.
-ROUTE_LIMITERS = {"/markets/trades": RateLimiter(4.5), "/events": RateLimiter(4.5)}
+# with paced calls and no retries: the trade feed 429s from 5 calls a second, the /events list
+# from about 5, and /markets for combo tickers from 5-7 (for leg tickers it takes 16+). Each limit
+# is separate from the others. These pace those calls, and a 429 on one pauses only that one.
+COMBO_LOOKUPS = "/markets (combos)"
+ROUTE_LIMITERS = {"/markets/trades": RateLimiter(4.5), "/events": RateLimiter(4), COMBO_LOOKUPS: RateLimiter(4.5)}
+MAX_QUERY = 6000  # characters of tickers per call: 200 combo tickers (~11k) got HTTP 414
+
+
+def _batches(tickers: list[str], size: int) -> list[list[str]]:
+    """Up to `size` tickers per batch, and no more than MAX_QUERY characters of them."""
+    out: list[list[str]] = []
+    chars = 0
+    for t in tickers:
+        if not out or len(out[-1]) >= size or chars + len(t) + 1 > MAX_QUERY:
+            out.append([])
+            chars = 0
+        out[-1].append(t)
+        chars += len(t) + 1
+    return out
 
 
 class KalshiAuth:
@@ -135,8 +150,9 @@ class KalshiClient:
         self.routes = ROUTE_LIMITERS
         self.requests_made = 0
 
-    def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False) -> dict:
-        return self._get_url(f"{self.base_url}{path}", params, retries, signed, route=self.routes.get(path))
+    def _get(self, path: str, params: dict | None = None, retries: int = 5, signed: bool = False,
+             route: str | None = None) -> dict:
+        return self._get_url(f"{self.base_url}{path}", params, retries, signed, route=self.routes.get(route or path))
 
     def _get_url(self, url: str, params: dict | None = None, retries: int = 5, signed: bool = False,
                  route: RateLimiter | None = None) -> dict:
@@ -203,22 +219,25 @@ class KalshiClient:
             return list(pool.map(fn, items))
 
     def get_markets(self, tickers: list[str], batch_size: int = 100) -> dict[str, dict]:
-        """Fetch market objects for many tickers, keyed by ticker."""
+        """Fetch market objects for many tickers, keyed by ticker. Leg tickers go up to 200 a call;
+        combo tickers are long, and Kalshi limits their lookups more (COMBO_LOOKUPS)."""
         unique = list(dict.fromkeys(tickers))
-        batches = [unique[i : i + batch_size] for i in range(0, len(unique), batch_size)]
+        batches = _batches(unique, batch_size)
 
         def fetch(batch: list[str]) -> list[dict]:
-            data = self._get("/markets", {"tickers": ",".join(batch), "limit": len(batch)})
+            combos = any(t.startswith(COMBO_PREFIX) for t in batch)
+            data = self._get("/markets", {"tickers": ",".join(batch), "limit": len(batch)},
+                             route=COMBO_LOOKUPS if combos else None)
             return data.get("markets", [])
 
         return {m["ticker"]: m for markets in self._parallel(fetch, batches) for m in markets}
 
-    def get_events(self, event_tickers: list[str], batch_size: int = 100) -> dict[str, dict]:
+    def get_events(self, event_tickers: list[str], batch_size: int = 200) -> dict[str, dict]:
         """Fetch event objects (titles like 'Cleveland vs Tampa Bay: Strikeouts', and each event's
         category), keyed by ticker. Events it couldn't get are left out, so callers retry them later.
 
-        `GET /events?tickers=A,B` takes a comma-joined list (found 2026-10-23): one call per 100
-        events instead of one per event, which was 56 of the 60 seconds a new Combos filter took.
+        `GET /events?tickers=A,B` takes a comma-joined list of up to 200 (found 2026-10-23): one call
+        per 200 events instead of one per event, which was 56 of the 60 seconds a new Combos filter took.
         If Kalshi ever answers without honouring the list, this goes back to one call per event.
         """
         unique = list(dict.fromkeys(event_tickers))
@@ -235,7 +254,7 @@ class KalshiClient:
                 except requests.RequestException:
                     return None
 
-            batches = [unique[i : i + batch_size] for i in range(0, len(unique), batch_size)]
+            batches = _batches(unique, batch_size)
             try:
                 pages = self._parallel(fetch_batch, batches)
             except requests.HTTPError:

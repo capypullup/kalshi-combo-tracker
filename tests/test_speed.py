@@ -147,7 +147,7 @@ def client_with(handler):
     return c
 
 
-def test_events_come_100_per_call():
+def test_events_come_200_per_call():
     seen = []
 
     def handler(url, params):
@@ -156,8 +156,8 @@ def test_events_come_100_per_call():
         return Resp(200, {"events": [{"event_ticker": t, "title": t} for t in asked if t != "GONE-1"]})
 
     c = client_with(handler)
-    out = c.get_events([f"E-{i}" for i in range(250)] + ["GONE-1"])
-    assert len(seen) == 3 and len(out) == 250 and "GONE-1" not in out  # missing ones aren't cached as {}
+    out = c.get_events([f"E-{i}" for i in range(450)] + ["GONE-1"])
+    assert len(seen) == 3 and len(out) == 450 and "GONE-1" not in out  # missing ones aren't cached as {}
     assert c.batch_events_ok
 
 
@@ -566,3 +566,30 @@ def test_a_429_on_the_events_list_pauses_only_that_route(monkeypatch):
     assert c.routes["/events"].next_at > now + 0.5  # events wait out the 429
     assert c.limiter.next_at < now + 0.5  # leg quotes and everything else don't
     c.routes["/events"].next_at = 0.0
+
+
+def test_batches_keep_the_query_short():
+    from combo_tracker.client import MAX_QUERY, _batches
+    legs = [f"KXNBAPTS-26OCT23ATLCHA-ATLPLAYER{i:03d}-25" for i in range(400)]  # 38 characters each
+    batches = _batches(legs, 200)
+    assert sum(map(len, batches)) == 400 and all(len(",".join(b)) <= MAX_QUERY for b in batches)
+    assert max(map(len, batches)) < 200  # cut short by length, not count
+    assert _batches(["A-1"] * 250, 100) == [["A-1"] * 100, ["A-1"] * 100, ["A-1"] * 50]
+
+
+def test_combo_lookups_are_paced_on_their_own_limit():
+    used = []
+
+    class Limiter(RateLimiter):
+        def __init__(self, name):
+            super().__init__(1000)
+            self.name = name
+
+        def wait(self):
+            used.append(self.name)
+
+    c = client_with(lambda url, params: Resp(200, {"markets": [{"ticker": t} for t in params["tickers"].split(",")]}))
+    c.routes = {"/markets (combos)": Limiter("combos")}
+    assert set(c.get_markets(["KXMVE-1", "KXMVE-2"])) == {"KXMVE-1", "KXMVE-2"} and used == ["combos"]
+    c.get_markets(["KXNBAGAME-X-A"], batch_size=200)
+    assert used == ["combos"]  # leg lookups aren't held to it
