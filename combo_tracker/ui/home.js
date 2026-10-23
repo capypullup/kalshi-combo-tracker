@@ -181,7 +181,7 @@ function cardHtml(S, r, prefs) {
         <button class="go" data-act="quote">Bet in CapyEV</button>
       </div>
     </div>
-    ${r.side === "no" ? '<div class="note">This bettor took NO. Bet in CapyEV quotes NO; the kalshi.com slip starts on YES.</div>' : ""}
+    ${r.side === "no" ? '<div class="note">This bettor took NO. kalshi.com only buys YES on a combo, so use Bet in CapyEV.</div>' : ""}
   </div>`;
 }
 

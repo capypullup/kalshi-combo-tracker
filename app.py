@@ -423,9 +423,9 @@ def combo_page() -> None:
             "- **Open a bet** to see its legs, and the multiplier the bettor paid next to the fair ones behind EV mid "
             "and EV cross (with American odds and units).\n"
             "- **Bet in CapyEV** (on an open bet) opens it on the Quote page, which asks makers for quotes at your "
-            "Kelly size and bets the one you pick (needs your Kalshi key and TRADE_PIN). **kalshi.com** opens "
+            "Kelly size and bets the best quote once you confirm (needs your Kalshi key and TRADE_PIN). **kalshi.com** opens "
             "Kalshi's combo builder in your browser with the combo in the slip; the Kalshi app can't open a combo "
-            "from a link. Either way the price is quoted fresh, so check it still beats the fair odds. The book "
+            "from a link, and it only buys YES on a combo. Either way the price is quoted fresh, so check it still beats the fair odds. The book "
             "icon walks each leg's whole orderbook for the bet's size.\n"
             "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
             "10–15 seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
@@ -457,7 +457,7 @@ def _home_quote():
 @st.fragment
 def home_view():
     go = st.session_state.pop("quote_req", None)
-    if go:  # "Quote" on a card: check it on the Quote page
+    if go:  # "Bet in CapyEV" on a card: check and quote it on the Quote page
         st.session_state.pop("q_ctx", None)  # even when it's the combo already open there
         st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}", "n": f"{go['n']:g}"})
     src = get_source()
@@ -512,7 +512,7 @@ def home_page() -> None:
             "- The **u** figure is Kelly units to bet, at the settings you pick on the Combos tab (gear icon: Kelly "
             "and unit size, plus its Mid / Cross switch). The defaults are ¼ Kelly on EV mid and 1u = 1% of "
             "bankroll.\n"
-            "- **Bet in CapyEV** gets makers' quotes on the Quote page and bets the one you pick. **kalshi.com** "
+            "- **Bet in CapyEV** gets makers' quotes on the Quote page and bets the best one once you confirm. **kalshi.com** "
             "opens the combo in Kalshi's combo builder in your browser (the Kalshi app can't open a combo from a "
             "link). Either way it's quoted fresh, so make sure the price still beats the fair odds.\n"
             "- Tap a card for all its legs. The Combos tab has every bet, with more filters and the full book."
@@ -707,7 +707,7 @@ def quote_page() -> None:
             "sometimes lowers the price by less than the leg's odds. Pick legs, quote the bigger combo, and compare "
             "EV with the original's quotes.\n"
             "- **Bet on kalshi.com** opens Kalshi's combo builder in your browser with this combo in the slip (the "
-            "Kalshi app can't open a combo from a link). Check the side in the slip for a NO bet."
+            "Kalshi app can't open a combo from a link). kalshi.com only buys YES on a combo, so bet a NO here."
         )
 
 

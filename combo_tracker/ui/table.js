@@ -451,7 +451,7 @@ function detailHtml(S, data, r) {
       <button class="btn primary" data-act="quote" title="Get makers' quotes on the Quote page and bet the best one">Bet in CapyEV</button>
       <a class="btn" href="${esc(betUrl(r.ticker))}" target="_blank" rel="noopener" title="kalshi.com's combo builder with this combo in the slip">kalshi.com ${ICON_OUT}</a>
     </div>
-    ${r.side === "no" ? '<div class="sidenote">This bet is <b>NO</b> on the combo. Bet in CapyEV quotes NO; the kalshi.com slip starts on YES.</div>' : ""}
+    ${r.side === "no" ? '<div class="sidenote">This bet is <b>NO</b> on the combo. kalshi.com only buys YES on a combo, so use Bet in CapyEV.</div>' : ""}
     <div class="actions">
       <span class="bk">${isNum(r.cb) || isNum(r.ca) ? `combo bid ${cents(r.cb)}<br>combo ask ${cents(r.ca)}` : "no resting<br>combo orders"}</span>
       <button class="btn" data-act="depth" title="Load full leg orderbooks">${ICON_BOOK}</button>
