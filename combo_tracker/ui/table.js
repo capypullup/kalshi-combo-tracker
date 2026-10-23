@@ -86,7 +86,7 @@ function betCard(S, r) {
   for (const l of r.legs) lines.push(`${l.s.toUpperCase()} ${l.n} (${l.e})`);
   lines.push(RULE);
   const line = (name, ev, fair, k) => (isNum(ev) && isNum(fair)
-    ? `EV ${name} ${pct(ev)} (fair ${odds(fair)}) · ${fmtU(units(S, k))}`
+    ? `EV ${name} ${pct(ev)} (fair ${odds(fair)} / ${mult(fair)}) · ${fmtU(units(S, k))}`
     : `EV ${name} n/a (a leg has no quote)`);
   lines.push(line("MID", r.evm, r.fm, r.km), line("CRX", r.evc, r.fc, r.kc));
   return lines.join("\n");

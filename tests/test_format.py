@@ -36,6 +36,6 @@ def test_card_matches_requested_format():
         "NO Mookie Betts: 2+ (Milwaukee vs Los Angeles D: Home Runs)\n"
         "NO Freddy Peralta: 6+ (Cleveland vs Tampa Bay: Strikeouts)\n"
         "────────────\n"
-        "EV MID +3610.3% (fair -383) · 20u\n"
-        "EV CRX +3568.4% (fair -363) · 19u"
+        "EV MID +3610.3% (fair -383 / 1.26x) · 20u\n"
+        "EV CRX +3568.4% (fair -363 / 1.28x) · 19u"
     )
