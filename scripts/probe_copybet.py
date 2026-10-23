@@ -212,7 +212,6 @@ with sync_playwright() as p:
     for engine, kw in [
         ("chromium", dict(user_agent=UA, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
                           device_scale_factor=2)),
-        ("webkit", dict(**p.devices["iPhone 15"])),
     ]:
         try:
             browser = getattr(p, engine).launch(**({"args": ["--disable-blink-features=AutomationControlled"]}
@@ -229,6 +228,21 @@ with sync_playwright() as p:
         if facts.get("combo"):
             t = facts["combo"]
             visit(page, f"https://kalshi.com/combos?marketTicker={t}", f"{engine}-combos-param", shots, share=True)
+            try:  # open the slip's bottom sheet and read it
+                sheet = page.locator("text=/MARKETS? COMBO/i").first
+                sheet.click(timeout=8000)
+                page.wait_for_timeout(3000)
+                body = page.inner_text("body")
+                names = facts.get("leg_names") or []
+                print("after opening the slip, leg names found:",
+                      [n for n in names if n and n.split(":")[0] in body], "of", names)
+                i = body.find("COMBO")
+                print("slip text:", body[max(0, i - 200):i + 1500].replace("\n", " | "))
+                print("slip buttons:", buttons(page)[:30])
+                page.screenshot(path=str(OUT / f"{engine}-slip-open.png"))
+                shots.append(f"{engine}-slip-open.png")
+            except Exception as exc:
+                print("slip ERR", repr(exc)[:300])
             print("API calls while loading the combo slip:", "\n  ".join([""] + api_calls[-60:]))
             visit(page, f"https://kalshi.com/markets_by_ticker/{t}", f"{engine}-mbt-combo", shots)
         if facts.get("leg"):

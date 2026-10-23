@@ -6,8 +6,10 @@ const MIN_EV = [0, 0.1, 0.25, 1];
 const MIN_BET = [0, 250, 500, 1000];
 const SHOW_LEGS = 3;  // legs on a closed card; tap the card for the rest
 const LOGO = "__LOGO__";  // app.py puts the CapyEV logo (capyev.svg) here
-// Kalshi's app opens these links; its website puts the combo in its bet slip. Same as links.bet_url (tested).
-export const betUrl = (ticker) => `https://kalshi.com/markets_by_ticker/${encodeURIComponent(ticker)}`;
+// kalshi.com's combo builder with the combo in its slip (the Kalshi app can't open one from a link).
+// Same as links.bet_url (tested).
+export const betUrl = (ticker) => (/^KXMVE/i.test(ticker) ? "https://kalshi.com/combos?marketTicker="
+  : "https://kalshi.com/markets_by_ticker/") + encodeURIComponent(ticker);
 
 const ICON_OUT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
 const ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
@@ -175,11 +177,11 @@ function cardHtml(S, r, prefs) {
     <div class="foot">
       <div class="fair"><span>Fair <b>${mult(r.fm)} / ${mult(r.fc)}</b></span><span class="dim">vs ${mult(r.price)} paid</span>${warn}</div>
       <div class="acts">
-        <button class="ghost" data-act="quote">Quote</button>
-        <a class="go" href="${betUrl(r.ticker)}" target="_blank" rel="noopener">Bet in Kalshi ${ICON_OUT}</a>
+        <a class="ghost" href="${betUrl(r.ticker)}" target="_blank" rel="noopener">kalshi.com ${ICON_OUT}</a>
+        <button class="go" data-act="quote">Bet in CapyEV</button>
       </div>
     </div>
-    ${r.side === "no" ? '<div class="note">This bettor took NO. Kalshi opens the combo on YES, so switch the side in the slip.</div>' : ""}
+    ${r.side === "no" ? '<div class="note">This bettor took NO. Bet in CapyEV quotes NO; the kalshi.com slip starts on YES.</div>' : ""}
   </div>`;
 }
 

@@ -701,9 +701,10 @@ def _take(desk, r: dict, q) -> dict:
 def _open_in_kalshi(c: LiveCheck) -> None:
     legs = c.scored["leg_detail"]
     with st.container(horizontal=True, vertical_alignment="center"):
-        st.link_button("Bet in Kalshi", bet_url(c.ticker), icon=":material/open_in_new:")
-        st.caption("Opens this combo's slip in the Kalshi app (or on kalshi.com)."
-                   + (" :orange[It may start on YES: switch the slip to NO.]" if c.side == "no" else ""))
+        st.link_button("Bet on kalshi.com", bet_url(c.ticker), icon=":material/open_in_new:")
+        st.caption("Opens Kalshi's combo builder in your browser with this combo in the slip. The Kalshi app "
+                   "can't open a combo from a link." + (" :orange[It may start on YES: switch the slip to NO.]"
+                                                        if c.side == "no" else ""))
     with st.expander("Legs to copy"):
         st.code("\n".join(f"{l['side'].upper()} {l['leg']} ({l['event_title']})" for l in legs), language=None)
 

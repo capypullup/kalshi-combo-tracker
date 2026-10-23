@@ -76,7 +76,7 @@ def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
     assert msg["title"] == "PREGAME +50% EV · $600 YES 2-leg combo"
-    assert msg["click"] == "https://kalshi.com/markets_by_ticker/KXMVECOMBO-1"
+    assert msg["click"] == "https://kalshi.com/combos?marketTicker=KXMVECOMBO-1"
     assert "$600 @ 5.0x (+400) → $3,000" in msg["message"]
     assert "YES Hawks (KXNBAGAME-26OCT21ATLORL)" in msg["message"]
     assert [a["label"] for a in msg["actions"]] == ["Bet in Kalshi", "Quote it"]

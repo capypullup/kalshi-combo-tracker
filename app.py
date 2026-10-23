@@ -422,10 +422,11 @@ def combo_page() -> None:
             "odds it got, and what it pays; bets of $500+ show in cyan.\n"
             "- **Open a bet** to see its legs, and the multiplier the bettor paid next to the fair ones behind EV mid "
             "and EV cross (with American odds and units).\n"
-            "- **Bet in Kalshi** (on an open bet) opens that combo in the Kalshi app, or in the combo builder on "
-            "kalshi.com if the app isn't installed. Kalshi quotes it fresh, so check the price still beats the fair "
-            "odds before you buy. **Quote it** checks the live price on the Quote page instead. The book icon walks "
-            "each leg's whole orderbook for the bet's size.\n"
+            "- **Bet in CapyEV** (on an open bet) opens it on the Quote page, which asks makers for quotes at your "
+            "Kelly size and bets the one you pick (needs your Kalshi key and TRADE_PIN). **kalshi.com** opens "
+            "Kalshi's combo builder in your browser with the combo in the slip; the Kalshi app can't open a combo "
+            "from a link. Either way the price is quoted fresh, so check it still beats the fair odds. The book "
+            "icon walks each leg's whole orderbook for the bet's size.\n"
             "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
             "10–15 seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
             "- Fair prices use the order book **now**, so they answer \"is this still good to copy?\". "
@@ -511,8 +512,9 @@ def home_page() -> None:
             "- The **u** figure is Kelly units to bet, at the settings you pick on the Combos tab (gear icon: Kelly "
             "and unit size, plus its Mid / Cross switch). The defaults are ¼ Kelly on EV mid and 1u = 1% of "
             "bankroll.\n"
-            "- **Bet in Kalshi** opens the combo in Kalshi's app (or its combo builder on the web). Kalshi quotes it "
-            "fresh, so make sure the price still beats the fair odds. **Quote** checks the live price here first.\n"
+            "- **Bet in CapyEV** gets makers' quotes on the Quote page and bets the one you pick. **kalshi.com** "
+            "opens the combo in Kalshi's combo builder in your browser (the Kalshi app can't open a combo from a "
+            "link). Either way it's quoted fresh, so make sure the price still beats the fair odds.\n"
             "- Tap a card for all its legs. The Combos tab has every bet, with more filters and the full book."
         )
 
@@ -704,8 +706,8 @@ def quote_page() -> None:
             "- **Add legs**: makers price whole combos, not legs, so adding a near-certain leg on another game "
             "sometimes lowers the price by less than the leg's odds. Pick legs, quote the bigger combo, and compare "
             "EV with the original's quotes.\n"
-            "- **Bet in Kalshi** opens the combo's slip in the Kalshi app (or on kalshi.com) to bet it there. Check the "
-            "side in the slip for a NO bet."
+            "- **Bet on kalshi.com** opens Kalshi's combo builder in your browser with this combo in the slip (the "
+            "Kalshi app can't open a combo from a link). Check the side in the slip for a NO bet."
         )
 
 
