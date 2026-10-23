@@ -19,6 +19,9 @@ NTFY_URL = "https://ntfy.sh"
 TELEGRAM_URL = "https://api.telegram.org"
 THIN_SPREAD = 0.03  # same default as the Combos page's Hide thin
 THIN_SIZE = 50
+# Leg series left out by default: crypto price markets (KXBTC also covers KXBTCD, KXBTC15M, ...).
+SKIP_SERIES = ("KXBTC", "KXETH", "KXSOL", "KXXRP", "KXDOGE", "KXBNB", "KXHYPE", "KXADA", "KXLTC", "KXAVAX",
+               "KXLINK", "KXSHIBA", "KXDOT", "KXSUI", "KXTRX", "KXXLM", "KXBCH", "KXTON", "KXPEPE")
 
 
 def key(row: dict) -> str:
@@ -45,13 +48,19 @@ def min_ev_for(stake: float, tiers: list[tuple[float, float]]) -> float | None:
     return reached[-1] if reached else None
 
 
+def skipped(row: dict, series: tuple[str, ...] = SKIP_SERIES) -> bool:
+    """Has a leg from a left-out series (crypto by default)?"""
+    return any(l["ticker"].startswith(series) for l in row["leg_detail"])
+
+
 def pick(rows: list[dict], tiers: list[tuple[float, float]], sent: set[str], basis: str = "mid",
-         skip_thin: bool = True) -> list[dict]:
-    """Bets that clear their size tier's EV bar, not alerted yet, best first. Thin leg books are left out."""
+         skip_thin: bool = True, skip_series: tuple[str, ...] = SKIP_SERIES) -> list[dict]:
+    """Bets that clear their size tier's EV bar, not alerted yet, best first. Thin leg books and
+    combos with a crypto leg are left out."""
     def wanted(r):
         bar = min_ev_for(r["stake"], tiers)
         return (bar is not None and (ev_of(r, basis) or -1) > bar and key(r) not in sent
-                and not (skip_thin and thin(r)))
+                and not (skip_thin and thin(r)) and not skipped(r, skip_series))
     return sorted(filter(wanted, rows), key=lambda r: ev_of(r, basis), reverse=True)
 
 
