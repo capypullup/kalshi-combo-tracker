@@ -10,6 +10,7 @@ const PAGE = 100;
 const REFRESH_TIMEOUT = 60000;  // ms without an answer before the refresh button gives up
 const RULE = "────────────";
 const STORE = "cev-ui-v1";
+const LOGO = "__LOGO__";  // app.py puts the CapyEV logo (capyev.svg) here
 
 const ICON_BOOK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z"/><path d="M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z"/></svg>';
 const ICON_CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>';
@@ -176,23 +177,22 @@ function visibleRows(S, data) {
 function shell(root) {
   root.innerHTML = `
     <div class="top">
-      <span class="brand">COMBO EV</span><span class="dot"></span>
-      <span class="meta" data-ref="updated"></span><span class="sp"></span>
+      <span class="dot"></span><span class="meta" data-ref="updated"></span><span class="sp"></span>
       <button class="iconbtn" data-act="settings" title="Kelly settings">${ICON_GEAR}</button>
       <button class="iconbtn" data-act="refresh" title="Refresh now">${ICON_REFRESH}</button>
     </div>
     <div class="filters">
-      <div class="search"><input type="search" placeholder="Filter by leg…" data-ref="q" autocomplete="off">
+      <div class="search"><input type="search" placeholder="Search legs…" data-ref="q" autocomplete="off">
         <span class="count" data-ref="count"></span></div>
-      <div class="frow"><span class="flabel">MIN EV</span><span data-ref="minEv"></span><span class="sp"></span>
-        <button class="tog" data-act="indep"><span class="sw"></span>INDEP. ONLY</button></div>
-      <div class="frow"><span class="flabel">MIN QK</span><span data-ref="minQk"></span><span class="sp"></span>
-        <button class="tog" data-act="basis"><span class="sw"></span><span><span class="bm">MID</span> / <span class="bc">CROSS</span></span></button></div>
-      <div class="frow"><span class="flabel">MIN BET</span><span data-ref="minBet"></span><span class="sp"></span>
-        <button class="tog" data-act="thin"><span class="sw"></span>HIDE THIN</button></div>
-      <div class="frow"><span class="flabel">WINDOW</span><span data-ref="window"></span><span class="sp"></span>
-        <button class="phase" data-act="phase" data-v="pre">PREGAME</button>
-        <button class="phase" data-act="phase" data-v="live">LIVE</button></div>
+      <div class="frow"><span class="flabel">Min EV</span><span data-ref="minEv"></span><span class="sp"></span>
+        <button class="tog" data-act="indep"><span class="sw"></span>Indep. only</button></div>
+      <div class="frow"><span class="flabel">Min QK</span><span data-ref="minQk"></span><span class="sp"></span>
+        <button class="tog" data-act="basis"><span class="sw"></span><span><span class="bm">Mid</span> / <span class="bc">Cross</span></span></button></div>
+      <div class="frow"><span class="flabel">Min bet</span><span data-ref="minBet"></span><span class="sp"></span>
+        <button class="tog" data-act="thin"><span class="sw"></span>Hide thin</button></div>
+      <div class="frow"><span class="flabel">Window</span><span data-ref="window"></span><span class="sp"></span>
+        <button class="phase" data-act="phase" data-v="pre">Pregame</button>
+        <button class="phase" data-act="phase" data-v="live">Live</button></div>
       <div class="settings" data-ref="settings">
         <label>Kelly <select data-ref="kelly">${KELLY.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
         <label>1u = <input type="number" min="0.1" step="0.1" data-ref="unitPct"> % bankroll</label>
@@ -202,13 +202,13 @@ function shell(root) {
       <div class="note" data-ref="note"></div>
     </div>
     <div class="grid thead">
-      <button data-sort="time"><span class="t">TIME</span><span class="u" data-ref="clock"></span></button>
-      <button data-sort="legs"><span class="t">SIDE</span><span class="u">LEGS</span></button>
-      <button data-sort="stake"><span class="t">BET</span></button>
-      <button class="r" data-sort="om"><span class="t">MID</span><span class="u">ODDS</span></button>
-      <button class="r" data-sort="oc"><span class="t">CROSS</span><span class="u">ODDS</span></button>
-      <button class="r" data-sort="evm"><span class="t">EV</span><span class="u">MID</span></button>
-      <button class="r" data-sort="evc"><span class="t">EV</span><span class="u">CROSS</span></button>
+      <button data-sort="time"><span class="t">Time</span><span class="u" data-ref="clock"></span></button>
+      <button data-sort="legs"><span class="t">Side</span><span class="u">legs</span></button>
+      <button data-sort="stake"><span class="t">Bet</span></button>
+      <button class="r" data-sort="om"><span class="t">Mid</span><span class="u">odds</span></button>
+      <button class="r" data-sort="oc"><span class="t">Cross</span><span class="u">odds</span></button>
+      <button class="r" data-sort="evm"><span class="t">EV</span><span class="u">mid</span></button>
+      <button class="r" data-sort="evc"><span class="t">EV</span><span class="u">cross</span></button>
     </div>
     <div data-ref="rows"></div>
     <div class="toast"></div>`;
@@ -334,8 +334,27 @@ export default function (component) {
     const shown = rows.slice(0, S.show);
     $("rows").innerHTML = shown.length
       ? shown.map((r) => rowHtml(S, D, r)).join("") + moreHtml(rows)
-      : `<div class="empty">No bets match these filters. Lower MIN EV, MIN QK or MIN BET, or turn off HIDE THIN.</div>`;
+      : emptyHtml(D);
     watchSentinel();
+  }
+
+  // Nothing to show: say which of the filters you set could bring bets back.
+  function emptyHtml(D) {
+    if (!D.rows.length) {
+      return `<div class="empty">${LOGO}<b>No bets yet</b>Nobody has bet $${D.minBet.toLocaleString()}+ on a combo in this window.
+        Tap ↻ to check again, or try a lower Min bet.</div>`;
+    }
+    const tips = [
+      S.q.trim() && "clear the search",
+      S.minEv > 0 && "lower Min EV",
+      S.minEv === 0 && "tap Min EV 0% to see negative EV too",
+      S.minQk !== null && "lower Min QK",
+      S.hideThin && "turn off Hide thin",
+      S.indep && "turn off Indep. only",
+      S.phase && `turn off ${S.phase === "live" ? "Live" : "Pregame"}`,
+    ].filter(Boolean);
+    const tip = tips.length > 1 ? `${tips.slice(0, -1).join(", ")} or ${tips[tips.length - 1]}` : tips[0] || "try a lower Min bet";
+    return `<div class="empty">${LOGO}<b>No bets match these filters</b>${tip[0].toUpperCase() + tip.slice(1)}.</div>`;
   }
 
   function loadMore() {
@@ -459,8 +478,8 @@ export default function (component) {
           return ctxNow.setTriggerValue("refresh", tap);
         }
         case "depth": return r && ctxNow.setTriggerValue("depth", r.id);
-        case "ticker": return r && copyText(r.ticker, el, "Ticker copied");
-        case "card": return r && copyText(betCard(S, r), el, "Bet card copied");
+        case "ticker": return r && copyText(r.ticker, el, "Ticker copied ✓");
+        case "card": return r && copyText(betCard(S, r), el, "Bet card copied 🧋");
       }
     });
   }

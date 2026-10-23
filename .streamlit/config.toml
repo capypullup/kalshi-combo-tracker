@@ -1,9 +1,15 @@
 [client]
 toolbarMode = "minimal"
 
+[server]
+enableStaticServing = true  # static/capyev-touch.png, the home-screen icon
+
 [theme]
 base = "dark"
 primaryColor = "#00e5ff"
 backgroundColor = "#000000"
 secondaryBackgroundColor = "#070b0d"
 textColor = "#e6fbff"
+font = "Nunito:https://fonts.googleapis.com/css2?family=Nunito:wght@400..900&display=swap"
+baseRadius = "large"
+buttonRadius = "full"

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="CapyEV">
+  <!-- CapyEV: a capybara sipping boba. scripts/render_icons.py turns this into the app icons. -->
+  <ellipse cx="23.5" cy="16" rx="6" ry="5" fill="#8B5A36" transform="rotate(-25 23.5 16)"/>
+  <ellipse cx="76.5" cy="16" rx="6" ry="5" fill="#8B5A36" transform="rotate(25 76.5 16)"/>
+  <path d="M30 13 L70 13 Q85 13 85 29 L87 76 Q88 98 50 98 Q12 98 13 76 L15 29 Q15 13 30 13 Z" fill="#C98A55"/>
+  <circle cx="33.5" cy="28" r="4" fill="#2A1A10"/><circle cx="34.9" cy="26.6" r="1.4" fill="#FFFFFF"/>
+  <circle cx="66.5" cy="28" r="4" fill="#2A1A10"/><circle cx="67.9" cy="26.6" r="1.4" fill="#FFFFFF"/>
+  <ellipse cx="23" cy="44" rx="5" ry="3.4" fill="#F29A8E" opacity=".7"/>
+  <ellipse cx="77" cy="44" rx="5" ry="3.4" fill="#F29A8E" opacity=".7"/>
+  <rect x="30" y="34" width="40" height="27" rx="13" fill="#A86B42"/>
+  <ellipse cx="43.5" cy="42" rx="2.7" ry="2.1" fill="#3A2416"/>
+  <ellipse cx="56.5" cy="42" rx="2.7" ry="2.1" fill="#3A2416"/>
+  <path d="M50 46.5 L50 50.5 M45 50.5 Q47.5 54 50 50.5 Q52.5 54 55 50.5" fill="none" stroke="#3A2416" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50.5 53 L53.5 71" stroke="#00E5FF" stroke-width="4" stroke-linecap="round"/>
+  <path d="M36 72 L64 72 L61.5 94 Q61 96.5 58.5 96.5 L41.5 96.5 Q39 96.5 38.5 94 Z" fill="#EBC89F"/>
+  <path d="M39.3 75 L40.9 93" stroke="#FFF7EC" stroke-width="2.2" stroke-linecap="round" opacity=".8"/>
+  <circle cx="45" cy="91" r="3.1" fill="#3B2416"/><circle cx="51" cy="92" r="3.1" fill="#3B2416"/>
+  <circle cx="57" cy="90.5" r="3.1" fill="#3B2416"/><circle cx="48" cy="85.5" r="3.1" fill="#3B2416"/>
+  <circle cx="54" cy="85" r="3.1" fill="#3B2416"/>
+  <rect x="33.5" y="68" width="33" height="6" rx="3" fill="#FFF7EC"/>
+  <ellipse cx="35" cy="82" rx="5.5" ry="6.5" fill="#8B5A36"/>
+  <ellipse cx="65" cy="82" rx="5.5" ry="6.5" fill="#8B5A36"/>
+</svg>

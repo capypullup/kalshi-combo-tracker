@@ -1,6 +1,6 @@
-# Kalshi Combo EV Tracker
+# CapyEV
 
-A phone-friendly dashboard that watches combo (parlay) bets on Kalshi and scores each one against the orderbooks of its legs.
+A phone-friendly dashboard that watches combo (parlay) bets on Kalshi and scores each one against the orderbooks of its legs. Its mascot is a capybara sipping boba (`combo_tracker/ui/capyev.svg`; `scripts/render_icons.py` turns it into the browser-tab and home-screen icons).
 
 For every combo bet in the window it shows:
 
@@ -16,8 +16,8 @@ EV CRX +3568.4% (fair -363) · 19u
 
 - **Fair (mid)** is the product of the leg mid prices. **Fair (CRX)** is the product of the prices you get by crossing the spread to the other side (the leg bids). It's the conservative number.
 - **EV %** = fair ÷ price paid − 1. **Units** = Kelly fraction × your Kelly multiplier ÷ unit size. The defaults are ¼ Kelly and 1u = 1% of bankroll.
-- The page is a black and cyan table, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (MID ODDS / CROSS ODDS, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
-- Toggles at the top: **MIN EV**, **MIN QK** (Kelly units) and **MIN BET** chips, a **WINDOW** (15m, 1h, 3h), **INDEP. ONLY** to hide same-game combos, **MID / CROSS** to pick which EV the minimums use, **HIDE THIN** to drop combos with an unreliable leg book, **PREGAME / LIVE**, and a search box for leg names. The gear icon sets the Kelly fraction, unit size and what counts as thin (default: a leg spread over 3¢ or under 50 contracts at the top of book). Your choices are remembered on your phone.
+- The page is a black and cyan table with rounded type and pill-shaped controls, about 10 bets per phone screen. Each row shows when the bet was placed, the side with legs / games, the bet → payout with its multiplier (American odds, contracts and contract price underneath; on a phone the payout gets its own line), the fair odds at mid and crossing the spread (Mid odds / Cross odds, as a multiplier with American odds underneath), and EV at mid and EV crossing the spread, each with Kelly units.
+- Toggles at the top: **Min EV**, **Min QK** (Kelly units) and **Min bet** chips, a **Window** (15m, 1h, 3h), **Indep. only** to hide same-game combos, **Mid / Cross** to pick which EV the minimums use, **Hide thin** to drop combos with an unreliable leg book, **Pregame / Live**, and a search box for leg names. The gear icon sets the Kelly fraction, unit size and what counts as thin (default: a leg spread over 3¢ or under 50 contracts at the top of book). Your choices are remembered on your phone.
 - The list scrolls endlessly and shows the newest bets first after every refresh (the app scores the newest 600 bets in each view). Tap a column header to sort differently, or a row to open it: each leg with its odds, bid / ask (`*` marks a thin book) and LIVE or its start time, fair odds, net EV after fees, flags, a book button that walks the full leg orderbooks at the bet's size, and **Copy bet card**.
 - Flags: `SG` same-game legs (correlated), `THIN` a thin leg book, `IN BAND` the edge is within the leg spreads, `NO QUOTE` a leg has no market, `CHECK` an edge over +200%. LIVE uses each game's scheduled start from Kalshi's public schedule (`/milestones`); a combo is live once any leg's game has started (red dot in the row). Legs Kalshi doesn't schedule count as live within 3h of their expected settlement.
 
@@ -25,28 +25,28 @@ All data comes from Kalshi's free public API. No API key is needed.
 
 ## Bettors page
 
-The **BETTORS** tab ranks public Kalshi profiles, with tennis bettors as the starting point:
+The **Bettors** tab ranks public Kalshi profiles, with tennis bettors as the starting point:
 
 - Kalshi's main trade feed has no trader ID, but its social API (the one kalshi.com profiles use, also keyless) returns the same trades with the maker's and taker's nicknames for anyone whose profile shows their trades. The tracker reads the last day of tennis trades from it, takes the 40 busiest public names, and pages each one's whole history. You can add any nickname from the search box.
-- **PNL** is Kalshi's own number for the profile. **TRADES** is the size of our sample.
-- **EV** prices every trade against the market's bid/ask mid in the minute it happened (from one-minute candles), after taker fees; a combo is priced from its legs. **BEAT** is settled PnL minus EV on the same trades, and **Z** is that divided by its standard deviation, so a high Z over many trades means the bettor beats the book by more than luck explains.
-- **SCOPE** switches between tennis-only and all of a bettor's trades. Tap a row for the breakdown and their latest trades.
-- **VIEW** switches between all-time and the last 30 days (Kalshi's PnL for that period, and our sample over it); **TRADES** shows win % underneath. Each bettor's whole history is loaded (long ones fill in over a few 15-minute cycles; a `+` after the count means more is coming). EV is priced for the last 30 days of trades.
+- **PnL** is Kalshi's own number for the profile. **Trades** is the size of our sample.
+- **EV** prices every trade against the market's bid/ask mid in the minute it happened (from one-minute candles), after taker fees; a combo is priced from its legs. **Beat** is settled PnL minus EV on the same trades, and **z** is that divided by its standard deviation, so a high z over many trades means the bettor beats the book by more than luck explains.
+- **Scope** switches between tennis-only and all of a bettor's trades. Tap a row for the breakdown and their latest trades.
+- **View** switches between all-time and the last 30 days (Kalshi's PnL for that period, and our sample over it); **Trades** shows win % underneath. Each bettor's whole history is loaded (long ones fill in over a few 15-minute cycles; a `+` after the count means more is coming). EV is priced for the last 30 days of trades.
 - **RFQ codes** (needs an API key, see below): every combo bet starts as a request for quote, which Kalshi broadcasts to logged-in users with the requester's code, a hash that stays the same for that person. When a bet fills, Kalshi closes its request in the same instant, and the close message carries the market, the size and the code. The app listens to that stream, polls the trade feed every 5 seconds, and matches each new combo trade to the request on the same market, with the same size, that closed within a couple of seconds of it (in the live check, 197 of 200 closed within 0.5 s of their trade). A quote can fill a bit less than asked, so a request for up to 2.5x the trade's size counts when nothing fits exactly. "Sure" means every request that fit and closed about as near the trade was the same person's (the Kalshi app re-asks every few seconds while a slip is open). That gives every combo bettor, public or not, a stable ID with their bets, EV, PnL and win rate. When one of a code's trades shows a public nickname in the social feed, the code is linked to that name. Codes only build up while the app is running, because Kalshi doesn't keep RFQ history.
 - Volume: at busy times Kalshi sends ~3,000 RFQs a second from ~20,000 people. The stream thread only parses the closes and keeps 30 seconds of them (~40 MB at peak), and reads without websocket-client's pure-Python UTF-8 check, which otherwise caps it near Kalshi's rate (Kalshi drops a subscriber that falls behind; the app resubscribes if that happens). Every code keeps its bets, but only the 100 biggest by dollars bet, plus the 50 biggest in tennis, with 3+ bets are priced and listed; past 30,000 codes the smallest idle ones are dropped.
 - Limits: profiles that hide their trades only show Kalshi's PnL and market count. Kalshi's leaderboard isn't used because it scrambles nicknames for non-browser clients.
 
 ### API key for RFQ matching
 
-Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's GET QUOTE button, which creates and deletes your own RFQs.
+Create a key on Kalshi (Account & security → API keys) and add two secrets, `KALSHI_KEY_ID` and `KALSHI_PRIVATE_KEY` (the whole private key file), in Streamlit Cloud (app Settings → Secrets, TOML: `KALSHI_KEY_ID = "..."` and `KALSHI_PRIVATE_KEY = """..."""`; the key works with or without its `-----BEGIN/END PRIVATE KEY-----` lines, RSA or Ed25519) and in GitHub (Settings → Secrets → Actions) for CI's live check. The app only makes read requests with it, except the Quote page's Get quote button, which creates and deletes your own RFQs.
 
 ## Quote page
 
 A fill in the feed means someone got that price, not that you still can. The QUOTE tab checks one combo now (pick a recent bet or paste a combo ticker; `?t=TICKER&side=yes&p=0.25&n=100` on `/quote` pre-fills it):
 
 - **Verdict**: LIVE when the combo's own orderbook has resting orders at or under the price, or the same side filled at that price in the last 90 s (the picked bet's own fills don't count); LIKELY when the newest fill was at the price a few minutes ago; MOVED when newer fills are worse; STALE when nothing has filled since.
-- The combo's book, its newest fills, and each leg's book now, with EV at the price and at the best price available now. WATCH re-checks every 5 s.
-- **GET QUOTE** (needs the API key above) sends a real RFQ for $10–$500, lists makers' quotes as they arrive with price incl. fee, odds, size, maker code and EV MID/CROSS, and cancels the RFQ after 45 s. It never accepts a quote. This is the one place the app sends signed write requests (create/delete your own RFQ).
+- The combo's book, its newest fills, and each leg's book now, with EV at the price and at the best price available now. Watch re-checks every 5 s.
+- **Get quote** (needs the API key above) sends a real RFQ for $10–$500, lists makers' quotes as they arrive with price incl. fee, odds, size, maker code and EV MID/CROSS, and cancels the RFQ after 45 s. It never accepts a quote. This is the one place the app sends signed write requests (create/delete your own RFQ).
 
 ## Run it
 

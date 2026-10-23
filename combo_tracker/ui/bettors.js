@@ -4,6 +4,7 @@
 const MIN_TRADES = [20, 50, 100, 300];
 const PAGE = 60;
 const STORE = "bettors-ui-v2";
+const LOGO = "__LOGO__";  // app.py puts the CapyEV logo (capyev.svg) here
 
 const ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 
@@ -77,34 +78,33 @@ function visibleRows(S, data) {
 function shell(root) {
   root.innerHTML = `
     <div class="top">
-      <span class="brand">BETTORS</span><span class="dot"></span>
-      <span class="meta" data-ref="updated"></span><span class="sp"></span>
+      <span class="dot"></span><span class="meta" data-ref="updated"></span><span class="sp"></span>
       <button class="iconbtn" data-act="refresh" title="Show latest">${ICON_REFRESH}</button>
     </div>
     <div class="filters">
       <div class="search"><input type="search" placeholder="Find or add a nickname…" data-ref="q" autocomplete="off" autocapitalize="off">
         <span class="count" data-ref="count"></span></div>
       <div data-ref="track"></div>
-      <div class="frow"><span class="flabel">VIEW</span>
+      <div class="frow"><span class="flabel">View</span>
         <button class="chip" data-act="view" data-v="all">All-time</button>
         <button class="chip" data-act="view" data-v="30">30 days</button></div>
-      <div class="frow"><span class="flabel">SCOPE</span>
+      <div class="frow"><span class="flabel">Scope</span>
         <button class="chip" data-act="scope" data-v="tennis">Tennis</button>
         <button class="chip" data-act="scope" data-v="all">All bets</button><span class="sp"></span>
-        <button class="tog" data-act="hidePrivate"><span class="sw"></span>HIDE PRIVATE</button></div>
-      <div class="frow"><span class="flabel">WHO</span>
+        <button class="tog" data-act="hidePrivate"><span class="sw"></span>Hide private</button></div>
+      <div class="frow"><span class="flabel">Who</span>
         <button class="chip" data-act="who" data-v="all">All</button>
         <button class="chip" data-act="who" data-v="named">Profiles</button>
         <button class="chip" data-act="who" data-v="codes">RFQ codes</button></div>
-      <div class="frow"><span class="flabel">MIN TRADES</span><span data-ref="minN"></span></div>
+      <div class="frow"><span class="flabel">Min trades</span><span data-ref="minN"></span></div>
       <div class="note" data-ref="note"></div>
     </div>
     <div class="bgrid thead">
-      <button data-sort="last">BETTOR<span class="clock">LAST BET</span></button>
-      <button class="r" data-sort="pnl">PNL<span class="clock" data-ref="pnlSub">30D</span></button>
-      <button class="r" data-sort="n">TRADES<span class="clock" data-sort="win">WIN %</span></button>
+      <button data-sort="last">Bettor<span class="clock">last bet</span></button>
+      <button class="r" data-sort="pnl">PnL<span class="clock" data-ref="pnlSub">30d</span></button>
+      <button class="r" data-sort="n">Trades<span class="clock" data-sort="win">win %</span></button>
       <button class="r" data-sort="ev">EV<span class="clock">ROI</span></button>
-      <button class="r" data-sort="z">BEAT<span class="clock">Z</span></button>
+      <button class="r" data-sort="z">Beat<span class="clock">z</span></button>
     </div>
     <div data-ref="rows"></div>
     <div class="toast"></div>`;
@@ -166,7 +166,7 @@ function detailHtml(S, r) {
   }).join("");
   return `<div class="detail">
     <div class="facts">${lines.join("<br>")}</div>
-    ${fills ? `<div class="flabel2">LATEST TRADES</div>${fills}` : ""}
+    ${fills ? `<div class="flabel2">Latest trades</div>${fills}` : ""}
     <div class="actions"><span class="bk"></span>
       <button class="btn" data-act="copy">Copy name</button>
       <button class="btn primary" data-act="reload">Re-check now</button>
@@ -194,7 +194,7 @@ export default function (component) {
     root.querySelectorAll('[data-act="scope"]').forEach((b) => b.classList.toggle("on", S.scope === b.dataset.v));
     root.querySelectorAll('[data-act="view"]').forEach((b) => b.classList.toggle("on", S.view === b.dataset.v));
     root.querySelectorAll('[data-act="who"]').forEach((b) => b.classList.toggle("on", S.who === b.dataset.v));
-    $("pnlSub").textContent = S.view === "30" ? "ALL" : "30D";
+    $("pnlSub").textContent = S.view === "30" ? "all-time" : "30d";
     root.querySelector('[data-act="hidePrivate"]').classList.toggle("on", S.hidePrivate);
     root.querySelectorAll(".thead [data-sort]").forEach((b) => {
       const on = b.dataset.sort === S.sort;
@@ -216,7 +216,8 @@ export default function (component) {
     $("rows").innerHTML = shown.length
       ? shown.map((r) => rowHtml(S, r)).join("") +
         (rows.length > shown.length ? `<button class="more" data-act="more">Show more (${rows.length - shown.length} left)</button>` : "")
-      : `<div class="empty">${D.rows.length ? "No bettors match these filters." : "Finding bettors… the first pass takes a few minutes."}</div>`;
+      : `<div class="empty">${LOGO}${D.rows.length ? "<b>No bettors match these filters</b>Try another View, Scope or Who, or a lower Min trades."
+                                         : "<b>Finding bettors…</b>The first pass takes a few minutes."}</div>`;
   }
 
   function paintMeta() {
@@ -275,7 +276,7 @@ export default function (component) {
 function copyName(text, root) {
   const done = () => {
     const t = root.querySelector(".toast");
-    t.textContent = "Name copied";
+    t.textContent = "Name copied ✓";
     t.classList.add("show");
     clearTimeout(t._h);
     t._h = setTimeout(() => t.classList.remove("show"), 1400);

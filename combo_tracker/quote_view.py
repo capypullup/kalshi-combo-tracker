@@ -1,7 +1,7 @@
-"""The QUOTE page: is this combo's price still live, and what would makers quote me now?
+"""The Quote page: is this combo's price still live, and what would makers quote me now?
 
-Pick a recent bet (or paste a combo ticker). CHECK reads the combo's own orderbook,
-its newest fills and its legs' books; WATCH repeats that every few seconds. GET QUOTE
+Pick a recent bet (or paste a combo ticker). Check reads the combo's own orderbook,
+its newest fills and its legs' books; Watch repeats that every few seconds. Get quote
 sends a real RFQ with your API key and lists the makers' quotes with their EV. It
 never accepts a quote.
 """
@@ -24,22 +24,22 @@ POLL_SECONDS = 2
 DOLLARS = [10, 25, 50, 100, 250, 500]
 
 CSS = """<style>
-.qv {font-family: ui-sans-serif, -apple-system, "SF Pro Text", Inter, system-ui, sans-serif; color: #e6fbff;
+.qv {font-family: "Nunito", ui-rounded, "SF Pro Rounded", ui-sans-serif, -apple-system, system-ui, sans-serif; color: #e6fbff;
      font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.3;}
-.qv .verdict {border: 1px solid #1b3540; border-radius: 10px; padding: 8px 10px; margin: 2px 0 6px;}
-.qv .verdict b.word {font-size: 18px; letter-spacing: 0.12em; margin-right: 8px;}
+.qv .verdict {border: 1px solid #1b3540; border-radius: 16px; padding: 9px 12px; margin: 2px 0 6px;}
+.qv .verdict b.word {font-size: 18px; font-weight: 900; letter-spacing: 0.06em; margin-right: 8px;}
 .qv .LIVE {border-color: #2ee6a6;} .qv .LIVE b.word {color: #2ee6a6;}
 .qv .LIKELY {border-color: #00e5ff;} .qv .LIKELY b.word {color: #00e5ff;}
 .qv .MOVED b.word, .qv .STALE b.word, .qv .NODATA b.word {color: #ffc857;}
 .qv .dim {color: #6f8f99;} .qv .pos {color: #2ee6a6;} .qv .neg {color: #ff5c6c;} .qv .cy {color: #00e5ff;}
 .qv .warn {color: #ffc857;}
-.qv h4 {font-size: 11px; letter-spacing: 0.12em; color: #6f8f99; margin: 10px 0 3px; font-weight: 700;}
+.qv h4 {font-size: 12.5px; color: #6f8f99; margin: 10px 0 3px; font-weight: 800;}
 .qv table {width: 100%; border-collapse: collapse;}
 .qv td, .qv th {padding: 4px 4px; border-bottom: 1px solid #12222a; text-align: right; vertical-align: top;}
-.qv th {font-size: 10px; letter-spacing: 0.1em; color: #6f8f99; font-weight: 700;}
+.qv th {font-size: 11.5px; color: #6f8f99; font-weight: 800;}
 .qv td:first-child, .qv th:first-child {text-align: left;}
 .qv td small {display: block; color: #6f8f99; font-size: 11px;}
-.qv .chips span {display: inline-block; border: 1px solid #1b3540; border-radius: 8px; padding: 1px 7px;
+.qv .chips span {display: inline-block; border: 1px solid #1b3540; border-radius: 999px; padding: 1px 8px;
      margin: 0 4px 4px 0; font-size: 12px;}
 .qv .ld {display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff5c6c; margin-right: 4px;}
 </style>"""
@@ -76,12 +76,12 @@ def _verdict_html(c: LiveCheck) -> str:
     out = [f'<div class="verdict {word}"><b class="word">{html.escape(c.verdict)}</b>{html.escape(c.reason)}<br>']
     if c.best_now is not None:
         out.append(f'<span class="dim">Best now</span> <b>{_c(c.best_now)}</b> {odds(c.best_now)} · '
-                   f'EV MID {_pct(c.ev_now.get("mid"))} · CROSS {_pct(c.ev_now.get("cross"))}<br>')
-    out.append(f'<span class="dim">At {_c(c.price)} ({odds(c.price)}):</span> EV MID {_pct(s["ev_pct_mid"])} · '
-               f'CROSS {_pct(s["ev_pct_crx"])} <span class="dim">· fair {_c(s["fair_mid"])} / {_c(s["fair_crx"])} · '
+                   f'EV mid {_pct(c.ev_now.get("mid"))} · cross {_pct(c.ev_now.get("cross"))}<br>')
+    out.append(f'<span class="dim">At {_c(c.price)} ({odds(c.price)}):</span> EV mid {_pct(s["ev_pct_mid"])} · '
+               f'cross {_pct(s["ev_pct_crx"])} <span class="dim">· fair {_c(s["fair_mid"])} / {_c(s["fair_crx"])} · '
                f'checked {now.astimezone().strftime("%H:%M:%S")}</span></div>')
 
-    out.append(f"<h4>COMBO BOOK · BUY {c.side.upper()}</h4>")
+    out.append(f"<h4>Combo book · buy {c.side.upper()}</h4>")
     if c.book_levels:
         out.append('<div class="chips">' + "".join(
             f'<span class="{"pos" if p <= c.price + 1e-9 else ""}">{_c(p, 2)} × {n:,.0f}</span>'
@@ -90,18 +90,18 @@ def _verdict_html(c: LiveCheck) -> str:
         out.append('<div class="dim">No resting orders. Makers only answer RFQs on this one.</div>')
 
     fills = c.fills[:12]
-    out.append(f"<h4>NEWEST FILLS · {len(c.side_fills)} ON {c.side.upper()} IN THE LAST {len(c.fills)} TRADES</h4>")
+    out.append(f"<h4>Newest fills · {len(c.side_fills)} on {c.side.upper()} in the last {len(c.fills)} trades</h4>")
     if fills:
         rows = "".join(
             f'<tr><td>{_ago(f.ts, now)} ago</td><td class="{"cy" if f.side == c.side else "dim"}">{f.side.upper()}</td>'
             f'<td class="{"pos" if f.side == c.side and f.price <= c.price * 1.02 else ""}">{_c(f.price, 2)}</td>'
             f"<td>{f.contracts:,.0f}</td><td>${f.stake:,.2f}</td></tr>" for f in fills)
-        out.append(f"<table><tr><th>WHEN</th><th>SIDE</th><th>PRICE</th><th>CONTRACTS</th><th>$</th></tr>{rows}</table>")
+        out.append(f"<table><tr><th>When</th><th>Side</th><th>Price</th><th>Contracts</th><th>$</th></tr>{rows}</table>")
     else:
         out.append('<div class="dim">No fills on this combo.</div>')
 
     legs = s["leg_detail"]
-    out.append(f"<h4>LEGS · {len(legs)}</h4><table><tr><th>LEG</th><th>BID</th><th>ASK</th><th>TOP</th></tr>")
+    out.append(f"<h4>Legs · {len(legs)}</h4><table><tr><th>Leg</th><th>Bid</th><th>Ask</th><th>Top</th></tr>")
     for l in legs:
         live = '<span class="ld"></span>' if leg_live(l) else ""
         thin = (l["spread"] or 1) > 0.03 or min(l["top_bid_size"], l["top_ask_size"]) < 50
@@ -124,8 +124,8 @@ def _quotes_html(raw: list[dict], c: LiveCheck) -> str:
         f"<td>{q.contracts:,.2f}<small>{html.escape(q.maker)}</small></td>"
         f"<td>{_pct(fm / q.all_in - 1 if fm else None)}</td><td>{_pct(fc / q.all_in - 1 if fc else None)}</td></tr>"
         for q in quotes)
-    return (f'<div class="qv"><table><tr><th>+FEE</th><th>BUY {c.side.upper()}</th><th>SIZE</th><th>EV MID</th>'
-            f"<th>EV CROSS</th></tr>{rows}</table></div>")
+    return (f'<div class="qv"><table><tr><th>With fee</th><th>Buy {c.side.upper()}</th><th>Size</th><th>EV mid</th>'
+            f"<th>EV cross</th></tr>{rows}</table></div>")
 
 
 def _pick_from_query() -> dict | None:
@@ -172,8 +172,8 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False)
                                 key=f"q_price_{ticker}_{side}",
                                 value=round((base["price"] or 0.5) * 100, 2) if side == base["side"] else 50.0) / 100
         contracts = base["contracts"] or 100.0
-        force = st.button("CHECK", type="primary")
-        watch = st.toggle("WATCH", key="q_watch", help=f"Re-check every {WATCH_SECONDS}s")
+        force = st.button("Check", type="primary")
+        watch = st.toggle("Watch", key="q_watch", help=f"Re-check every {WATCH_SECONDS}s")
 
     def live_part():
         key = (ticker, side, round(price, 4))
@@ -191,13 +191,13 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False)
 
     st.fragment(live_part, run_every=WATCH_SECONDS if watch else None)()
 
-    st.markdown("**GET QUOTE**  \n<span style='color:#6f8f99;font-size:12px'>Asks every maker for this combo at "
+    st.markdown("**Get a quote**  \n<span style='color:#6f8f99;font-size:12px'>Asks every maker for this combo at "
                 "your size, like the sportsbook button. Nothing is bought.</span>", unsafe_allow_html=True)
     desk = _desk(client, auth, demo, ticker)
     with st.container(horizontal=True, vertical_alignment="bottom"):
         dollars = st.pills("Size", DOLLARS, default=50, format_func=lambda d: f"${d}", key="q_dollars",
                            label_visibility="collapsed") or 50
-        get = st.button("GET QUOTE", type="primary", disabled=desk is None)
+        get = st.button("Get quote", type="primary", disabled=desk is None)
     if desk is None:
         st.caption("Needs your Kalshi API key: add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY to the app's secrets "
                    "(Manage app → Settings → Secrets).")
@@ -228,10 +228,10 @@ def render(client, rows: list[dict], starts=None, auth=None, demo: bool = False)
             c = ss.get("q_check", {}).get("check")
             status = (f"Open {age:.0f}s · ${rfq['dollars']}" if not rfq.get("closed")
                       else f"Closed after {RFQ_SECONDS}s (prices may have changed)")
-            st.html(f'<div class="qv"><h4>RECEIVED QUOTES ({len(rfq["quotes"])}) · {status}</h4></div>')
+            st.html(f'<div class="qv"><h4>Quotes received ({len(rfq["quotes"])}) · {status}</h4></div>')
             if c is not None and c.side == rfq["side"]:
                 st.html(_quotes_html(rfq["quotes"], c))
-            if not rfq.get("closed") and st.button("cancel RFQ", type="tertiary"):
+            if not rfq.get("closed") and st.button("Cancel RFQ", type="tertiary"):
                 _cancel(desk)
                 rfq["closed"] = True
                 st.rerun(scope="fragment")

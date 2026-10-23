@@ -1,4 +1,4 @@
-"""Kalshi combo EV tracker: a phone-first Streamlit dashboard.
+"""CapyEV: a phone-first Streamlit dashboard for Kalshi combo bets and their EV.
 
 Run locally:  streamlit run app.py
 Offline demo: DEMO=1 streamlit run app.py
@@ -12,6 +12,8 @@ first), so the list never changes while you read it.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import sys
 import threading
@@ -59,27 +61,59 @@ MAX_WINDOW = 180  # minutes of combo fills the collector keeps
 DEEP_TTL = 180  # seconds a "full book" result stays on an expanded bet
 REFRESH_WAIT = 45  # seconds the refresh button waits for new scores before saying Kalshi is slow
 
-st.set_page_config(page_title="Combo EV", page_icon="🎯", layout="wide", initial_sidebar_state="collapsed")
+UI = Path(__file__).parent / "combo_tracker" / "ui"
+LOGO = (UI / "capyev.svg").read_text()  # a capybara sipping boba
+LOGO_URI = "data:image/svg+xml;base64," + base64.b64encode(LOGO.encode()).decode()  # st.html drops inline SVG
+
+st.set_page_config(page_title="CapyEV", page_icon=str(UI / "capyev-icon.png"), layout="wide",
+                   initial_sidebar_state="collapsed")
 st.html(
     """<style>
     header[data-testid="stHeader"] {display: none;}
     .block-container {padding: 0.4rem 0.5rem 3rem; max-width: 760px;}
     [data-testid="stVerticalBlock"] {gap: 0.25rem;}
-    .st-key-nav {gap: 6px;}
-    .st-key-nav [data-testid="stPageLink"] a {border: 1px solid #1b3540; border-radius: 8px; padding: 2px 12px;
-        min-height: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em;}
-    .st-key-nav [data-testid="stPageLink"] a span {color: #6f8f99;}
+    .st-key-nav {gap: 5px; padding: 2px 0 2px;}
+    .capy-brand {display: flex; align-items: center; gap: 5px;}
+    .capy-brand img {width: 34px; height: 34px; flex: none;}
+    .capy-brand .wm {font-weight: 900; font-size: 21px; letter-spacing: -0.01em; line-height: 1; color: #e8ae78;}
+    .capy-brand .wm b {font-weight: 900; color: #00e5ff;}
+    .st-key-nav [data-testid="stPageLink"] a {border: 1px solid #1b3540; border-radius: 999px; padding: 3px 11px;
+        min-height: 0;}
+    .st-key-nav [data-testid="stPageLink"] a span {color: #8fb0b9;}
+    .st-key-nav [data-testid="stPageLink"] a p {font-size: 13px; font-weight: 700;}
     .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] {border-color: #00e5ff; background: rgba(0, 229, 255, 0.14);}
     .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] span {color: #00e5ff;}
     </style>"""
 )
 
-UI = Path(__file__).parent / "combo_tracker" / "ui"
 combo_table = st.components.v2.component(
-    "combo_table", css=(UI / "table.css").read_text(), js=(UI / "table.js").read_text())
+    "combo_table", css=(UI / "table.css").read_text(),
+    js=(UI / "table.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
 bettor_table = st.components.v2.component(
     "bettor_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text(),
-    js=(UI / "bettors.js").read_text())
+    js=(UI / "bettors.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
+
+# The home-screen icon and name. Streamlit has no setting for them, and Streamlit Cloud shows the
+# app inside a page of its own, so they're also set on that page when the browser allows it. The
+# icon is a static file, served once the app has restarted with static serving on (config.toml);
+# until then the tab icon stands in.
+TOUCH_ICON_JS = """<script>
+(() => {
+  const docs = [document];
+  try { if (window.top !== window && window.top.document.head) docs.push(window.top.document); } catch (e) {}
+  const set = (href) => {
+    for (const d of docs) {
+      const tag = (sel, name, attrs) => d.head.querySelector(sel) || d.head.appendChild(Object.assign(d.createElement(name), attrs));
+      if (href) tag('link[rel="apple-touch-icon"]', "link", { rel: "apple-touch-icon" }).href = href;
+      tag('meta[name="apple-mobile-web-app-title"]', "meta", { name: "apple-mobile-web-app-title" }).content = "CapyEV";
+    }
+  };
+  const touch = new URL("app/static/capyev-touch.png", document.baseURI).href;
+  const tab = () => (document.querySelector("link[rel='shortcut icon']") || {}).href;
+  fetch(touch, { method: "HEAD" })  // without static serving this is the app's HTML page, not the icon
+    .then((r) => set((r.headers.get("content-type") || "").startsWith("image/") ? touch : tab()), () => set(tab()));
+})();
+</script>"""
 
 
 def _stop_collectors(name: str = "combo-collector") -> None:
@@ -168,7 +202,7 @@ def table_view():
         if snap is None:
             snap = src.board.peek(window, min_bet)
             if snap is None:  # first look at this min bet / window; afterwards it updates in the background
-                with st.spinner("Scoring bets for this filter…"):
+                with st.spinner("Brewing scores for this filter… 🧋"):
                     snap = src.board.get(window, min_bet)
             st.session_state.pinned = {"view": (window, min_bet), "snap": snap}
         src.board.touch(window, min_bet)  # keeps the view open so the worker keeps it fresh
@@ -254,11 +288,14 @@ def _watch_refresh() -> None:
 
 
 def nav() -> None:
-    """Page switcher: two small tabs above the table (the Streamlit header is hidden)."""
-    with st.container(horizontal=True, key="nav"):
-        st.page_link(PAGES[0], label="COMBOS")
-        st.page_link(PAGES[1], label="BETTORS")
-        st.page_link(PAGES[2], label="QUOTE")
+    """The app bar (the Streamlit header is hidden): CapyEV on the left, the pages on the right."""
+    with st.container(horizontal=True, key="nav", vertical_alignment="center"):
+        st.html(f'<div class="capy-brand"><img src="{LOGO_URI}" alt=""><span class="wm">Capy<b>EV</b></span></div>'
+                f"{TOUCH_ICON_JS}", width="content", unsafe_allow_javascript=True)
+        st.space("stretch")
+        st.page_link(PAGES[0], label="Combos")
+        st.page_link(PAGES[1], label="Bettors")
+        st.page_link(PAGES[2], label="Quote")
 
 
 def combo_page() -> None:
@@ -267,24 +304,24 @@ def combo_page() -> None:
 
     with st.expander("How EV, units and flags work"):
         st.markdown(
-            "- **EV MID** multiplies each leg's mid price to get a fair price, then EV = fair ÷ price paid − 1. "
+            "- **EV mid** multiplies each leg's mid price to get a fair price, then EV = fair ÷ price paid − 1. "
             "That assumes the legs are independent.\n"
-            "- **EV CROSS** prices each leg by crossing the spread (its bid). It's the conservative number.\n"
+            "- **EV cross** prices each leg by crossing the spread (its bid). It's the conservative number.\n"
             "- **Units** = Kelly fraction (p − price) ÷ (1 − price), times your Kelly multiplier, divided by your "
             "unit size. Set both with the gear icon. The defaults are ¼ Kelly and 1u = 1% of bankroll.\n"
-            "- **MIN EV / MIN QK** filter on whichever basis the MID / CROSS switch shows. Tap a chip again to clear it.\n"
-            "- **INDEP. ONLY** hides combos with two legs on the same game (they're correlated, so the product "
+            "- **Min EV / Min QK** filter on whichever basis the Mid / Cross switch shows. Tap a chip again to clear it.\n"
+            "- **Indep. only** hides combos with two legs on the same game (they're correlated, so the product "
             "of leg prices understates the true odds). Those rows show their legs/games count in yellow.\n"
-            "- **PREGAME / LIVE** uses each game's scheduled start from Kalshi's schedule: a combo is live once "
+            "- **Pregame / Live** uses each game's scheduled start from Kalshi's schedule: a combo is live once "
             "any leg's game has started (red dot by the time; open a bet to see each leg's start). Legs Kalshi "
             f"doesn't schedule count as live within {LIVE_HOURS}h of their expected settlement.\n"
-            "- **HIDE THIN** hides combos with a leg whose spread is wide or whose top of book is small, since "
+            "- **Hide thin** hides combos with a leg whose spread is wide or whose top of book is small, since "
             "its mid isn't a reliable price. Set the cutoffs with the gear icon; thin quotes show in yellow with *.\n"
             "- **Full book** (book icon on an open bet) walks each leg's whole orderbook for the bet's size.\n"
-            "- **Flags**: THIN see HIDE THIN · IN BAND the price "
+            "- **Flags**: THIN see Hide thin · IN BAND the price "
             "sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · CHECK an edge "
             "over +200%, usually a stale book.\n"
-            "- **MID ODDS / CROSS ODDS** show the fair prices behind EV MID and EV CROSS as odds: the multiplier a "
+            "- **Mid odds / Cross odds** show the fair prices behind EV mid and EV cross as odds: the multiplier a "
             "fair bet would pay, with American odds under it. Compare them with the multiplier the bettor got.\n"
             "- **↻ Refresh** pulls the newest trades and leg quotes from Kalshi and re-scores this view, usually in "
             "10–15 seconds. The icon spins until the new bets are in; the list never changes on its own.\n"
@@ -399,17 +436,17 @@ def bettors_page() -> None:
             "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
             "that show their trades. A profile that hides them shows **hidden**, with only Kalshi's own PnL and "
             "markets-traded counts.\n"
-            "- **PNL** is Kalshi's number for the profile; **VIEW** switches between all-time and the last 30 days, "
-            "with the other one underneath. For an RFQ code it's what its matched, settled bets made. **TRADES** "
-            "counts the fills in our sample (the bettor's whole history, loaded over a few cycles), and **WIN %** "
+            "- **PnL** is Kalshi's number for the profile; **View** switches between all-time and the last 30 days, "
+            "with the other one underneath. For an RFQ code it's what its matched, settled bets made. **Trades** "
+            "counts the fills in our sample (the bettor's whole history, loaded over a few cycles), and **win %** "
             "is the share of settled ones that won.\n"
             "- **EV** prices every trade against the market's bid/ask mid in the minute it happened (one-minute "
             "candles), after taker fees. A combo is priced from its legs' books. A market maker earns the spread, "
             "so EV is positive; a taker who crosses the spread starts negative.\n"
-            "- **BEAT** = settled PnL − EV on the same trades, and **Z** = that ÷ its standard deviation. Z tells "
+            "- **Beat** = settled PnL − EV on the same trades, and **z** = that ÷ its standard deviation. z tells "
             "luck from skill: around 0 is what the book expected, 2+ over hundreds of trades is rare by chance. "
             "That's the tennis-sharp signal: PnL far above what the book said their bets were worth.\n"
-            "- **SCOPE** switches the sample between tennis-only and all of the bettor's trades. Tap a row for "
+            "- **Scope** switches the sample between tennis-only and all of the bettor's trades. Tap a row for "
             "their latest trades. Maker fees (some markets charge them) aren't included.\n"
             "- The tracker refreshes every 15 minutes in the background; the first pass after a restart takes "
             "several minutes."
@@ -445,14 +482,14 @@ def quote_page() -> None:
             "under your price, so you could take them now with a limit order.\n"
             "- **EV** compares the price with the legs' books right now (mid, and crossing the spread). "
             "**Best now** is the lowest price that looks available: the book's ask or a fill in the last 90 seconds.\n"
-            "- **WATCH** re-checks every 5 seconds while it's on.\n"
-            "- **GET QUOTE** sends a real request for quote with your API key, for about the dollar amount you "
+            "- **Watch** re-checks every 5 seconds while it's on.\n"
+            "- **Get quote** sends a real request for quote with your API key, for about the dollar amount you "
             "pick (fees included), and lists makers' quotes as they arrive with EV after your fee. It's cancelled "
             "after 45 seconds. Nothing is ever accepted from this page."
         )
 
 
-PAGES = [st.Page(combo_page, title="Combo EV", icon="🎯", default=True),
-         st.Page(bettors_page, title="Bettors", icon="📈", url_path="bettors"),
-         st.Page(quote_page, title="Quote", icon="⚡", url_path="quote")]
+PAGES = [st.Page(combo_page, title="Combos", default=True),
+         st.Page(bettors_page, title="Bettors", url_path="bettors"),
+         st.Page(quote_page, title="Quote", url_path="quote")]
 st.navigation(PAGES, position="hidden").run()
