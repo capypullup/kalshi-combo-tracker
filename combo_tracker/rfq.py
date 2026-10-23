@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .bettors import is_tennis
+from . import activity
 from .client import COMBO_PREFIX
 from .engine import taker_fee
 
@@ -264,6 +265,10 @@ class RfqBook:
 
         backoff = 1.0
         while not self._stop.is_set():
+            if not activity.active():  # hang up while nobody has the app open
+                self.ws_status = "paused"
+                activity.wait_active(self._stop)
+                continue
             try:
                 headers = self.client.auth.headers("GET", "/trade-api/ws/v2")
                 # websocket-client's own UTF-8 check is pure Python and caps reading at ~8k messages a
@@ -272,7 +277,7 @@ class RfqBook:
                                                  timeout=30, skip_utf8_validation=True, enable_multithread=False)
                 self._subscribe(ws)
                 backoff = 1.0
-                while not self._stop.is_set():
+                while not self._stop.is_set() and activity.active():
                     try:
                         raw = ws.recv()
                     except websocket.WebSocketTimeoutException:
@@ -388,6 +393,11 @@ class RfqBook:
 
     def run_matcher(self) -> None:
         while not self._stop.is_set():
+            if not activity.active():
+                activity.wait_active(self._stop)
+                self._since = time.time()  # closes weren't heard while paused, so older trades can't match
+            if self._stop.is_set():
+                break
             try:
                 self.poll_trades()
                 self.reveal()
