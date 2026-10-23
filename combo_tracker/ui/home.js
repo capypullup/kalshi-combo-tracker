@@ -11,8 +11,10 @@ export const betUrl = (ticker) => `https://kalshi.com/markets_by_ticker/${encode
 
 const ICON_OUT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
 const ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+// Same icons as the Combos page.
 const SPORT_ICON = { football: "🏈", basketball: "🏀", baseball: "⚾", hockey: "🏒", tennis: "🎾", soccer: "⚽",
-                     mma: "🥊", golf: "⛳", racing: "🏁", esports: "🎮", crypto: "🪙" };
+                     mma: "🥊", boxing: "🥊", golf: "⛳", racing: "🏎️", esports: "🎮", cricket: "🏏", crypto: "🪙",
+                     commodities: "🛢️", finance: "📈", politics: "🏛️", other: "🎯" };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isNum = (x) => typeof x === "number" && isFinite(x);
@@ -76,15 +78,13 @@ function when(ms) {
   return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
 }
 
-// "🏀 NBA", "🎾 ATP + WTA", or "4 sports" from the legs' leagues.
+// "🏀 NBA", "🏀 NBA + ⚾ MLB", or "🎯 4 leagues" from the legs' leagues.
 function sportLabel(r) {
   const seen = new Map();
   for (const l of r.legs) if (l.lg) seen.set(l.lg, l.spt);
   if (!seen.size) return "";
-  if (seen.size > 2) return `🎟️ ${seen.size} leagues`;
-  const sports = new Set(seen.values());
-  const icon = sports.size === 1 ? SPORT_ICON[[...sports][0]] || "🎟️" : "🎟️";
-  return `${icon} ${[...seen.keys()].map(esc).join(" + ")}`;
+  if (seen.size > 2) return `🎯 ${seen.size} leagues`;
+  return [...seen].map(([lg, spt]) => `${SPORT_ICON[spt] || "🎯"} ${esc(lg)}`).join(" + ");
 }
 
 function loadUi() {

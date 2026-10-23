@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from combo_tracker.home import league_of, pack_home, picks
+from combo_tracker.home import pack_home, picks
 from combo_tracker.links import bet_url
 
 HOME_JS = Path(__file__).parents[1] / "combo_tracker" / "ui" / "home.js"
@@ -36,12 +36,6 @@ def test_card_has_leagues_and_first_start():
     assert [(l["lg"], l["spt"]) for l in card["legs"]] == [("NBA", "basketball"), ("MLB", "baseball")]
     assert card["start"] == int(datetime(2026, 10, 23, 23, tzinfo=timezone.utc).timestamp() * 1000)
     json.dumps(card)  # the component gets it as JSON
-
-
-def test_league_of():
-    assert league_of("KXWNBASPREAD-X") == ("WNBA", "basketball")
-    assert league_of("KXATPMATCH-X-Y") == ("ATP", "tennis")
-    assert league_of("KXBTC15M-X") == (None, None)
 
 
 def run_js(tmp_path, expr: str) -> str:

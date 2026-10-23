@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
-import re
-
+from combo_tracker.sports import league_of
 from combo_tracker.view import flags, is_live, leg_live, num
 
 MAX_PICKS = 60  # cards sent to the phone; the page filters these in the browser
-
-
-# Placeholder until combo_tracker/sports.py lands: (league, sport) from a leg's series ticker.
-_LEAGUES = [("WNBA", "basketball"), ("NBA", "basketball"), ("NCAAB", "basketball"), ("NCAAMB", "basketball"),
-            ("NCAAF", "football"), ("NFL", "football"), ("MLB", "baseball"), ("NHL", "hockey"),
-            ("ATP", "tennis"), ("WTA", "tennis"), ("ITF", "tennis"), ("UFC", "mma"), ("EPL", "soccer"),
-            ("UCL", "soccer"), ("MLS", "soccer"), ("LALIGA", "soccer"), ("SERIEA", "soccer"),
-            ("BUNDESLIGA", "soccer"), ("LIGUE1", "soccer"), ("LIGAMX", "soccer"), ("PGA", "golf"),
-            ("DPWORLD", "golf"), ("F1", "racing"), ("NASCAR", "racing"), ("LOL", "esports"), ("VALORANT", "esports")]
-
-
-def league_of(ticker: str) -> tuple[str | None, str | None]:
-    series = re.sub(r"^KX", "", ticker.split("-", 1)[0])
-    return next(((lg, sp) for lg, sp in _LEAGUES if series.startswith(lg)), (None, None))
 
 
 def _key(r: dict) -> tuple:
