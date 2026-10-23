@@ -48,6 +48,7 @@ from combo_tracker.bettors import BettorTracker  # noqa: E402  (after the reload
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
+from combo_tracker.home import pack_home  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
@@ -73,23 +74,39 @@ st.html(
     header[data-testid="stHeader"] {display: none;}
     .block-container {padding: 0.4rem 0.5rem 3rem; max-width: 760px;}
     [data-testid="stVerticalBlock"] {gap: 0.25rem;}
-    .st-key-nav {gap: 5px; padding: 2px 0 2px;}
-    .capy-brand {display: flex; align-items: center; gap: 5px;}
-    .capy-brand img {width: 34px; height: 34px; flex: none;}
-    .capy-brand .wm {font-weight: 900; font-size: 21px; letter-spacing: -0.01em; line-height: 1; color: #e8ae78;}
-    .capy-brand .wm b {font-weight: 900; color: #00e5ff;}
-    .st-key-nav [data-testid="stPageLink"] a {border: 1px solid #1b3540; border-radius: 999px; padding: 3px 11px;
-        min-height: 0;}
-    .st-key-nav [data-testid="stPageLink"] a span {color: #8fb0b9;}
-    .st-key-nav [data-testid="stPageLink"] a p {font-size: 13px; font-weight: 700;}
-    .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] {border-color: #00e5ff; background: rgba(0, 229, 255, 0.14);}
-    .st-key-nav [data-testid="stPageLink"] a[aria-current="page"] span {color: #00e5ff;}
-    </style>"""
+    /* The bottom tab bar, like Kalshi's app: the pages around a cyan capybara button that goes Home. */
+    .block-container {padding-bottom: calc(96px + env(safe-area-inset-bottom));}
+    .st-key-tabbar {position: fixed; left: 0; right: 0; bottom: 0; z-index: 999990; gap: 0; align-items: flex-end;
+        justify-content: space-around; padding: 6px max(6px, calc(50vw - 380px)) calc(6px + env(safe-area-inset-bottom));
+        background: rgba(3, 6, 8, 0.985); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        border-top: 1px solid #12222a;}
+    .st-key-tabbar > div {flex: 1 1 0; min-width: 0; width: auto !important; display: flex; justify-content: center;}
+    .st-key-tabbar > div > div {width: 100%; align-items: center;}
+    .st-key-tabbar [data-testid="stPageLink"] a {flex-direction: column; gap: 1px; padding: 2px 0; min-height: 0;
+        background: none !important; border: 0;}
+    .st-key-tabbar [data-testid="stPageLink"] a span {color: #5d7a83; font-size: 23px;}
+    .st-key-tabbar [data-testid="stPageLink"] a p {font-size: 11px; font-weight: 800; color: #5d7a83;}
+    .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a span,
+    .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a p {color: #e6fbff;}
+    .st-key-tabbar .st-key-tab_on [data-testid="stPageLink"] a span[data-testid="stIconMaterial"] {color: #00e5ff;}
+    .st-key-tabbar [class*="st-key-capy"] a {width: 58px; height: 58px; margin-top: -24px; padding: 0; border-radius: 50%;
+        justify-content: center; background: radial-gradient(circle at 35% 30%, #7ff4ff 0%, #00e5ff 38%, #00a9c4 100%) !important;
+        border: 3px solid #000 !important; box-shadow: 0 0 0 1.5px rgba(0, 229, 255, 0.55), 0 0 22px rgba(0, 229, 255, 0.45),
+        0 6px 14px rgba(0, 0, 0, 0.6);}
+    .st-key-tabbar [class*="st-key-capy"] a::before {content: ""; width: 42px; height: 42px;
+        background: url("__LOGO_URI__") center / contain no-repeat;}
+    .st-key-tabbar [class*="st-key-capy"] a > * {display: none;}
+    .st-key-tabbar .st-key-capy_on a {box-shadow: 0 0 0 2px #e6fbff, 0 0 28px rgba(0, 229, 255, 0.7),
+        0 6px 14px rgba(0, 0, 0, 0.6);}
+    </style>""".replace("__LOGO_URI__", LOGO_URI)
 )
 
 combo_table = st.components.v2.component(
     "combo_table", css=(UI / "table.css").read_text(),
     js=(UI / "table.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
+home_cards = st.components.v2.component(
+    "home_cards", css=(UI / "home.css").read_text(),
+    js=(UI / "home.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
 bettor_table = st.components.v2.component(
     "bettor_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text(),
     js=(UI / "bettors.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
@@ -198,7 +215,7 @@ def _quote():
 def table_view():
     go = st.session_state.pop("quote_req", None)
     if go:  # "Quote it" on an open bet: check it on the Quote page (quote_view reads these params)
-        st.switch_page(PAGES[2], query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
+        st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}",
                                                "n": f"{go['n']:g}"})
     min_bet, window = st.session_state.min_bet, st.session_state.window
     src = get_source()
@@ -298,15 +315,17 @@ def _watch_refresh() -> None:
 
 
 def nav() -> None:
-    """The app bar (the Streamlit header is hidden): CapyEV on the left, the pages on the right."""
-    with st.container(horizontal=True, key="nav", vertical_alignment="center"):
-        st.html(f'<div class="capy-brand"><img src="{LOGO_URI}" alt=""><span class="wm">Capy<b>EV</b></span></div>'
-                f"{TOUCH_ICON_JS}", width="content", unsafe_allow_javascript=True)
-        st.space("stretch")
-        st.page_link(PAGES[0], label="Combos")
-        st.page_link(PAGES[1], label="Bettors")
-        st.page_link(PAGES[2], label="Quote")
-        st.page_link(PAGES[3], label="Tools")
+    """The tab bar fixed to the bottom of every page (the Streamlit header is hidden), with Home in the middle."""
+    st.html(TOUCH_ICON_JS, unsafe_allow_javascript=True)
+    here = st.session_state.get("page")
+    half = len(NAV_TABS) // 2
+    with st.container(horizontal=True, key="tabbar"):
+        for i, (page, label, icon) in enumerate(NAV_TABS):
+            if i == half:
+                with st.container(key="capy_on" if here == HOME.title else "capy", width="content"):
+                    st.page_link(HOME, label="Home")
+            with st.container(key="tab_on" if here == page.title else f"tab_{label.lower()}", width="content"):
+                st.page_link(page, label=label, icon=icon)
 
 
 def combo_page() -> None:
@@ -343,6 +362,84 @@ def combo_page() -> None:
             "Kalshi's trade feed has no bettor ID, so these bets are anonymous (the Bettors page covers public profiles)."
         )
     refresh_watch()
+
+
+# ---------- Home page ----------
+HOME_VIEW = (60, 100)  # last hour, bets of $100+: a view the worker always keeps scored
+
+
+def _home_refresh():
+    """Home's refresh button: poll Kalshi now and re-score Home's view; _watch_home() shows it when done."""
+    src = get_source()
+    st.session_state.home_req = {"since": src.board.request(*HOME_VIEW), "tap": st.session_state.home.refresh}
+    if src.collector is not None:
+        src.collector.poll_now()
+    else:  # demo: no collector, so score on a thread of its own
+        threading.Thread(target=src.board.refresh, daemon=True).start()
+    st.rerun()  # a full run, so home_page() starts _watch_home()
+
+
+def _home_quote():
+    st.session_state.quote_req = st.session_state.home.quote
+
+
+@st.fragment
+def home_view():
+    go = st.session_state.pop("quote_req", None)
+    if go:  # "Quote" on a card: check it on the Quote page
+        st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}", "n": f"{go['n']:g}"})
+    src = get_source()
+    error = None
+    try:
+        snap = src.board.peek(*HOME_VIEW)
+        if snap is None:
+            with st.spinner("Brewing the best bets… 🧋"):
+                snap = src.board.get(*HOME_VIEW)
+        src.board.touch(*HOME_VIEW)
+    except Exception as exc:  # network / API errors should not blank the page
+        snap, error = None, f"Couldn't score bets: {exc}"[:200]
+    if src.collector is not None and src.collector.last_error:
+        error = error or f"Last Kalshi poll failed, retrying: {src.collector.last_error[:150]}"
+    req = st.session_state.get("home_req")
+    home_cards(
+        key="home",
+        data={"rows": pack_home(snap.rows if snap else []), "count": len(snap.rows) if snap else 0,
+              "window": HOME_VIEW[0], "minBet": HOME_VIEW[1], "demo": DEMO, "error": error,
+              "updated": int((snap.fetched_at if snap else datetime.now(timezone.utc)).timestamp() * 1000),
+              "refreshed": req["tap"] if req and req.get("done") else None},
+        on_refresh_change=_home_refresh,
+        on_quote_change=_home_quote,
+    )
+
+
+@st.fragment(run_every=1)
+def _watch_home() -> None:
+    req = st.session_state.get("home_req")
+    if req and not req.get("done"):
+        done, _ = get_source().board.done(*HOME_VIEW, since=req["since"])
+        if not done and time.time() - req["since"] < REFRESH_WAIT:
+            return
+        req["done"] = True
+    st.rerun()  # a full run shows the new bets and stops this timer
+
+
+def home_page() -> None:
+    nav()
+    home_view()
+    req = st.session_state.get("home_req")
+    if req and not req.get("done"):
+        _watch_home()
+    with st.expander("How Home picks bets"):
+        st.markdown(
+            "- Home shows the combos people bet **$100+ on in the last hour** whose fair price beats what they paid, "
+            "best first by **EV cross** (each leg priced by crossing the spread, the conservative number).\n"
+            "- The badge shows **EV mid / EV cross**. Its green deepens as the edge grows: a pale wash under +10%, "
+            "solid neon with a 🔥 from about +200%. Huge edges are often a stale leg book, so a yellow **check the "
+            "book** tag marks anything over +200%.\n"
+            "- **Bet in Kalshi** opens the combo in Kalshi's app (or its combo builder on the web). Kalshi quotes it "
+            "fresh, so make sure the price still beats the fair odds. **Quote** checks the live price here first.\n"
+            "- Tap a card for all its legs. The Combos tab has every bet, with more filters and the full book."
+        )
 
 
 # ---------- Bettors page ----------
@@ -509,8 +606,16 @@ def tools_page() -> None:
     tools_view.render()
 
 
-PAGES = [st.Page(combo_page, title="Combos", default=True),
-         st.Page(bettors_page, title="Bettors", url_path="bettors"),
-         st.Page(quote_page, title="Quote", url_path="quote"),
-         st.Page(tools_page, title="Tools", url_path="tools")]
-st.navigation(PAGES, position="hidden").run()
+HOME = st.Page(home_page, title="Home", default=True)
+COMBOS = st.Page(combo_page, title="Combos", url_path="combos")
+BETTORS = st.Page(bettors_page, title="Bettors", url_path="bettors")
+QUOTE = st.Page(quote_page, title="Quote", url_path="quote")
+TOOLS = st.Page(tools_page, title="Tools", url_path="tools")
+# The tabs either side of the capybara (Home) button, left to right.
+NAV_TABS = [(COMBOS, "Combos", ":material/format_list_bulleted:"),
+            (BETTORS, "Bettors", ":material/groups:"),
+            (QUOTE, "Quote", ":material/request_quote:"),
+            (TOOLS, "Tools", ":material/build:")]
+current = st.navigation([HOME, COMBOS, BETTORS, QUOTE, TOOLS], position="hidden")
+st.session_state.page = current.title  # nav() lights this page's tab
+current.run()

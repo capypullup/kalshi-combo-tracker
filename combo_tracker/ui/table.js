@@ -120,11 +120,11 @@ function toast(root, text) {
   t._h = setTimeout(() => t.classList.remove("show"), 1400);
 }
 
-// Leg and event names arrive once in data.strs; rows refer to them by index.
+// Leg, event, league and sport names arrive once in data.strs; rows refer to them by index.
 function hydrate(data) {
   const strs = data.strs || [];
   const str = (v) => (typeof v === "number" ? strs[v] : v);
-  const fix = (legs) => legs.map((l) => ({ ...l, n: str(l.n), e: str(l.e) }));
+  const fix = (legs) => legs.map((l) => ({ ...l, n: str(l.n), e: str(l.e), lg: str(l.lg), spt: str(l.spt) }));
   const deep = {};
   for (const [k, v] of Object.entries(data.deep || {})) deep[k] = { ...v, legs: fix(v.legs) };
   const rows = data.rows.map((r) => ({ ...r, id: `${r.ticker}|${r.side}`, legs: fix(r.legs) }));

@@ -148,15 +148,19 @@ def test_slim_row_is_json_safe_and_flags_live_games():
 
 
 def test_pack_sends_each_name_once():
+    from combo_tracker.sports import league_of
     from combo_tracker.view import pack
 
     bets = build_bets([trade("1", "KXMVE-X", "yes", 0.15, 100), trade("2", "KXMVE-X", "no", 0.15, 100)])
     rows = [score_bet(b, combo_market(), {}, BOOKS, now=NOW) for b in bets]
     packed = pack(rows)
     assert len(packed["rows"]) == 2 and "id" not in packed["rows"][0]
-    assert len(packed["strs"]) == 4  # two leg names + two event names, shared by both rows
+    strs = packed["strs"]
+    assert len(strs) == len(set(strs))  # each leg, event, league and sport name once, shared by both rows
+    assert packed["rows"][0]["legs"][0]["n"] == packed["rows"][1]["legs"][0]["n"]
     leg = packed["rows"][1]["legs"][0]
-    assert packed["strs"][leg["n"]] == rows[1]["leg_detail"][0]["leg"]
+    assert strs[leg["n"]] == rows[1]["leg_detail"][0]["leg"]
+    assert (strs[leg["lg"]], strs[leg["spt"]]) == league_of(rows[1]["leg_detail"][0]["ticker"])
 
 
 def test_schedule_decides_live_before_settlement_guess():
