@@ -203,6 +203,7 @@ export default function (component) {
 
   let root = parentElement.querySelector(".cev");
   if (root && root.dataset.tab !== tab) {
+    clearInterval(root._tick);
     root.remove();
     root = null;
   }
@@ -223,6 +224,8 @@ export default function (component) {
     window.__rkCtx.setTriggerValue(name, value);
   };
   const want = variantOf(tab, S);
+  if (component.data.variant === asked.view) delete asked.view;  // answered: a later change may ask again
+  if ((component.data.detail || {}).code === asked.open) delete asked.open;
   if (component.data.variant !== want && asked.view !== want) ask("view", want);
   if (S.open && (component.data.detail || {}).code !== S.open && asked.open !== S.open) ask("open", S.open);
 
@@ -272,6 +275,7 @@ export default function (component) {
   root._paintRows = paintRows;
   root._paintControls = paintControls;
   root._paint();
+  return () => { clearInterval(root._tick); root._tick = null; };  // unmount: stop the clock
 
   function bind(el) {
     const update = (fn, rowsOnly = false) => {

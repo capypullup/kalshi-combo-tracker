@@ -30,9 +30,9 @@ on:
         default: "0"
 
 concurrency:
-  # one real recorder at a time (the next queues behind it); dry runs on pull requests don't wait for it
-  group: bettor-recorder${{ github.event_name == 'pull_request' && format('-pr-{0}', github.event.number) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # one real recorder at a time (the next queues behind it); dry runs don't wait for it
+  group: bettor-recorder${{ (github.event_name == 'pull_request' || inputs.dry_run == '1') && format('-dry-{0}', github.run_id) || '' }}
+  cancel-in-progress: false
 
 permissions:
   contents: write  # pushes the bettor-data branch
@@ -48,7 +48,9 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install requests cryptography websocket-client
-      - run: python scripts/recorder_bot.py
+      - run: |
+          if [ -z "$KALSHI_KEY_ID" ]; then echo "No API key here (a fork?); skipping."; exit 0; fi
+          python scripts/recorder_bot.py
         env:
           KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
           KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}

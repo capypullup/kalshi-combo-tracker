@@ -272,7 +272,10 @@ def run_tracker() -> None:
 
 
 scorer.starts.refresh()  # the game schedule, so a bet's first pricing isn't slow
-read_tags()
+try:
+    read_tags()
+except recorder.GitError as exc:  # the saved tags stand; the tags job tries again in a minute
+    print(f"tags: {exc}", flush=True)
 stopping = threading.Event()
 threading.Thread(target=run_tracker, daemon=True, name="profile-tracker").start()
 book.start()
@@ -317,18 +320,24 @@ while time.time() < deadline:
     time.sleep(0.5)
 
 stopping.set()
+ok = book.stats["closes"] > 0  # the stream delivered: a run that heard nothing is a failed run
+if not ok:
+    print(f"the RFQ stream delivered nothing (status {book.ws_status}, error {book.last_error})", flush=True)
 book.stop()
 
 
-def final_save(label: str) -> None:
+def final_save(label: str) -> bool:
     try:
         save(time.time())
+        return True
     except Exception as exc:
         counts["errors"] += 1
         print(f"{label} save failed: {exc!r}"[:300], flush=True)
+        return False
 
 
-final_save("final")  # what we have, first
+ok &= final_save("final")  # what we have, first
 if pending:  # then the bets still waiting for a price, for a couple of minutes
     price_some(limit=len(pending), until=time.time() + 120)
-    final_save("last")
+    ok &= final_save("last")
+sys.exit(0 if ok else 1)

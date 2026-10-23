@@ -89,7 +89,7 @@ function shell(root) {
 }
 
 function record(b) {
-  const s = (b.t30 && b.t30.n > 0 && b.c && !b.w) ? b.t30 : b.s30;  // whales: all their bets; others: tennis
+  const s = (b.t30 && b.t30.n > 0 && !b.w) ? b.t30 : b.s30;  // whales: all their bets; others (profiles too): tennis
   if (!s || !s.n) return "no record yet";
   const scope = s === b.t30 ? "tennis" : "all";
   const parts = [`${s.n} bets 30d (${scope})`];
@@ -167,6 +167,7 @@ export default function (component) {
   if (!root._tick) root._tick = setInterval(paintMeta, 15000);
   root._paint = () => { paintControls(); paintMeta(); paintRows(); };
   root._paint();
+  return () => { clearInterval(root._tick); root._tick = null; };  // unmount: stop the clock
 
   function bind(el) {
     const update = (fn) => { fn(); saveUi(S); el._paint(); };

@@ -722,7 +722,10 @@ def bettors_view():
         error, note = _data_note(feeds, view)
         data = pack_live(view, tags=tags)
         seen = {b["id"] for b in data["live"]}  # a named code who is also a tracked profile: the code's copy has the record
-        data["live"] = sorted(data["live"] + [{**b, "c": None, "tg": b.get("name") in tags}
+        by_nick = {r["nick"]: r for r in profiles.get("rows") or []}  # the profiles' own 30-day records
+        data["live"] = sorted(data["live"] + [{**b, "c": None, "tg": b.get("name") in tags,
+                                               "s30": by_nick.get(b.get("name"), {}).get("all30"),
+                                               "t30": by_nick.get(b.get("name"), {}).get("tennis30")}
                                               for b in profiles.get("live") or [] if b["id"] not in seen],
                               key=lambda b: -b["t"])
         live_table(key="lv", data={**data, "demo": DEMO, "error": error, "note": note},
