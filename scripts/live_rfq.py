@@ -8,7 +8,7 @@ import json
 import statistics
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +27,59 @@ def rss_mb() -> float:
     return 0.0
 
 
+def settled_sample(client) -> None:
+    """What Kalshi reports for combos bet on about a day and a half ago: status, result, settlement fields."""
+    from datetime import datetime, timedelta, timezone
+    from itertools import islice
+
+    try:
+        now = datetime.now(timezone.utc)
+        trades = list(islice(client.iter_trades(now - timedelta(hours=36), now - timedelta(hours=35, minutes=55)), 20000))
+        combos = [t for t in trades if t["ticker"].startswith("KXMVE")]
+        tickers = list(dict.fromkeys(t["ticker"] for t in combos))[:300]
+        markets = client.get_markets(tickers, batch_size=100)
+        print(f"\n== settled combos? == {len(trades)} trades 36h ago, {len(combos)} combo fills, {len(markets)} markets looked up")
+        print("status x result:", dict(Counter((m.get("status"), m.get("result")) for m in markets.values())))
+        keys = sorted({k for m in markets.values() for k in m if "settle" in k or "result" in k or "expir" in k})
+        print("settlement-ish keys:", keys)
+        odd = [m for m in markets.values() if m.get("result") not in ("yes", "no")][:3]
+        for m in odd or list(markets.values())[:1]:
+            print("  sample:", {k: m.get(k) for k in ["ticker", "status", "result", *keys]})
+    except Exception as exc:
+        print("settled sample failed:", repr(exc))
+
+
+def big_bets(taken, missed, elapsed) -> None:
+    """How many big combo bets there are, how well they match, and who places them."""
+    stake = lambda e: e.count * e.price  # noqa: E731
+    print("\n== big bets ==")
+    per_hour = 3600 / max(elapsed, 1)
+    for cut in (1000, 2500, 5000, 10000, 25000):
+        named = [m for m in taken if stake(m.execution) >= cut]
+        lost = [e for e, _ in missed if stake(e) >= cut]
+        print(f">=${cut:,}: {len(named)} named, {len(lost)} unmatched ({(len(named) + len(lost)) * per_hour:,.0f}/h), "
+              f"sure {sum(m.sure for m in named)}, partial {sum(m.partial for m in named)}, "
+              f"codes {len({m.creator for m in named})}")
+    whales = [m for m in taken if stake(m.execution) >= 5000]
+    prices = Counter("<20c" if m.execution.price < 0.2 else "<50c" if m.execution.price < 0.5 else
+                     "<80c" if m.execution.price < 0.8 else "<95c" if m.execution.price < 0.95 else "95c+"
+                     for m in whales)
+    print("$5k+ by price:", dict(prices), "| sides:", dict(Counter(m.execution.side for m in whales)),
+          "| tennis:", sum(m.tennis for m in whales))
+    codes = {m.creator for m in whales}
+    mine = [m for m in taken if m.creator in codes]
+    print(f"codes with a $5k+ bet: {len(codes)}; all their bets: {len(mine)} "
+          f"(${sum(stake(m.execution) for m in mine):,.0f}); of those >=$1k: "
+          f"{sum(stake(m.execution) >= 1000 for m in mine)}")
+    for m in sorted(whales, key=lambda m: -stake(m.execution))[:15]:
+        e = m.execution
+        print(f"  ${stake(e):>9,.0f} {e.side:>3} @{e.price:.3f} x{e.count:,.0f} fills={len(e.trade_ids)} sure={m.sure} "
+              f"partial={m.partial} lag={m.lag:+.2f} {m.creator[:6]} {e.ticker[:40]}")
+    for e, near in [x for x in missed if stake(x[0]) >= 2500][:10]:
+        print(f"  MISSED ${stake(e):,.0f} {e.side} @{e.price:.3f} x{e.count:,.0f} fills={len(e.trade_ids)} "
+              f"nearest={'-' if near is None else (round(near[0] - e.ts, 2), near[2], near[3])} {e.ticker[:40]}")
+
+
 def main() -> None:
     seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 180
     auth = KalshiAuth.from_env()
@@ -41,7 +94,10 @@ def main() -> None:
     except Exception as exc:
         print("REST failed:", repr(exc))
 
+    settled_sample(client)
+
     book = RfqBook(client)
+    book.missed = deque(maxlen=20_000)  # keep every miss, to see how big bets match
     kinds = Counter()
     samples = {}
     orig = book.on_message
@@ -121,6 +177,8 @@ def main() -> None:
     print("codes:", len(by), "| top by bets:", sorted(((v[0], round(v[1]), k[:10]) for k, v in by.items()), reverse=True)[:8])
     print("top by $:", sorted(((round(v[1]), v[0], k[:10]) for k, v in by.items()), reverse=True)[:8])
     print("hidden left unrevealed:", sum(m.creator == PLACEHOLDER for m in taken))
+
+    big_bets(taken, list(book.missed), elapsed)
 
     pending = list(taken)
     tracker = BettorTracker(client, rfq=SimpleNamespace(take=lambda: [pending.pop() for _ in range(len(pending))]),
