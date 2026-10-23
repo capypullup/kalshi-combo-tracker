@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt playwright && python -m playwright install --with-deps chromium
       - name: Probe Kalshi links
-        run: python scripts/probe_links2.py 2>&1 | tee /tmp/probe.txt
+        run: python scripts/probe_links3.py 2>&1 | tee /tmp/probe.txt
       - name: Save probe output to the link-probe-output branch
         if: always()
         run: |
@@ -34,6 +34,7 @@ jobs:
           git checkout --orphan link-probe-output
           git rm -rqf .
           cp /tmp/probe.txt probe.txt || echo "no output" > probe.txt
-          git add probe.txt
+          cp /tmp/probe/*.png . 2>/dev/null || true
+          git add probe.txt *.png 2>/dev/null || git add probe.txt
           git commit -qm "Link probe output for ${GITHUB_SHA::7}"
           git push -qf origin link-probe-output
