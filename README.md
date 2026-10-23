@@ -68,6 +68,15 @@ A fill in the feed means someone got that price, not that you still can. The QUO
 - Change the thresholds without touching code in Settings → Secrets and variables → Actions → **Variables**: `ALERT_TIERS` (bet size:min EV %, default `500:20,1000:10`; add `5000:5` for another tier), `ALERT_SKIP_THIN` (`0` to get thin books too), `ALERT_EV_BASIS` (`mid` or `crx`, default `mid`), `APP_URL` (your CapyEV link).
 - Each run watches for about 5h50m (GitHub's limit is 6 h), and the hourly schedule queues the next run behind it. To pause it: Actions → Notification bot → ⋯ → Disable workflow. GitHub turns schedules off in a repo with no commits for 60 days; re-enable it on the same page.
 
+## Tail bot
+
+`scripts/tail_bot.py` follows one friend who has agreed to it and sends each of their combo bets to the same Telegram bot a few seconds after it fills (`👥 Friend bet $2,000 YES · 2-leg combo +121`, then the bet card with EV now and a **Bet in Kalshi** button). It reuses the RFQ matching above, so it needs the API key secrets as well as the Telegram ones.
+
+- **Finding their code**: once it's running, send the bot one of their combo bets placed after it started. The easiest is the `$1,999.76 pays $4,424.51` line from a combo on their Positions tab (the payout is their contract count, which almost no one else matches to the cent); a combo link or ticker works too. If several people fit, it lists them and the next bet you send narrows it down. `/status` shows what it knows, `/forget` drops the code, `/code <code>` sets one. The code is kept between runs.
+- Only combos: single-market bets go through the order book, which has no requester code. It remembers 6 hours of everyone's bets for finding a code (`TAIL_KEEP_HOURS`); bets from before it started can't be found.
+- Variables (Settings → Secrets and variables → Actions → Variables): `TAIL_LABEL` (the name in alerts), `TAIL_NICKNAME` (used too if their profile shows trades publicly), `TAIL_CODES` (codes you already know), `TAIL_PEEK` (`1` also sends a silent 👀 when they ask for a quote, before they bet).
+- Start it from Actions → Tail bot → Run workflow; one run lasts about 5h50m.
+
 ## Run it
 
 ```bash
@@ -77,6 +86,7 @@ DEMO=1 streamlit run app.py     # made-up data, no network needed
 python scripts/live_check.py 15 100   # print the top combos from the last 15 min, bets ≥ $100
 python scripts/live_bettors.py 12 400 # one small pass of the Bettors tracker
 DRY_RUN=1 ALERT_MINUTES=5 python scripts/alert_bot.py  # print alerts for 5 min instead of sending
+DRY_RUN=1 TAIL_SELFTEST=1 TAIL_MINUTES=3 python scripts/tail_bot.py  # needs the API key; prints instead of sending
 pytest -q
 ```
 
@@ -101,6 +111,7 @@ A background worker pulls new combo trades every minute and re-scores the filter
 - `combo_tracker/bettors.py`: the Bettors tracker (tennis feed discovery, histories, EV vs the book, PnL)
 - `combo_tracker/rfq.py`: the RFQ stream and RFQ-to-trade matching
 - `combo_tracker/alerts.py`: which bets the notification bot sends and how the alerts read
+- `combo_tracker/tail.py`: the tail bot's memory of matched bets, finding a friend's code, and its messages
 - `combo_tracker/quote.py` + `quote_view.py`: the Quote page (live check, RFQs)
 - `combo_tracker/ui/`: the table components (filters, sorting and copying run in the browser)
 - `app.py`: the Streamlit page
