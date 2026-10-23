@@ -22,6 +22,7 @@ def row(ticker, evm, evc, missing=0):
             "price": 0.2, "contracts": 1000, "stake": 200, "ev_pct_mid": evm, "ev_pct_crx": evc,
             "fair_mid": 0.2 * (1 + evm) if evm is not None else None, "fair_crx": None, "legs": 2, "games": 2,
             "same_game_legs": 0, "missing_quotes": missing, "inactive_legs": 0, "outside_band": True,
+            "kelly_mid": 0.05, "kelly_crx": 0.02,
             "leg_detail": [leg, {**leg, "ticker": "KXMLBGAME-26OCT21NYYLAD-NYY"}]}
 
 
@@ -35,6 +36,7 @@ def test_card_has_leagues_and_first_start():
     card = pack_home([row("A", 0.3, 0.1)])[0]
     assert [(l["lg"], l["spt"]) for l in card["legs"]] == [("NBA", "basketball"), ("MLB", "baseball")]
     assert card["start"] == int(datetime(2026, 10, 23, 23, tzinfo=timezone.utc).timestamp() * 1000)
+    assert (card["km"], card["kc"]) == (0.05, 0.02)  # Kelly fractions, for the units
     json.dumps(card)  # the component gets it as JSON
 
 
@@ -59,3 +61,11 @@ def test_js_ev_badge_scale(tmp_path):
 def test_js_bet_link_matches_python(tmp_path):
     ticker = "KXMVECROSSCATEGORY-S2026ABC-123"
     assert run_js(tmp_path, f"H.betUrl({json.dumps(ticker)})") == bet_url(ticker)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_js_units_follow_the_combos_settings(tmp_path):
+    r = json.dumps({"km": 0.0273, "kc": 0.02})
+    units = [f"H.homeUnits({r}, {{}})", f"H.homeUnits({r}, {{kelly: 0.5, unitPct: 2, basis: 'cross'}})"]
+    assert json.loads(run_js(tmp_path, f"JSON.stringify([{', '.join(units)}].map(H.fmtU))")) == ["0.68u", "0.50u"]
+    assert run_js(tmp_path, "H.homeUnits({km: null, kc: 0.1}, {})") == "null"

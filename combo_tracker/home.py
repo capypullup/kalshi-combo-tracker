@@ -28,7 +28,7 @@ def card(r: dict) -> dict:
         "ticker": r["ticker"], "side": r["side"], "t": int(r["last_time"].timestamp() * 1000),
         "price": num(r["price"]), "n": num(r["contracts"], 2), "stake": num(r["stake"], 2),
         "evm": num(r["ev_pct_mid"]), "evc": num(r["ev_pct_crx"]), "fm": num(r["fair_mid"]), "fc": num(r["fair_crx"]),
-        "L": r["legs"], "G": r["games"], "sg": r["same_game_legs"], "live": is_live(r), "flags": flags(r),
+        "km": num(r.get("kelly_mid")), "kc": num(r.get("kelly_crx")), "L": r["legs"], "G": r["games"], "sg": r["same_game_legs"], "live": is_live(r), "flags": flags(r),
         "start": int(min(starts).timestamp() * 1000) if starts else None,
         "legs": [{"s": l["side"], "n": l["leg"], "e": l["event_title"], "lv": leg_live(l),
                   **dict(zip(("lg", "spt"), league_of(l["ticker"])))}
