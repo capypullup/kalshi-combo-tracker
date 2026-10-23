@@ -6,7 +6,9 @@ new one that clears its size tier to your
 Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) or ntfy topic (NTFY_TOPIC). Pregame and live
 bets have their own tiers (ALERT_TIERS_PREGAME, ALERT_TIERS_LIVE: "50:100,500:20" = $50+ bets need
 +100% EV, $500+ need +20%; "off" turns one kind off). Thin leg books are left out (ALERT_SKIP_THIN=0
-keeps them), and so are combos with a crypto leg. With
+keeps them), and so are same-game combos (ALERT_SKIP_SAME_GAME=0 keeps them), combos over 5 legs
+(ALERT_MAX_LEGS) or across 3+ leagues (ALERT_MAX_LEAGUES=2), "off" for no cap, and combos with a
+crypto leg. With
 neither set (or DRY_RUN=1) it prints the alerts instead. ALERT_SENT_FILE keeps what was
 sent, so the next run doesn't repeat it.
 
@@ -32,9 +34,18 @@ def setting(name: str, default: str = "") -> str:
     return os.environ.get(name, "").strip() or default
 
 
+def cap(name: str, default: int) -> int | None:
+    """A whole-number limit; "off" means none."""
+    text = setting(name, str(default))
+    return None if text.lower() == "off" else int(text)
+
+
 pregame = alerts.parse_tiers(setting("ALERT_TIERS_PREGAME", alerts.PREGAME_TIERS))
 live = alerts.parse_tiers(setting("ALERT_TIERS_LIVE", alerts.LIVE_TIERS))
 skip_thin = setting("ALERT_SKIP_THIN", "1") != "0"
+skip_same_game = setting("ALERT_SKIP_SAME_GAME", "1") != "0"
+max_legs = cap("ALERT_MAX_LEGS", alerts.MAX_LEGS)
+max_leagues = cap("ALERT_MAX_LEAGUES", alerts.MAX_LEAGUES)
 min_bet = min(stake for stake, _ in pregame + live)
 basis = setting("ALERT_EV_BASIS", "mid").lower()  # "mid" or "crx" (crossing the spread)
 minutes = float(setting("ALERT_MINUTES", "350"))
@@ -54,7 +65,10 @@ def rules(tiers):
     return ", ".join(f"${stake:,.0f}+ at {ev * 100:+.0f}%" for stake, ev in tiers) or "off"
 
 
-print(f"EV {basis.upper()} pregame: {rules(pregame)} · live: {rules(live)}{' · no thin books' if skip_thin else ''} · every {every:.0f}s for {minutes:.0f} min · "
+skips = [name for name, on in (("no thin books", skip_thin), ("no same-game legs", skip_same_game),
+                               (f"up to {max_legs} legs", max_legs is not None),
+                               (f"up to {max_leagues} leagues", max_leagues is not None)) if on]
+print(f"EV {basis.upper()} pregame: {rules(pregame)} · live: {rules(live)} · {' · '.join(skips + [''])}every {every:.0f}s for {minutes:.0f} min · "
       f"{type(sender).__name__ if sender else 'dry run (printing only)'}", flush=True)
 
 # ticker|side -> when it was sent; kept 12 hours
@@ -80,7 +94,8 @@ while time.time() < deadline:
             trades = [t for t in trades if t["ticker"] in recent]
         snap = scorer.score(trades, min_stake=min_bet, max_bets=5000)
         rows = snap.rows if not ok else [r for r in snap.rows if r["minutes_ago"] <= fresh]
-        hits = alerts.pick(rows, pregame, live, set(sent), basis, skip_thin)
+        hits = alerts.pick(rows, pregame, live, set(sent), basis, skip_thin,
+                           skip_same_game=skip_same_game, max_legs=max_legs, max_leagues=max_leagues)
         for row in hits:
             if sender:
                 sender.send(row, basis, app_url)
