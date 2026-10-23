@@ -396,9 +396,12 @@ def combo_page() -> None:
 
     with st.expander("How EV, units and flags work"):
         st.markdown(
-            "- Each bet leads with **EV mid / EV cross**. **EV mid** multiplies each leg's mid price to get a fair "
-            "price, then EV = fair ÷ price paid − 1. That assumes the legs are independent. **EV cross** prices each "
-            "leg by crossing the spread (its bid). It's the conservative number.\n"
+            "- Each card's top line is the bet @ the multiplier it got (bets of $500+ in cyan), its Kelly units and "
+            "**EV mid / EV cross**; under them, the fair multipliers behind the two EVs (mid / cross, the one the "
+            "switch picks brighter) and the clock time it was bet. **EV mid** multiplies each leg's mid price to "
+            "get a fair price, then EV = fair ÷ price paid − 1 (on the card, multiplier paid ÷ fair multiplier − 1). "
+            "That assumes the legs are independent. **EV cross** "
+            "prices each leg by crossing the spread (its bid). It's the conservative number.\n"
             "- The **EV Mid / Cross** switch picks which one is big, colors the bet, and drives Min EV, Min QK and the "
             "EV and QK sorts; the other figure gets a red chip when it's negative (a green one when it's positive "
             "on a red pill). The green brightens as the edge grows, on the same scale as Home: a pale wash under "
@@ -418,8 +421,8 @@ def combo_page() -> None:
             "- **Sort** by Newest (every refresh starts here), EV, Bet $ or QK. Tap the lit one again to flip it.\n"
             "- **Tags**: NO the bettor took NO on the combo · SG two legs on the same game · ⚠ THIN see Hide thin · "
             "IN BAND the price sits inside the leg spreads, so the edge is noise · NO QUOTE a leg has no market · "
-            "CHECK an edge of +200% or more, usually a stale book. On the right: the bet, the multiplier and American "
-            "odds it got, and what it pays; bets of $500+ show in cyan.\n"
+            "CHECK an edge of +200% or more, usually a stale book. Then the leagues and legs; when the line is tight, "
+            "leagues show as their emoji, or are left to the open bet.\n"
             "- **Open a bet** to see its legs, and the multiplier the bettor paid next to the fair ones behind EV mid "
             "and EV cross (with American odds and units).\n"
             "- **Bet in CapyEV** (on an open bet) opens it on the Quote page, which asks makers for quotes at your "
