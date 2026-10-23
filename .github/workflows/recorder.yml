@@ -10,9 +10,16 @@ name: Bettor recorder
 #   BETTOR_TAGS (codes or nicknames to follow, comma-separated; the app's stars are read too), APP_URL.
 # Secrets: KALSHI_KEY_ID + KALSHI_PRIVATE_KEY; TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for alerts on tagged
 # bettors' bets; BETTOR_DATA_KEY (optional, also in the app) to lock the data with its own key.
+# A pull request that touches the recorder gets a 2-minute dry run (which also lets the workflow be
+# started by hand on that branch: GitHub only knows a workflow once it has run).
 on:
   schedule:
     - cron: "37 * * * *"
+  pull_request:
+    paths:
+      - .github/workflows/recorder.yml
+      - combo_tracker/recorder.py
+      - scripts/recorder_bot.py
   workflow_dispatch:
     inputs:
       minutes:
@@ -23,8 +30,9 @@ on:
         default: "0"
 
 concurrency:
-  group: bettor-recorder
-  cancel-in-progress: false
+  # one real recorder at a time (the next queues behind it); dry runs on pull requests don't wait for it
+  group: bettor-recorder${{ github.event_name == 'pull_request' && format('-pr-{0}', github.event.number) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write  # pushes the bettor-data branch
@@ -52,5 +60,6 @@ jobs:
           TENNIS_MIN: ${{ vars.TENNIS_MIN }}
           BETTOR_TAGS: ${{ vars.BETTOR_TAGS }}
           APP_URL: ${{ vars.APP_URL }}
-          RECORDER_MINUTES: ${{ inputs.minutes || '350' }}
-          DRY_RUN: ${{ inputs.dry_run || '0' }}
+          RECORDER_MINUTES: ${{ github.event_name == 'pull_request' && '2' || inputs.minutes || '350' }}
+          RECORDER_SAVE_EVERY: ${{ github.event_name == 'pull_request' && '60' || '300' }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' && '1' || inputs.dry_run || '0' }}
