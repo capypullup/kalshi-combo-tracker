@@ -46,7 +46,7 @@ def _read(price: float | None, text: str) -> str:
             f'{1 / price:.2f}x</div></div>')
 
 
-def hedge_tool() -> None:
+def _hedge_calc() -> None:
     st.markdown("**Your bet**")
     with st.container(horizontal=True):
         stake = st.number_input("Stake ($)", min_value=0.0, value=100.0, step=10.0, key="hg_stake")
@@ -95,14 +95,8 @@ def hedge_tool() -> None:
     st.html("".join(out) + "</div>")
 
 
-TOOLS = {"Hedge calculator": hedge_tool}
-
-
-def render() -> None:
-    st.html('<div class="hg" style="font-size:20px;font-weight:900;margin:4px 2px 0">Tools</div>')
-    pick = st.segmented_control("Tool", list(TOOLS), default=list(TOOLS)[0], key="tool",
-                                label_visibility="collapsed") or list(TOOLS)[0]
-    TOOLS[pick]()
+def hedge_tool() -> None:
+    _hedge_calc()
     with st.expander("How the hedge works"):
         st.markdown(
             "- Prices are what $1 of payout costs. A bet of $100 at +400 (20¢) pays $500 if it wins.\n"
@@ -117,3 +111,15 @@ def render() -> None:
             "- Odds can be American (+400, -150; any number 100 or more counts as American), Kalshi cents "
             "(20¢ or a plain 20), or a multiplier (5x, or 5.0). The line under each box shows how it was read."
         )
+
+
+TOOLS = {"Hedge calculator": hedge_tool}
+
+
+def render(extra: dict | None = None) -> None:
+    """The Tools page: a picker over TOOLS plus `extra` (tools app.py wires up, like Alerts)."""
+    tools = {**TOOLS, **(extra or {})}
+    st.html('<div class="hg" style="font-size:20px;font-weight:900;margin:4px 2px 0">Tools</div>')
+    pick = st.segmented_control("Tool", list(tools), default=list(tools)[0], key="tool", required=True,
+                                label_visibility="collapsed") or list(tools)[0]
+    tools[pick]()

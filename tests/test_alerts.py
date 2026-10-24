@@ -34,10 +34,16 @@ TIERS = alerts.parse_tiers("1000:10,500:20")
 OFF = alerts.parse_tiers("off")
 
 
+def pick(rows, pregame=TIERS, live=OFF, sent=(), **kw):
+    return alerts.pick(rows, alerts.Settings(pregame=pregame, live=live, **kw), set(sent))
+
+
 def test_tiers():
     assert TIERS == [(500, 0.20), (1000, 0.10)]
     assert OFF == [] and alerts.min_ev_for(5000, OFF) is None
     assert alerts.parse_tiers(alerts.PREGAME_TIERS)[0] == (50, 1.0)
+    live = alerts.parse_tiers(alerts.LIVE_TIERS)  # live: only $1k+ at +100%, $5k+ at +50%
+    assert [alerts.min_ev_for(s, live) for s in (999, 1000, 4999, 5000)] == [None, 1.0, 1.0, 0.5]
     assert alerts.min_ev_for(499, TIERS) is None
     assert alerts.min_ev_for(700, TIERS) == 0.20
     assert alerts.min_ev_for(1000, TIERS) == 0.10
@@ -50,35 +56,37 @@ def test_pick_filters_on_size_tier_ev_thin_and_sent():
     mid_size = row("KXMVECOMBO-4", price=0.26)  # $780 at +15%: under the $500 tier's 20%
     big = row("KXMVECOMBO-5", price=0.26, count=4000)  # $1,040 at +15%: clears the $1k tier's 10%
     assert good["ev_pct_mid"] > 0.49
-    assert [r["ticker"] for r in alerts.pick([small, bad, mid_size, big, good], TIERS, OFF, set())] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
-    assert alerts.pick([good], TIERS, OFF, {alerts.key(good)}) == []
-    good["leg_detail"][0]["spread"] = 0.05  # a thin leg book never alerts, whatever the other settings
-    assert alerts.pick([good], TIERS, OFF, set(), skip_same_game=False, max_legs=None, max_leagues=None, max_legs_live=None) == []
+    assert [r["ticker"] for r in pick([small, bad, mid_size, big, good])] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
+    assert pick([good], sent={alerts.key(good)}) == []
+    good["leg_detail"][0]["spread"] = 0.05  # a thin leg book is left out unless the Thin switch is off
+    assert pick([good]) == [] and alerts.filtered_by(good, alerts.Settings()) == ["thin"]
+    assert pick([good], skip_thin=False) == [good]
+    assert pick([good], thin_spread=0.05) == [good] and pick([good], thin_spread=0.049) == []
     good["leg_detail"][0]["spread"], good["leg_detail"][1]["top_bid_size"] = 0.02, 49
-    assert alerts.pick([good], TIERS, OFF, set()) == []
+    assert pick([good]) == [] and pick([good], thin_size=49) == [good]
     good["leg_detail"][1]["top_bid_size"] = 50
-    assert alerts.pick([good], TIERS, OFF, set()) == [good]
+    assert pick([good]) == [good]
 
 
 def test_pick_leaves_out_crypto_legs():
     good = row()
-    assert alerts.pick([good], TIERS, OFF, set()) == [good]
+    assert pick([good]) == [good]
     good["leg_detail"][1]["ticker"] = "KXBTCD-26OCT2117-T108000"
-    assert alerts.pick([good], TIERS, OFF, set()) == []
-    assert alerts.pick([good], TIERS, OFF, set(), skip_series=()) == [good]
+    assert pick([good]) == [] and pick([good], skip_thin=False, skip_same_game=False, max_legs=None, max_leagues=None) == []
+    assert alerts.filtered_by(good, alerts.Settings()) == ["financial"]
 
 
 def test_pick_leaves_out_same_game_legs():
     same = row(legs=[leg("KXNBAGAME-26OCT21ATLORL", "KXNBAGAME-26OCT21ATLORL-ATL"),
                      leg("KXNBAPTS-26OCT21ATLORL", "KXNBAPTS-26OCT21ATLORL-ATLTYOUNG11-25")])
     assert same["same_game_legs"] == 1 and same["ev_pct_mid"] > 0.4
-    assert alerts.pick([same], TIERS, OFF, set()) == []
-    assert alerts.pick([same], TIERS, OFF, set(), skip_same_game=False) == [same]
+    assert pick([same]) == []
+    assert pick([same], skip_same_game=False) == [same]
     tennis = row(legs=[leg("KXATPMATCH-26OCT23STRBER", "KXATPMATCH-26OCT23STRBER-STR"),
                        leg("KXATPSETWINNER-26OCT23STRBER-2", "KXATPSETWINNER-26OCT23STRBER-2-STR")])  # match + set 2
-    assert tennis["same_game_legs"] == 1 and alerts.pick([tennis], TIERS, OFF, set()) == []
+    assert tennis["same_game_legs"] == 1 and pick([tennis]) == []
     races = row(legs=[leg("SENATEGA-26", "SENATEGA-26-D"), leg("SENATENC-26", "SENATENC-26-D")])  # two Senate races
-    assert races["same_game_legs"] == 0 and alerts.pick([races], TIERS, OFF, set()) == [races]
+    assert races["same_game_legs"] == 0 and pick([races]) == [races]
 
 
 def test_pick_leaves_out_combos_over_five_legs_or_two_leagues():
@@ -91,7 +99,7 @@ def test_pick_leaves_out_combos_over_five_legs_or_two_leagues():
     assert [r["legs"] for r in bets] == [5, 6, 2, 3]
     assert [alerts.leagues(r) for r in bets] == [1, 1, 2, 3]
     assert all(r["ev_pct_mid"] > 0.4 and not r["same_game_legs"] for r in bets)
-    picked = lambda **kw: {r["ticker"] for r in alerts.pick(bets, TIERS, OFF, set(), **kw)}  # noqa: E731
+    picked = lambda **kw: {r["ticker"] for r in pick(bets, **kw)}  # noqa: E731
     assert picked() == {"KXMVECOMBO-5", "KXMVECOMBO-2"}
     assert picked(max_legs=None, max_leagues=None) == {r["ticker"] for r in bets}
     assert picked(max_legs=6, max_leagues=3) == {r["ticker"] for r in bets}
@@ -102,7 +110,7 @@ def test_live_combos_alert_up_to_three_legs():
     nba = [leg(f"KXNBAGAME-26OCT21G{i}", f"KXNBAGAME-26OCT21G{i}-H{i}") for i in range(5)]
     three, four = row("KXMVECOMBO-3", legs=nba[:3]), row("KXMVECOMBO-4", legs=nba[:4])
     live = alerts.parse_tiers("500:40")
-    picked = lambda **kw: {r["ticker"] for r in alerts.pick([three, four], TIERS, live, set(), **kw)}  # noqa: E731
+    picked = lambda **kw: {r["ticker"] for r in pick([three, four], live=live, **kw)}  # noqa: E731
     assert picked() == {"KXMVECOMBO-3", "KXMVECOMBO-4"}  # pregame: up to 5 legs
     for r in (three, four):
         r["leg_detail"][-1]["hours_to_start"] = -0.5  # one game started: live
@@ -115,10 +123,10 @@ def test_live_combos_alert_up_to_three_legs():
 def test_live_bets_use_the_live_tiers():
     good = row()  # $600 at +50%, legs' games not on the schedule and settling far off: pregame
     live = alerts.parse_tiers("500:40")
-    assert alerts.pick([good], OFF, live, set()) == []
+    assert pick([good], pregame=OFF, live=live) == []
     good["leg_detail"][0]["hours_to_start"] = -0.5  # game started
-    assert alerts.pick([good], OFF, live, set()) == [good]
-    assert alerts.pick([good], TIERS, OFF, set()) == []
+    assert pick([good], pregame=OFF, live=live) == [good]
+    assert pick([good]) == []
     assert alerts.title(good).startswith("LIVE +50% EV")
 
 
@@ -130,19 +138,26 @@ def test_summary_has_mid_and_crx_ev_multiple_and_units():
 def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
-    assert msg["title"] == "PREGAME +50% EV · $600 YES 2-leg combo"
+    assert msg["title"] == "PREGAME +50% EV"
     assert msg["click"] == "https://kalshi.com/combos?marketTicker=KXMVECOMBO-1"
-    assert "$600 @ 5.0x (+400) → $3,000" in msg["message"]
+    assert msg["message"].startswith("$600 @ 5.0x (+400) → $3,000 2-leg combo\nMID +50% · ")
     assert "YES Hawks (KXNBAGAME-26OCT21ATLORL)" in msg["message"]
     assert [a["label"] for a in msg["actions"]] == ["Bet in Kalshi", "Quote it"]
     assert msg["actions"][1]["url"] == "https://capyev.streamlit.app/quote?t=KXMVECOMBO-1&side=yes&p=0.2000&n=3000"
     assert alerts.tier(0.12)[0] < alerts.tier(0.6)[0] < alerts.tier(8.0)[0]
 
 
-def test_telegram_message_bolds_title_and_adds_buttons():
+def test_bet_line_names_a_no_bet():
+    r = row()
+    assert alerts.bet_line(r) == "$600 @ 5.0x (+400) → $3,000 2-leg combo"
+    r["side"] = "no"
+    assert alerts.bet_line(r).endswith("→ $3,000 NO 2-leg combo")
+
+
+def test_telegram_message_bolds_title_bet_and_summary_and_adds_buttons():
     msg = alerts.telegram_message(row(price=0.18), "42", app_url="https://capyev.streamlit.app")
-    head = "\n".join(msg["text"].split("\n")[:2])
-    assert head.startswith("🔥 PREGAME +67% EV · $540 YES 2-leg combo\nMID +67% · ")
+    head = "\n".join(msg["text"].split("\n")[:3])
+    assert head.startswith("🔥 PREGAME +67% EV\n$540 @ 5.6x (+456) → $3,000 2-leg combo\nMID +67% · ")
     assert msg["entities"][0]["length"] == len(head) + 1  # the emoji is two UTF-16 units
     assert [b["text"] for b in msg["reply_markup"]["inline_keyboard"][0]] == ["Bet in Kalshi", "Quote it"]
 
