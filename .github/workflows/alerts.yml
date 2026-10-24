@@ -3,7 +3,7 @@ name: Notification bot
 # run behind it (one running + one waiting), so there's no gap between runs.
 # Change the thresholds in Settings → Secrets and variables → Actions → Variables:
 #   ALERT_TIERS_PREGAME (bet size:min EV %, default "50:100,500:20,1000:10"),
-#   ALERT_TIERS_LIVE (default "50:200,500:100,1000:50"; "off" for no live alerts), ALERT_SKIP_SAME_GAME (default 1; 0 keeps
+#   ALERT_TIERS_LIVE (default "1000:100,5000:50"; "off" for no live alerts), ALERT_SKIP_SAME_GAME (default 1; 0 keeps
 #   same-game combos), ALERT_MAX_LEGS, ALERT_MAX_LEGS_LIVE and ALERT_MAX_LEAGUES (defaults 5, 3 and 2; "off" for no cap),
 #   ALERT_EV_BASIS (mid or crx, default mid), APP_URL (your CapyEV link, adds a Quote it button).
 # Sends with the secrets TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (or NTFY_TOPIC). Without them, it only prints.

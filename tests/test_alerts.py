@@ -38,6 +38,8 @@ def test_tiers():
     assert TIERS == [(500, 0.20), (1000, 0.10)]
     assert OFF == [] and alerts.min_ev_for(5000, OFF) is None
     assert alerts.parse_tiers(alerts.PREGAME_TIERS)[0] == (50, 1.0)
+    live = alerts.parse_tiers(alerts.LIVE_TIERS)  # live: only $1k+ at +100%, $5k+ at +50%
+    assert [alerts.min_ev_for(s, live) for s in (999, 1000, 4999, 5000)] == [None, 1.0, 1.0, 0.5]
     assert alerts.min_ev_for(499, TIERS) is None
     assert alerts.min_ev_for(700, TIERS) == 0.20
     assert alerts.min_ev_for(1000, TIERS) == 0.10
@@ -130,19 +132,26 @@ def test_summary_has_mid_and_crx_ev_multiple_and_units():
 def test_message_has_card_link_and_louder_ping_for_bigger_edges():
     msg = alerts.message(row(), "my-topic", app_url="https://capyev.streamlit.app/")
     assert msg["topic"] == "my-topic"
-    assert msg["title"] == "PREGAME +50% EV · $600 YES 2-leg combo"
+    assert msg["title"] == "PREGAME +50% EV"
     assert msg["click"] == "https://kalshi.com/combos?marketTicker=KXMVECOMBO-1"
-    assert "$600 @ 5.0x (+400) → $3,000" in msg["message"]
+    assert msg["message"].startswith("$600 @ 5.0x (+400) → $3,000 2-leg combo\nMID +50% · ")
     assert "YES Hawks (KXNBAGAME-26OCT21ATLORL)" in msg["message"]
     assert [a["label"] for a in msg["actions"]] == ["Bet in Kalshi", "Quote it"]
     assert msg["actions"][1]["url"] == "https://capyev.streamlit.app/quote?t=KXMVECOMBO-1&side=yes&p=0.2000&n=3000"
     assert alerts.tier(0.12)[0] < alerts.tier(0.6)[0] < alerts.tier(8.0)[0]
 
 
-def test_telegram_message_bolds_title_and_adds_buttons():
+def test_bet_line_names_a_no_bet():
+    r = row()
+    assert alerts.bet_line(r) == "$600 @ 5.0x (+400) → $3,000 2-leg combo"
+    r["side"] = "no"
+    assert alerts.bet_line(r).endswith("→ $3,000 NO 2-leg combo")
+
+
+def test_telegram_message_bolds_title_bet_and_summary_and_adds_buttons():
     msg = alerts.telegram_message(row(price=0.18), "42", app_url="https://capyev.streamlit.app")
-    head = "\n".join(msg["text"].split("\n")[:2])
-    assert head.startswith("🔥 PREGAME +67% EV · $540 YES 2-leg combo\nMID +67% · ")
+    head = "\n".join(msg["text"].split("\n")[:3])
+    assert head.startswith("🔥 PREGAME +67% EV\n$540 @ 5.6x (+456) → $3,000 2-leg combo\nMID +67% · ")
     assert msg["entities"][0]["length"] == len(head) + 1  # the emoji is two UTF-16 units
     assert [b["text"] for b in msg["reply_markup"]["inline_keyboard"][0]] == ["Bet in Kalshi", "Quote it"]
 
