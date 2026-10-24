@@ -19,11 +19,13 @@ from .view import is_live
 
 NTFY_URL = "https://ntfy.sh"
 TELEGRAM_URL = "https://api.telegram.org"
-THIN_SPREAD = 0.03  # same default as the Combos page's Hide thin
+THIN_SPREAD = 0.03  # same default as the Combos page's Hide thin; a thin leg book never alerts
 THIN_SIZE = 50
 # Same-game legs aren't independent, so a fair price that multiplies the legs is off; those don't alert,
-# and neither do combos over MAX_LEGS legs or MAX_LEAGUES leagues (the bot's ALERT_* variables change it).
+# and neither do combos over MAX_LEGS legs (MAX_LEGS_LIVE once a game has started) or MAX_LEAGUES leagues
+# (the bot's ALERT_* variables change these).
 MAX_LEGS = 5
+MAX_LEGS_LIVE = 3
 MAX_LEAGUES = 2
 
 
@@ -73,22 +75,25 @@ def leagues(row: dict) -> int:
     return len({league_of(l["ticker"])[0] for l in row["leg_detail"]})
 
 
-def spread_out(row: dict, max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES) -> bool:
-    """More legs or more leagues than an alert allows (None: no cap)."""
-    return (max_legs is not None and row["legs"] > max_legs) or (max_leagues is not None and leagues(row) > max_leagues)
+def spread_out(row: dict, max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES,
+               max_legs_live: int | None = MAX_LEGS_LIVE) -> bool:
+    """More legs or more leagues than an alert allows (None: no cap). Live combos get the smaller leg cap."""
+    caps = [c for c in (max_legs, max_legs_live if is_live(row) else None) if c is not None]
+    return bool(caps and row["legs"] > min(caps)) or (max_leagues is not None and leagues(row) > max_leagues)
 
 
 def pick(rows: list[dict], pregame: list[tuple[float, float]], live: list[tuple[float, float]], sent: set[str],
-         basis: str = "mid", skip_thin: bool = True, skip_series: tuple[str, ...] | None = None,
-         skip_same_game: bool = True, max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES) -> list[dict]:
+         basis: str = "mid", skip_series: tuple[str, ...] | None = None, skip_same_game: bool = True,
+         max_legs: int | None = MAX_LEGS, max_leagues: int | None = MAX_LEAGUES,
+         max_legs_live: int | None = MAX_LEGS_LIVE) -> list[dict]:
     """Bets that clear their size tier's EV bar (pregame or live tiers), not alerted yet, best first.
-    Thin leg books, same-game legs, combos over max_legs legs or max_leagues leagues, and combos with
-    a crypto, commodity or other financial leg are left out."""
+    Thin leg books (always), same-game legs, combos over max_legs legs (max_legs_live when live) or
+    max_leagues leagues, and combos with a crypto, commodity or other financial leg are left out."""
     def wanted(r):
         bar = min_ev_for(r["stake"], live if is_live(r) else pregame)
         return (bar is not None and (ev_of(r, basis) or -1) > bar and key(r) not in sent
-                and not (skip_thin and thin(r)) and not (skip_same_game and r["same_game_legs"])
-                and not spread_out(r, max_legs, max_leagues) and not skipped(r, skip_series))
+                and not thin(r) and not (skip_same_game and r["same_game_legs"])
+                and not spread_out(r, max_legs, max_leagues, max_legs_live) and not skipped(r, skip_series))
     return sorted(filter(wanted, rows), key=lambda r: ev_of(r, basis), reverse=True)
 
 
@@ -127,7 +132,7 @@ def body(row: dict) -> str:
     notes = [f"{row['minutes_ago']:.0f} min ago"]
     if row["same_game_legs"]:
         notes.append("same game")
-    if thin(row):
+    if thin(row):  # the tail bot sends a friend's bets whatever the books
         notes.append("thin leg book")
     if (row["ev_pct_mid"] or 0) > 2:
         notes.append("check the book, +200% edges are often stale")
