@@ -1,7 +1,8 @@
 name: Notification bot
 # Always-on alerts: each run watches for ~5h50m, and the hourly schedule queues the next
 # run behind it (one running + one waiting), so there's no gap between runs.
-# Change the thresholds in Settings → Secrets and variables → Actions → Variables:
+# Change what alerts in the app (Tools → Alerts): it saves alert_settings.json on the alert-settings branch,
+# which the bot re-reads every minute and which wins over these Variables (Settings → Secrets and variables → Actions):
 #   ALERT_TIERS_PREGAME (bet size:min EV %, default "50:100,500:20,1000:10"),
 #   ALERT_TIERS_LIVE (default "1000:100,5000:50"; "off" for no live alerts), ALERT_SKIP_SAME_GAME (default 1; 0 keeps
 #   same-game combos), ALERT_MAX_LEGS, ALERT_MAX_LEGS_LIVE and ALERT_MAX_LEAGUES (defaults 5, 3 and 2; "off" for no cap),
@@ -53,6 +54,7 @@ jobs:
           ALERT_MAX_LEAGUES: ${{ vars.ALERT_MAX_LEAGUES }}
           ALERT_EV_BASIS: ${{ vars.ALERT_EV_BASIS }}
           APP_URL: ${{ vars.APP_URL }}
+          GITHUB_TOKEN: ${{ github.token }}  # reads the app's alert settings without raw.githubusercontent.com's cache
           ALERT_MINUTES: ${{ inputs.minutes || '350' }}
           DRY_RUN: ${{ inputs.dry_run || '0' }}
       - name: Remember what this run sent

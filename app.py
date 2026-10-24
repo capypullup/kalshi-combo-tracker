@@ -45,11 +45,13 @@ def _reload_if_deployed() -> None:
 _reload_if_deployed()
 
 from combo_tracker import activity  # noqa: E402  (after the reload check)
+from combo_tracker import alerts, alerts_view  # noqa: E402
 from combo_tracker import financial  # noqa: E402
 from combo_tracker.bettors import BettorTracker  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
 from combo_tracker.demo import DemoClient, demo_rfq_book, demo_store  # noqa: E402
+from combo_tracker.ghfile import GitHubFile, MemoryFile  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
 from combo_tracker.keys import find_secret, kalshi_auth  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer, TradesUnavailable  # noqa: E402
@@ -908,9 +910,50 @@ def quote_page() -> None:
 
 
 # ---------- Tools page ----------
+@st.cache_resource(show_spinner=False)
+def alert_store(token: str | None):
+    """Where the Alerts tool keeps the alert bot's settings: the alert-settings branch (memory in the demo)."""
+    if DEMO:
+        return MemoryFile()
+    return GitHubFile(alerts.SETTINGS_FILE, alerts.SETTINGS_BRANCH, token=token)
+
+
+def alerts_tool() -> None:
+    """Tools → Alerts: the alert bot's settings, tried on the last hour of $50+ bets (the Combos default view)."""
+    src = get_source()
+    try:
+        snap, error = _brew(DEFAULT_VIEW, "Brewing the last hour's bets… 🧋")
+        src.board.touch(*DEFAULT_VIEW)
+    except Exception as exc:  # network / API errors should not blank the page
+        snap, error = None, f"Couldn't score bets: {exc}"[:200]
+    if src.collector is not None and src.collector.last_error:
+        error = error or _poll_error(src.collector.last_error)
+    token, pin, unlock = _secret("GH_TOKEN"), _secret("TRADE_PIN"), None
+    if DEMO:
+        can_save, note = True, None
+    elif not token:
+        can_save, note = False, ("To save, add GH_TOKEN to the app's secrets: a fine-grained GitHub token for this "
+                                 "repo with Contents read and write (the same one Bettors stars use).")
+    elif not pin:
+        can_save, note = False, "To save, add TRADE_PIN to the app's secrets (anyone with the link can open the app)."
+    else:
+        auth, _ = _kalshi_auth()
+        salt = auth.key_id if auth is not None else "demo"
+        can_save = quote_view._unlocked(pin, salt)
+        note = None if can_save else "Unlock with your TRADE_PIN to save."
+        if not can_save:
+            unlock = lambda: quote_view._unlock_form(pin, salt)  # noqa: E731
+    cookie = st.session_state.pop("q_cookie", None)  # the PIN form queues "remember this phone"; write it here too
+    if cookie:
+        st.html(f"<script>document.cookie = {json.dumps(cookie)};</script>", unsafe_allow_javascript=True)
+    # Only an unlocked phone reads with the token; others read the public file (GitHub caches it a few minutes).
+    alerts_view.render(snap.rows if snap else [], alert_store(token if can_save else None), can_save, note, unlock,
+                       error, DEFAULT_VIEW)
+
+
 def tools_page() -> None:
     nav()
-    tools_view.render()
+    tools_view.render({"Alerts": alerts_tool})
 
 
 HOME = st.Page(home_page, title="Home", default=True)
