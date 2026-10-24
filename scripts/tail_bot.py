@@ -14,7 +14,8 @@ if their profile shows their trades publicly.
 Other settings: TAIL_LABEL (name in the alerts, default the nickname or "Friend"),
 TAIL_PEEK=1 (also ping quietly when they ask for a quote, before they bet),
 TAIL_MINUTES (how long one run lasts), TAIL_KEEP_HOURS (how far back a bet you send can be,
-default 6), TAIL_STATE_FILE (codes kept between runs), APP_URL (adds a Quote it button),
+default 6), TAIL_STATE_FILE and TAIL_HISTORY_FILE (the codes, and the last hours of everyone's
+bets, handed to the next run; both locked with a key derived from the Kalshi private key), APP_URL (adds a Quote it button),
 DRY_RUN=1 (print instead of sending), TAIL_SELFTEST=1 (CI: once bets come in, find one by its
 payout as if you'd sent it and print its alert, so the whole path runs).
 
@@ -35,6 +36,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from combo_tracker import recorder  # noqa: E402
 from combo_tracker.alerts import TELEGRAM_URL  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.pipeline import Scorer  # noqa: E402
@@ -51,7 +53,8 @@ tail = Tail(setting("TAIL_LABEL", nickname or "Friend"), float(setting("TAIL_KEE
 peek = setting("TAIL_PEEK", "0") == "1"
 minutes = float(setting("TAIL_MINUTES", "350"))
 app_url = setting("APP_URL") or None
-state_file = Path(setting("TAIL_STATE_FILE", "tail_state.json"))
+state_file = Path(setting("TAIL_STATE_FILE", "tail_state.sealed"))
+history_file = Path(setting("TAIL_HISTORY_FILE", "tail_history.sealed"))
 dry = setting("DRY_RUN", "0") == "1"
 selftest = setting("TAIL_SELFTEST", "0") == "1"
 token, chat_id = setting("TELEGRAM_BOT_TOKEN"), setting("TELEGRAM_CHAT_ID")
@@ -63,17 +66,26 @@ if auth is None:
 
 offset = 0
 try:
-    saved = json.loads(state_file.read_text())
+    saved = recorder.unseal(state_file.read_bytes(), auth)
     tail.load(saved)
     offset = saved.get("telegram_offset") or 0
-except (OSError, ValueError):
+except (OSError, ValueError, KeyError, TypeError, recorder.Locked):  # none yet, or unreadable: start fresh
+    pass
+try:
+    print(f"{tail.load_history(recorder.unseal(history_file.read_bytes(), auth)):,} bets from the last run", flush=True)
+except (OSError, ValueError, KeyError, TypeError, recorder.Locked):  # none yet, or unreadable: start fresh
     pass
 for code in filter(None, (c.strip() for c in setting("TAIL_CODES").split(","))):
     tail.adopt(code, "TAIL_CODES")
 
 
 def save() -> None:
-    state_file.write_text(json.dumps({**tail.state(), "telegram_offset": offset}))
+    # The Actions cache can be read by other workflows in the repo, so the code is locked like the recorder's data.
+    state_file.write_bytes(recorder.seal({**tail.state(), "telegram_offset": offset}, auth))
+
+
+def save_history() -> None:
+    history_file.write_bytes(recorder.seal(tail.dump_history(), auth))
 
 
 def send(payload: dict) -> None:
@@ -225,7 +237,7 @@ if not tail.codes and not selftest:
 scorer.starts.refresh()  # load the game schedule now so the first alert isn't slow
 book.start()
 deadline = time.time() + minutes * 60
-last = {"telegram": 0.0, "social": 0.0, "prune": time.time()}
+last = {"telegram": 0.0, "social": 0.0, "prune": time.time(), "history": time.time()}
 while time.time() < deadline:
     try:
         for m in book.take():
@@ -258,6 +270,9 @@ while time.time() < deadline:
             last["prune"] = now
             tail.prune()
             save()
+            if now - last["history"] >= 600:
+                last["history"] = now
+                save_history()
             s = book.stats
             print(f"{time.strftime('%H:%M:%S')} stream={book.ws_status} rfqs={s['rfqs']:,} named={s['sure'] + s['likely']:,} "
                   f"held={tail.held():,} codes={len(tail.codes)} err={book.last_error}", flush=True)
@@ -267,3 +282,4 @@ while time.time() < deadline:
 
 book.stop()
 save()
+save_history()

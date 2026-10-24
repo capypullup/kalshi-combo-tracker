@@ -89,9 +89,9 @@ Live bars are higher because most live edges are lines moving under a stale book
 `scripts/tail_bot.py` follows one friend who has agreed to it and sends each of their combo bets to the same Telegram bot a few seconds after it fills (`👥 Friend bet $2,000 YES · 2-leg combo +121`, then the bet card with EV now and a **Bet in Kalshi** button). It reuses the RFQ matching above, so it needs the API key secrets as well as the Telegram ones.
 
 - **Finding their code**: once it's running, send the bot one of their combo bets placed after it started. The easiest is the `$1,999.76 pays $4,424.51` line from a combo on their Positions tab (the payout is their contract count, which almost no one else matches to the cent); a combo link or ticker works too. If several people fit, it lists them and the next bet you send narrows it down. `/status` shows what it knows, `/forget` drops the code, `/code <code>` sets one. The code is kept between runs.
-- Only combos: single-market bets go through the order book, which has no requester code. It remembers 6 hours of everyone's bets for finding a code (`TAIL_KEEP_HOURS`); bets from before it started can't be found.
+- Only combos: single-market bets go through the order book, which has no requester code. It remembers 6 hours of everyone's bets for finding a code (`TAIL_KEEP_HOURS`), handed from run to run with the code (both locked with a key from the Kalshi private key, since the Actions cache isn't private); bets placed while it was off can't be found.
 - Variables (Settings → Secrets and variables → Actions → Variables): `TAIL_LABEL` (the name in alerts), `TAIL_NICKNAME` (used too if their profile shows trades publicly), `TAIL_CODES` (codes you already know), `TAIL_PEEK` (`1` also sends a silent 👀 when they ask for a quote, before they bet).
-- Start it from Actions → Tail bot → Run workflow; one run lasts about 5h50m.
+- It runs around the clock: one run lasts about 5h50m and the hourly schedule keeps the next one queued, so it takes over within a minute or two. Actions → Tail bot → Run workflow starts one by hand.
 
 ## Run it
 

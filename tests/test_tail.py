@@ -140,3 +140,14 @@ def test_messages():
     assert "/combos?marketTicker=KXMVECOMBO-A" in plain["reply_markup"]["inline_keyboard"][0][0]["url"]
     peek = tail.peek_message("KXMVECOMBO-A", "42")
     assert peek["disable_notification"] and "Not a bet yet" in peek["text"]
+
+
+def test_history_hands_over_to_the_next_run():
+    tail = Tail(keep_hours=1)
+    tail.add(match("friend", ticker="KXMVECOMBO-A", tid="1", count=150, price=0.3))
+    tail.add(match("other", ticker="KXMVECOMBO-B", tid="2", sec=-7200))  # too old to hand over
+    tail.add(match("other", ticker="KXMVECOMBO-C", tid="3", side="no"))
+    nxt = Tail(keep_hours=1)
+    assert nxt.load_history(tail.dump_history(), now=T) == 2
+    assert set(nxt.history) == {"KXMVECOMBO-A", "KXMVECOMBO-C"} and nxt.history["KXMVECOMBO-C"][0][2] == "no"
+    assert "Got it" in nxt.learn_payout(45.00, 150) and set(nxt.codes) == {"friend"}
