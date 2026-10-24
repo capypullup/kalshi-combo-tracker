@@ -52,9 +52,12 @@ def test_pick_filters_on_size_tier_ev_thin_and_sent():
     assert good["ev_pct_mid"] > 0.49
     assert [r["ticker"] for r in alerts.pick([small, bad, mid_size, big, good], TIERS, OFF, set())] == ["KXMVECOMBO-1", "KXMVECOMBO-5"]
     assert alerts.pick([good], TIERS, OFF, {alerts.key(good)}) == []
-    good["leg_detail"][0]["spread"] = 0.05
+    good["leg_detail"][0]["spread"] = 0.05  # a thin leg book never alerts, whatever the other settings
+    assert alerts.pick([good], TIERS, OFF, set(), skip_same_game=False, max_legs=None, max_leagues=None, max_legs_live=None) == []
+    good["leg_detail"][0]["spread"], good["leg_detail"][1]["top_bid_size"] = 0.02, 49
     assert alerts.pick([good], TIERS, OFF, set()) == []
-    assert alerts.pick([good], TIERS, OFF, set(), skip_thin=False) == [good]
+    good["leg_detail"][1]["top_bid_size"] = 50
+    assert alerts.pick([good], TIERS, OFF, set()) == [good]
 
 
 def test_pick_leaves_out_crypto_legs():
@@ -93,6 +96,20 @@ def test_pick_leaves_out_combos_over_five_legs_or_two_leagues():
     assert picked(max_legs=None, max_leagues=None) == {r["ticker"] for r in bets}
     assert picked(max_legs=6, max_leagues=3) == {r["ticker"] for r in bets}
     assert picked(max_legs=None) == {"KXMVECOMBO-5", "KXMVECOMBO-6", "KXMVECOMBO-2"}
+
+
+def test_live_combos_alert_up_to_three_legs():
+    nba = [leg(f"KXNBAGAME-26OCT21G{i}", f"KXNBAGAME-26OCT21G{i}-H{i}") for i in range(5)]
+    three, four = row("KXMVECOMBO-3", legs=nba[:3]), row("KXMVECOMBO-4", legs=nba[:4])
+    live = alerts.parse_tiers("500:40")
+    picked = lambda **kw: {r["ticker"] for r in alerts.pick([three, four], TIERS, live, set(), **kw)}  # noqa: E731
+    assert picked() == {"KXMVECOMBO-3", "KXMVECOMBO-4"}  # pregame: up to 5 legs
+    for r in (three, four):
+        r["leg_detail"][-1]["hours_to_start"] = -0.5  # one game started: live
+    assert picked() == {"KXMVECOMBO-3"}
+    assert picked(max_legs_live=None) == {"KXMVECOMBO-3", "KXMVECOMBO-4"}
+    assert picked(max_legs_live=None, max_legs=3) == {"KXMVECOMBO-3"}  # the pregame cap still holds live
+    assert picked(max_legs_live=4, max_legs=None) == {"KXMVECOMBO-3", "KXMVECOMBO-4"}
 
 
 def test_live_bets_use_the_live_tiers():
