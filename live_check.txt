@@ -1,0 +1,269 @@
+[ok] one trades page (0.2s)
+     1000 trades on page 1, 69 combo, span 2026-10-24T07:57:42.541313Z .. 2026-10-24T07:57:48.9897Z, cursor=yes
+     sample trade: {'count_fp': '4.74', 'created_time': '2026-10-24T07:57:48.9897Z', 'is_block_trade': False, 'no_price_dollars': '0.9850', 'taker_book_side': 'bid', 'taker_outcome_side': 'yes', 'taker_side': 'yes', 'ticker': 'KXBTC15M-26OCT240400-00', 'trade_id': '0724df43-99e1-8ffd-844a-94e242258b3a', 'yes_price_dollars': '0.0150'}
+[ok] combo market (0.1s)
+     legs: [{'event_ticker': 'KXEPLGAME-26OCT24ARSEVE', 'market_ticker': 'KXEPLGAME-26OCT24ARSEVE-ARS', 'side': 'yes'}, {'event_ticker': 'KXEPLGAME-26OCT24AVLMCI', 'market_ticker': 'KXEPLGAME-26OCT24AVLMCI-MCI', 'side': 'yes'}, {'event_ticker': 'KXEPLTOTAL-26OCT24CFCTOT', 'market_ticker': 'KXEPLTOTAL-26OCT24CFCTOT-1', 'side': 'yes'}, {'event_ticker': 'KXEPLTOTAL-26OCT24COVFUL', 'market_ticker': 'KXEPLTOTAL-26OCT24COVFUL-1', 'side': 'yes'}]
+[ok] leg markets (0.1s)
+     leg market fields: {'can_close_early': True, 'close_time': '2026-10-26T14:00:00Z', 'created_time': '2026-10-10T00:26:30.443677Z', 'custom_strike': {'soccer_team': '246a91c5-f145-401f-bf0d-2a436e25a5f6'}, 'early_close_condition': 'This market will close and expire after a winner is declared.', 'event_ticker': 'KXEPLGAME-26OCT24ARSEVE', 'exchange_index': 0, 'expected_expiration_time': '2026-10-24T17:00:00Z', 'expiration_time': '2026-10-26T14:00:00Z', 'expiration_value': '', 'last_price_dollars': '0.6700', 'latest_expiration_time': '2026-10-26T14:00:00Z', 'market_type': 'binary', 'no_ask_dollars': '0.3400', 'no_bid_dollars': '0.3300', 'no_sub_title': 'Arsenal', 'notional_value_dollars': '1.0000', 'occurrence_datetime': '2026-10-24T17:00:00Z', 'open_interest_fp': '320503.18', 'open_time': '2026-10-10T00:32:00Z', 'previous_price_dollars': '0.6800', 'previous_yes_ask_dollars': '0.6800', 'previous_yes_bid_dollars': '0.6700', 'price_level_structure': 'linear_cent', 'price_ranges': [{'end': '1.0000', 'start': '0.0000', 'step': '0.0100'}], 'result': '', 'settlement_bounds_type': 'default', 'settlement_timer_seconds': 0, 'status': 'active', 'strike_type': 'structured', 'ticker': 'KXEPLGAME-26OCT24ARSEVE-ARS', 'title': 'Arsenal wins', 'updated_time': '2026-10-10T00:32:00.36952Z', 'volume_24h_fp': '293037.66', 'volume_fp': '362847.36', 'yes_ask_dollars': '0.6700', 'yes_ask_size_fp': '277009.08', 'yes_bid_dollars': '0.6600', 'yes_bid_size_fp': '164716.67', 'yes_sub_title': 'Arsenal'}
+[ok] leg events (0.1s)
+     event titles: ['Chelsea vs Tottenham: Total Goals', 'Coventry vs Fulham: Total Goals', 'Arsenal vs Everton', 'Aston Villa vs Manchester City']
+     event fields: {'category': 'Sports', 'collateral_return_type': '', 'event_ticker': 'KXEPLTOTAL-26OCT24CFCTOT', 'exchange_index': 0, 'last_updated_ts': '2026-10-21T16:01:28.623524Z', 'mutually_exclusive': False, 'product_metadata': {'competition': 'EPL', 'competition_scope': 'Point Total'}, 'series_ticker': 'KXEPLTOTAL', 'settlement_sources': [{'name': 'Fox Sports', 'url': 'https://www.foxsports.com'}, {'name': 'ESPN', 'url': 'https://espn.com'}], 'strike_period': '', 'sub_title': 'CFC vs TOT (Oct 24)', 'title': 'Chelsea vs Tottenham: Total Goals'}
+[ok] leg orderbooks (0.1s)
+     orderbook keys: ['no_dollars', 'yes_dollars', '_fetched_at']; yes levels: [['0.0100', '79820.00'], ['0.0200', '11756.00'], ['0.0300', '7606.00'], ['0.0400', '5292.00'], ['0.0500', '4288.00'], ['0.0600', '3476.00'], ['0.0700', '2988.00'], ['0.0800', '2671.00'], ['0.0900', '2
+
+[ok] collector backfill (15 min) (27.0s)
+     scanned 112,700 trades, kept 12,350 combo fills, 120 requests so far
+[ok] collector incremental poll (1.1s)
+     incremental poll used 5 requests
+[ok] score bets ≥ $100 (2.2s)
+     15 requests · batch orderbooks ok: True
+     12266 combo fills · 8952 bets · 697 ≥ $100 · 400 scored · 0 errors
+[ok] score again (warm caches) (1.4s)
+     4 requests
+[ok] background pass (Board.refresh) (0.1s)
+     a page read after that took 0 ms
+[ok] refresh tap (poll + re-score with fresh quotes) (0.6s)
+     answered (done, error): (True, None) · 5 requests
+[ok] open one card (full depth) (0.1s)
+     1 requests · top-of-book EV -0.15295811454216035 -> full-depth EV -0.15295811454216035
+     leg spreads (¢) p25/50/75/90: [1.0, 1.0, 2.0, 3.0] · no two-sided quote: 386/2572
+     smaller top-of-book size (contracts) p10/25/50/75: [0, 18, 822, 14437]
+     bets with a leg spread > 2¢ or top size < 50: 231/400
+     bets with a leg spread > 3¢ or top size < 100: 248/400
+     bets with a leg spread > 4¢ or top size < 100: 245/400
+     bets with a leg spread > 5¢ or top size < 100: 244/400
+     bets with a leg spread > 4¢ or top size < 250: 268/400
+     bets with a leg spread > 10¢ or top size < 0: 133/400
+     legs with a scheduled start: 2345/2572 · started: 892 · schedule: 7850 events, error None
+     series with no scheduled start: ['KXATPCHALLENGERMATCH', 'KXATPDOUBLES', 'KXATPMATCH', 'KXBNB15M', 'KXBTC15M', 'KXBTCD', 'KXCS2GAME', 'KXDOGE15M', 'KXDOTA2GAME', 'KXDPWORLDTOUR', 'KXEFLCHAMPIONSHIPTOTAL', 'KXEPLTOTAL', 'KXETH15M', 'KXETHD', 'KXHYPE15M', 'KXITFDOUBLES', 'KXITFMATCH', 'KXITFWMATCH', 'KXLALIGATOTAL', 'KXLIGUE1GAME', 'KXLIGUE1TOTAL', 'KXLOLGAME', 'KXNCAAFGAME', 'KXNEAR15M', 'KXPGATOUR', 'KXSAUDIPLGAME', 'KXSERIEATOTAL', 'KXSOL15M', 'KXSOLD', 'KXUCL1H', 'KXUCLBTTS', 'KXUCLGAME', 'KXUCLTOTAL', 'KXVALORANTGAME', 'KXWTAMATCH', 'KXXRP15M', 'KXZEC15M']
+     live bets: 226/400 (old 3h rule said 254)
+     table payload: 537 KB packed (654 KB unpacked) for 400 rows · 226 look live
+     rows with a missing leg quote: 120/400
+
+YES Combo +103
+────────────
+NO Target Price: $80,729.80 (BTC 15 min · $80,729.80 target)
+NO Target Price: $0.0780429 (DOGE 15 min · $0.0780429 target)
+NO Target Price: $2,376.65 (ETH 15 min · $2,376.65 target)
+NO Target Price: $1.2850 (XRP 15 min · $1.2850 target)
+────────────
+EV MID +100.5% (fair -8632 / 1.01x) · 24u
+EV CRX +100.0% (fair -7080 / 1.01x) · 24u
+($101 bet · 205 contracts · net EV $97.78 · min depth 2.513567691781157 · SG=0 missing=0 · KXMVECROSSCATEGORY-S2026XTZY5TB46CQZPTVC-GATVHDWL5)
+
+YES Combo -110
+────────────
+NO Target Price: $80,729.80 (BTC 15 min · $80,729.80 target)
+NO Target Price: $2,376.65 (ETH 15 min · $2,376.65 target)
+────────────
+EV MID +89.8% (fair -14209 / 1.01x) · 25u
+EV CRX +89.6% (fair -12423 / 1.01x) · 25u
+($543 bet · 1,038 contracts · net EV $469.44 · min depth 0.4953557388422108 · SG=0 missing=0 · KXMVECROSSCATEGORY-S202636M6ESWXYHFUNILP-5VNOANYZZ)
+
+YES Combo +641
+────────────
+YES Carol Young Suh Lee (Vandromme vs Lee)
+YES Ekaterine Gorgodze (Tatiana Prozorova vs Ekaterine Gorgodze: Set 2 Winner)
+────────────
+EV MID +78.1% (fair +316 / 4.16x) · 3.05u
+EV CRX +74.0% (fair +326 / 4.26x) · 2.89u
+($137 bet · 1,013 contracts · net EV $98.49 · min depth 0.034563463456543854 · SG=0 missing=0 · KXMVECROSSCATEGORY-S2026GCOWEBFKQTNSQ6AS-DUGFUEBQY)
+
+NO Combo -139
+────────────
+YES De'Aaron Fox: 10+ (San Antonio vs Dallas: Points)
+YES Dylan Harper: 10+ (San Antonio vs Dallas: Points)
+YES Stephon Castle: 10+ (San Antonio vs Dallas: Points)
+YES Victor Wembanyama: 20+ (San Antonio vs Dallas: Points)
+────────────
+EV MID +64.4% (fair -2131 / 1.05x) · 22u
+EV CRX +27.5% (fair -286 / 1.35x) · 9.52u
+($4,704 bet · 8,095 contracts · net EV $2,890.48 · min depth 0.00012353258727886124 · SG=3 missing=0 · KXMVECROSSCATEGORY-S2026VO4XDIBJJ6GWZB5K-5QYQNHUVI)
+
+YES Combo +442
+────────────
+YES Kimberly Birrell (Birrell vs Ito)
+YES Maya Joint (Joint vs Golubic)
+────────────
+EV MID +60.0% (fair +239 / 3.39x) · 3.40u
+EV CRX +57.1% (fair +245 / 3.45x) · 3.23u
+($254 bet · 1,375 contracts · net EV $137.82 · min depth 0.004370527663040316 · SG=0 missing=0 · KXMVECROSSCATEGORY-S2026RZPCZYKBLBJFY7L3-ZHKD5U7CI)
+
+YES Combo +1556
+────────────
+YES Kimberly Birrell (Birrell vs Ito)
+YES Katie Boulter (Boulter vs Siniakova)
+YES Maya Joint (Joint vs Golubic)
+────────────
+EV MID +44.2% (fair +1048 / 11.5x) · 0.71u
+EV CRX +39.2% (fair +1090 / 11.9x) · 0.63u
+($126 bet · 2,089 contracts · net EV $47.52 · min depth 0.0028764513874929404 · SG=0 missing=0 · KXMVECROSSCATEGORY-S2026HN572NSN6MXQ5ZBL-PFY2NBBDY)
+
+YES Combo +2532
+────────────
+YES Viktorija Golubic (Joint vs Golubic)
+YES Jeline Vandromme (Vandromme vs Lee)
+YES Kimberly Birrell (Kimberly Birrell vs Aoi Ito: Set 1 Winner)
+────────────
+EV MID +18.1% (fair +2129 / 22.3x) · 0.18u
+EV CRX +12.5% (fair +2238 / 23.4x) · 0.12u
+($168 bet · 4,408 contracts · net EV $18.98 · min depth 0.017014055878696588 · SG=0 missing=0 · KXMVECROSSCATEGORY-S20267DVURWWS6UBVGLZY-B5TSXPQ2Y)
+
+NO Combo -312
+────────────
+YES Yannick Hanfmann (Giron vs Hanfmann)
+YES Jeline Vandromme (Vandromme vs Lee)
+────────────
+EV MID +17.8% (fair -824 / 1.12x) · 14u
+EV CRX +17.3% (fair -792 / 1.13x) · 13u
+($178 bet · 236 contracts · net EV $28.70 · min depth 17.916648974565838 · SG=0 missing=0 · KXMVECROSSCATEGORY-S20263H47NANJRV57QAPV-PWWDIC624)
+
+===== Bettors =====
+feed: 10.9s, requests so far 88
+tennis feed: 8800 trades, 788 with a name, 195 nicknames
+analyze: 67.8s, total 78.7s, requests 429
+errors: []
+
+nickname                 src                hid        PnL all    PnL 30d    mkts |     n  cov       vol       EV    EV%  set      PnL     edge     z  tk%
+furious.whippet5988      feed               False       -4,921     -3,056     644 |   393  100     8,978     -434   -4.8  334    2,038    2,383  3.26  100
+flash.quest              feed               False       -7,848        -79   8,160 |   338   99     9,729     -357   -3.8  336      109      455  2.18  100
+skilled.turaco8035       feed               False       -1,349        -59      76 |   204   78    11,150   -1,008  -10.1  178      270    1,355  1.06  100
+jocvbaked                feed               False      -10,338      2,319   3,662 |   292   99     9,133     -494   -5.4  281      204      698  0.82  100
+increasing.whippet6705   feed               False       -7,945     -1,674     842 |   126   42     7,020     -210   -6.4  121   -1,626      488  0.58  100
+stretch.noise            feed               False      -22,989     -2,884   5,280 |   133   99    13,588     -350   -2.6  119      644      714  0.33  100
+tall.van                 feed               False      -95,757     -4,704   4,810 |    71  100     6,443     -173   -2.7   62      -63       75  0.10   89
+literary.osprey9575      feed               False      -58,100     -4,486   5,410 |   400   99    21,228   -1,534   -7.2  400   -1,576      -31 -0.02  100
+allbetsareoff            feed               False       -8,336      7,059   1,760 |   327   99    11,819   -1,125   -9.5  317   -1,819     -756 -0.35  100
+chill.gold               feed               False      -21,614        300   1,003 |   308   99    22,572   -1,480   -7.4  289   -2,236   -1,681 -0.54  100
+pak16                    feed               False       -1,860     -7,612      53 |    60   35    20,928     -151   -5.2   37   -6,134        -     -  100
+clis41                   feed               False            -          -       - |   115  100     1,558       54    3.4    0        -        -     -    0
+
+latest trades for furious.whippet5988:
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.34 68.78 taker fair 0.380 ev 1.66 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.35 0.44 taker fair 0.380 ev 0.00 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.35 1.0 taker fair 0.380 ev 0.01 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.41 19.25 taker fair 0.380 ev -0.91 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.40 13.0 taker fair 0.380 ev -0.48 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.40 4.0 taker fair 0.380 ev -0.15 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.40 1.0 taker fair 0.380 ev -0.04 pnl -
+  KXITFWMATCH-26OCT24GORHOR-GOR yes 0.41 1.0 taker fair 0.380 ev -0.05 pnl -
+
+===== RFQ matching =====
+REST /communications/rfqs: 100 rows; fields: ['contracts_fp', 'created_ts', 'creator_id', 'id', 'market_ticker', 'mve_collection_ticker', 'mve_selected_legs', 'status', 'target_cost_dollars', 'target_cost_excludes_fees']
+
+== settled combos? == 20000 trades 36h ago, 4339 combo fills, 300 markets looked up
+status x result: {('finalized', 'no'): 232, ('finalized', 'yes'): 50, ('active', ''): 18}
+settlement-ish keys: ['expected_expiration_time', 'expiration_time', 'expiration_value', 'latest_expiration_time', 'result', 'settlement_bounds_type', 'settlement_timer_seconds', 'settlement_ts', 'settlement_value_dollars']
+  sample: {'ticker': 'KXMVECROSSCATEGORY-S2026CQEGUMDVHWMXUXOJ-PHXCFT47A', 'status': 'active', 'result': '', 'expected_expiration_time': '2026-10-25T01:20:00Z', 'expiration_time': '2026-10-26T19:10:00Z', 'expiration_value': '', 'latest_expiration_time': '2026-10-26T19:10:00Z', 'settlement_bounds_type': 'default', 'settlement_timer_seconds': 5, 'settlement_ts': None, 'settlement_value_dollars': None}
+  sample: {'ticker': 'KXMVECROSSCATEGORY0-S20262GZC4CGPEZP4CV3G-HGR3MVI3I', 'status': 'active', 'result': '', 'expected_expiration_time': '2026-10-26T06:20:00Z', 'expiration_time': '2026-10-28T00:20:00Z', 'expiration_value': '', 'latest_expiration_time': '2026-10-28T00:20:00Z', 'settlement_bounds_type': 'default', 'settlement_timer_seconds': 5, 'settlement_ts': None, 'settlement_value_dollars': None}
+  sample: {'ticker': 'KXMVECROSSCATEGORY0-S2026ERAZJDU32IPXKJUH-PGLFEFXNU', 'status': 'active', 'result': '', 'expected_expiration_time': '2026-10-25T23:00:00Z', 'expiration_time': '2026-10-27T17:00:00Z', 'expiration_value': '', 'latest_expiration_time': '2026-10-27T17:00:00Z', 'settlement_bounds_type': 'default', 'settlement_timer_seconds': 5, 'settlement_ts': None, 'settlement_value_dollars': None}
+RSS before the stream: 63 MB
+   30s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '938/s', 'rfq_created': '883/s'} held=28,132 bets=374 named=279/374 sure=275 hidden=0 revealed=0 overflows=0 rss=64MB cpu=10% err=None
+   60s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '952/s', 'rfq_created': '920/s'} held=31,634 bets=760 named=667/763 sure=651 hidden=0 revealed=0 overflows=0 rss=65MB cpu=10% err=None
+   90s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '979/s', 'rfq_created': '928/s'} held=30,940 bets=1,208 named=1,111/1,208 sure=1,087 hidden=0 revealed=0 overflows=0 rss=65MB cpu=10% err=None
+  120s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '987/s', 'rfq_created': '941/s'} held=34,902 bets=1,583 named=1,494/1,603 sure=1,461 hidden=0 revealed=0 overflows=0 rss=65MB cpu=10% err=None
+  150s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '989/s', 'rfq_created': '948/s'} held=34,029 bets=2,018 named=1,933/2,042 sure=1,887 hidden=0 revealed=0 overflows=0 rss=66MB cpu=10% err=None
+  180s stream=connected msgs {'subscribed': '0/s', 'rfq_deleted': '974/s', 'rfq_created': '931/s'} held=32,614 bets=2,454 named=2,369/2,481 sure=2,314 hidden=0 revealed=0 overflows=0 rss=66MB cpu=10% err=None
+
+== stream samples ==
+subscribed {"type":"subscribed","id":1,"msg":{"channel":"communications","sid":1},"sending_ts_ms":1792828787050}
+
+rfq_deleted {"type":"rfq_deleted","sid":1,"seq":1,"msg":{"id":"2b684a98-3b23-4fb1-884d-f8b81f049774","creator_id":"c4b41308a976c86fc490b7e1abcefbe55bdfbb466b437ba01fe25cce88af2ef8","market_ticker":"KXMVECROSSCATEGORY-S2026MWBUVINM74MCCB4J-5BQRETFEY","event_ticker":"KXMVECROSSCATEGORY-S2026MWBUVINM74MCCB4J","target_cost_dollars":"10.0000","deleted_ts":"2026-10-24T07:59:47.046609Z"},"sending_ts_ms":1792828787050}
+
+rfq_created {"type":"rfq_created","sid":1,"seq":2,"msg":{"id":"c831fdf4-4dbb-4ec9-8317-09715561c98b","creator_id":"d4b3a7f6784710191f35e2d41a3f39de0685c25b9faa0555d978fe112007131a","market_ticker":"KXMVECROSSCATEGORY-S2026PN4H6INCP3OGYLY6-YPVEVUAEH","event_ticker":"KXMVECROSSCATEGORY-S2026PN4H6INCP3OGYLY6","target_cost_dollars":"10.0000","created_ts":"2026-10-24T07:59:47.047321Z","mve_collection_ticker":"KXMVECROSSCATEGORY-R","mve_selected_legs":[{"event_ticker":"KXWNBAPTS-26OCT24GSATL","market_ticker":"KXWNBAPTS-26OCT24GSATL-ATLAREESE5-15","side":"yes"},{"event_ticker":"KXWNBAPTS-26OCT24GSATL","market_ticker":"KXWNBAPTS-26OCT24GSATL-ATLRHOWARD10-10","side":"yes"}]},"sending_ts_ms":1792828787051}
+
+
+== summary ==
+{"rfqs": 184929, "closes": 193728, "executions": 2702, "sure": 2553, "likely": 64, "partial": 318, "split": 20, "unmatched": 113, "hidden": 0, "revealed": 0, "unrevealed": 0, "hidden_rfqs": 3807, "hidden_closes": 3862, "overflows": 0, "resubscribes": 0}
+combo bets (executions) seen: 2,702; named 2,617 (95.9%), sure 97.6% of those; RFQs heard: 184,929 (925/s)
+close - trade (s) over the last 200 matches: min -1.05 median 0.00 max 0.01 | within 0.5s: 198
+bet sizes: {'<$5': 1255, '<$10': 1740, '<$25': 2120, '<$50': 2300, '<$100': 2434, '<$250': 2527, '<$1000': 2597} >=$1000: 20
+tennis bets named: 568
+unmatched (last 113 ): {'nearest close >3s away': 45, 'no RFQ closed on that combo': 51, 'close in time, size differs': 17}
+  KXMVECROSSCATEGORY-S2026ELWQ4FU766XBMZN2-UVY no 1275.42@1.000 cost $1275.29 (+fee $1275.30) fills=1 nearest=(9.81, 1883.05, None, 'd62f3575')
+  KXMVECROSSCATEGORY-S2026HPJPXNBWNYUD6SMX-GX5 yes 526.31@0.009 cost $4.63 (+fee $4.96) fills=1 nearest=-
+  KXMVECROSSCATEGORY0-S2026WGWGUSBYENEAWLZP-UW yes 3105.59@0.015 cost $46.58 (+fee $49.80) fills=1 nearest=-
+  KXMVECROSSCATEGORY-S2026WK2TVH4Q3K6MTZM7-WZJ yes 93.75@0.460 cost $43.12 (+fee $44.77) fills=1 nearest=(13.52, 35.48, None, 'cc4e2253')
+  KXMVECROSSCATEGORY-S2026MG3LSRGOFRCWDWC3-SBE yes 10000.0@0.001 cost $9.00 (+fee $9.63) fills=1 nearest=(8.8, None, 1.0, '37f6f2b4')
+  KXMVECROSSCATEGORY-S2026XKTJMBHHSVT37HBM-U3X yes 2565.0@0.002 cost $4.62 (+fee $4.95) fills=1 nearest=(10.29, None, 10.0, 'ff37fcab')
+  KXMVECROSSCATEGORY-S2026KNSR3LPXEKSEDCGO-FGB yes 254.23@0.011 cost $2.80 (+fee $3.00) fills=1 nearest=-
+  KXMVECROSSCATEGORY-S2026PEOCAXTIVTQOLUP3-BVH yes 179.85@0.026 cost $4.68 (+fee $5.00) fills=1 nearest=-
+  KXMVECROSSCATEGORY-S2026ZFJCDZU6JQ4L6UM2-GX4 yes 383.63@0.005 cost $1.96 (+fee $2.10) fills=1 nearest=(15.09, None, 2.11, '6e99065a')
+  KXMVECROSSCATEGORY-S2026WILFEHYAI4RB43AH-OEH yes 21.12@0.619 cost $13.07 (+fee $13.42) fills=1 nearest=-
+  KXMVECROSSCATEGORY-S2026NEAKCZG3E3WN53PD-RCI yes 2000.0@0.005 cost $9.20 (+fee $9.85) fills=1 nearest=-
+  KXMVECROSSCATEGORY-S2026MXWXS5FVFSWELS7O-PRI yes 116.55@0.162 cost $18.88 (+fee $19.99) fills=1 nearest=-
+codes: 1959 | top by bets: [(129, 2816, 'c4b566f59c'), (56, 26719, '0f9b27cb3e'), (31, 609, 'c4b41308a9'), (16, 1090, '47b5209517'), (10, 1427, 'd68569ae8a'), (9, 2, 'ab22988471'), (7, 8761, 'db10637c36'), (7, 33, '5bc575135e')]
+top by $: [(26719, 56, '0f9b27cb3e'), (8761, 7, 'db10637c36'), (6487, 1, '9cd921e7d2'), (2941, 2, '4486b56bfc'), (2829, 3, '0cdb6ca821'), (2816, 129, 'c4b566f59c'), (2773, 1, '9e9cade012'), (2386, 1, 'c45047b0f6')]
+hidden left unrevealed: 0
+
+== big bets ==
+>=$1,000: 20 named, 4 unmatched (432/h), sure 20, partial 0, codes 18
+>=$2,500: 6 named, 0 unmatched (108/h), sure 6, partial 0, codes 6
+>=$5,000: 2 named, 0 unmatched (36/h), sure 2, partial 0, codes 2
+>=$10,000: 1 named, 0 unmatched (18/h), sure 1, partial 0, codes 1
+>=$25,000: 0 named, 0 unmatched (0/h), sure 0, partial 0, codes 0
+$5k+ by price: {'<80c': 1, '95c+': 1} | sides: {'yes': 1, 'no': 1} | tennis: 1
+codes with a $5k+ bet: 2; all their bets: 57 ($33,205); of those >=$1k: 2
+  $   24,445 yes @0.797 x30,671 fills=1 sure=True partial=False lag=+0.00 0f9b27 KXMVECROSSCATEGORY-S2026CQ2ESWM2FHF2HWTM
+  $    6,487  no @0.986 x6,579 fills=1 sure=True partial=False lag=+0.00 9cd921 KXMVECROSSCATEGORY-S2026VA6C7GAAEX2VDCUG
+linked codes: [('#0cdb6ca821', 'icy.aardvark6702')] of 84 tried
+RSS at the end: 66 MB
+
+===== Tail bot =====
+Tail bot: 0 code(s) known; peek=off; printing only; 3 min
+selftest: $2.05 pays $2,045.45 -> Got it: 08:04:13 UTC $2.05 YES pays $2,045.45 on KXMVECROSSCATEGORY-S2026ILZZARPNVEH7MJYR-ULCHHIQW3 (code 7485e0cc). From now on I'll send you every combo bet from that code. If that wasn't Friend, send /forget.
+
+>>> 👥 Friend bet $2 YES · 29-leg combo +99900
+MID -93% · 14138x · 0.00u | CRX -94% · 17915x · 0.00u
+$2 @ 1000.0x (+99900) → $2,045
+0 min ago · thin leg book
+
+YES Combo +99900
+────────────
+YES Kent St. (Akron vs Kent St.)
+YES Baylor (Baylor vs Kansas)
+YES BYU (BYU vs UCF)
+YES SMU (California vs SMU)
+YES Iowa (Iowa vs Minnesota)
+YES Miami (OH) (Miami (OH) vs Central Michigan)
+YES UCLA (Michigan St. vs UCLA)
+YES Miami (FL) (Pittsburgh vs Miami (FL))
+YES Florida Atlantic (Rice vs Florida Atlantic)
+YES Northwestern (Rutgers vs Northwestern)
+YES Texas Tech (Texas Tech vs Cincinnati)
+YES Toledo (Western Michigan vs Toledo)
+YES TCU (West Virginia vs TCU)
+YES Rhode Island (University at Albany vs Rhode Island)
+YES Boise St. (Boise St. vs Washington St.)
+YES Holy Cross (Bucknell vs Holy Cross)
+YES Butler (Butler vs Drake)
+YES Campbell (Campbell vs Maine)
+YES Cornell (Cornell vs Brown)
+YES East Tennessee St. (East Tennessee St. vs VMI)
+YES Indiana (Indiana vs Michigan)
+YES Jackson St. (Jackson St. vs Bethune-Cookman)
+YES LSU (LSU vs Auburn)
+YES Central Connecticut St. (New Haven vs Central Connecticut St.)
+YES South Carolina St. (Norfolk St. vs South Carolina St.)
+YES LIU (Stonehill vs LIU)
+YES Stony Brook (Stony Brook vs Bryant)
+YES Alabama (Texas A&M vs Alabama)
+YES Dayton (San Diego vs Dayton)
+────────────
+EV MID -92.9% (fair +1413678 / 14138x) · 0.00u
+EV CRX -94.4% (fair +1791381 / 17915x) · 0.00u
+
+(sent 5s after the bet)
+08:04:17 alert sent 4.6s after the bet
+08:04:17 stream=connected rfqs=54,311 named=752 held=752 codes=0 err=None
+08:05:17 stream=connected rfqs=108,664 named=1,514 held=1,514 codes=0 err=None
+
+===== Bettor recorder =====
+Recorder: whales bet $1,000+ (then $200+ counts), tennis bets $25+; 3 min; data locked with 0bf5870f2a75; dry run; alerts off; financial legs dropped
+Picked up 81,236 bets, 22,019 codes, 6,291 whales (17.9 MB)
+08:06:21 tags: 1 (1 new)
+08:07:26 stream=connected rfqs=58,878 combo bets=882 named=804 | this run: kept 55, priced 54 (1 not), settled 1955, folded 0, financial 1, named 0 of 0 looked up, alerts 0, errors 0 | whales 6,292, codes 22,026, bets 81,290, waiting 0 | profiles: reading tennis trades, 1 | stream error: None
+  dry run: not saved (store.json 17.87 MB, view.json 2.50 MB, profiles.json 0.00 MB); the view opens again with 2000 bettors, 600 live bets, 0 profiles
+08:08:24 stream=connected rfqs=110,899 combo bets=1,597 named=1,520 | this run: kept 104, priced 101 (2 not), settled 1955, folded 0, financial 2, named 1 of 12 looked up, alerts 0, errors 0 | whales 6,296, codes 22,035, bets 81,338, waiting 1 | profiles: profiles 4/41, 41 | stream error: None
+  dry run: not saved (store.json 17.88 MB, view.json 2.50 MB, profiles.json 0.03 MB); the view opens again with 2000 bettors, 600 live bets, 1 profiles
+  dry run: not saved (store.json 17.89 MB, view.json 2.50 MB, profiles.json 0.03 MB); the view opens again with 2000 bettors, 600 live bets, 1 profiles
