@@ -248,7 +248,7 @@ class BettorTracker:
                  max_codes: int = 30_000, max_code_fills: int = 5_000,
                  first_pages: int = 30, more_pages: int = 20, metrics_ttl: float = 3600, history_ttl: float = 1800):
         self.client = client
-        self.series = series or TENNIS_SERIES
+        self.series = TENNIS_SERIES if series is None else series  # [] = no feed discovery
         self.feed_window = feed_hours * 3600
         self.rfq = rfq  # an rfq.RfqBook when a Kalshi API key is set
         self.links_per_cycle = links_per_cycle

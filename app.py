@@ -49,13 +49,14 @@ from combo_tracker import financial  # noqa: E402
 from combo_tracker.bettors import BettorTracker  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.collector import Collector  # noqa: E402
-from combo_tracker.demo import DemoClient, demo_rfq_book  # noqa: E402
+from combo_tracker.demo import DemoClient, demo_rfq_book, demo_store  # noqa: E402
 from combo_tracker.home import pack_home  # noqa: E402
-from combo_tracker.keys import find_secret, kalshi_auth, key_rejected  # noqa: E402
+from combo_tracker.keys import find_secret, kalshi_auth  # noqa: E402
 from combo_tracker.pipeline import Board, Scorer, TradesUnavailable  # noqa: E402
 from combo_tracker import quote_view  # noqa: E402
 from combo_tracker import tools_view  # noqa: E402
-from combo_tracker.rfq import RfqBook  # noqa: E402
+from combo_tracker import recorder  # noqa: E402
+from combo_tracker.recorder import build_view, pack_live, pack_view  # noqa: E402
 from combo_tracker.view import LIVE_HOURS, num, pack, pack_bettors, slim_legs  # noqa: E402
 
 DEMO = os.environ.get("DEMO") == "1"
@@ -123,6 +124,12 @@ home_cards = st.components.v2.component(
 bettor_table = st.components.v2.component(
     "bettor_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text(),
     js=(UI / "bettors.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
+rank_table = st.components.v2.component(
+    "rank_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text() + (UI / "ranks.css").read_text(),
+    js=(UI / "ranks.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
+live_table = st.components.v2.component(
+    "live_table", css=(UI / "table.css").read_text() + (UI / "bettors.css").read_text() + (UI / "ranks.css").read_text(),
+    js=(UI / "live.js").read_text().replace('"__LOGO__"', json.dumps(LOGO)))
 
 # The home-screen icon and name. Streamlit has no setting for them, and Streamlit Cloud shows the
 # app inside a page of its own, so they're also set on that page when the browser allows it. The
@@ -559,7 +566,9 @@ def home_page() -> None:
 
 
 # ---------- Bettors page ----------
-BETTOR_CYCLE = 900  # seconds between full passes over the tennis feed and bettors' histories
+BETTOR_CYCLE = 900  # seconds between passes over the names you add on the page
+BETTOR_TABS = ["Whales", "Tennis", "Live", "Profiles"]
+DEFAULT_VARIANT = {"Whales": "a:all", "Tennis": "t:30"}
 
 
 def _secrets() -> tuple[dict, str | None]:
@@ -579,78 +588,218 @@ def _kalshi_auth() -> tuple[KalshiAuth | None, str | None]:
     return auth, (None if auth else problem or missing)
 
 
-def _sync_rfq(tracker: BettorTracker, auth: KalshiAuth | None) -> None:
-    """Start RFQ matching once the app has a key, or switch it to a new key, without a reboot."""
-    if not DEMO and auth is not None:
-        # Its own client: it polls the trade feed every 5 seconds and looks up hidden requesters.
-        tracker.use_key(auth, lambda a: RfqBook(KalshiClient(rate_per_sec=4, auth=a)))
+class _Fixed:
+    """A Feed that always returns the same data (the demo)."""
+
+    def __init__(self, data):
+        self.data, self.error = data, None
+
+    def get(self, force: bool = False):
+        return self.data
 
 
-@st.cache_resource
-def get_bettors() -> BettorTracker:
-    """One tracker shared by every visitor, started the first time someone opens the page.
-
-    With a Kalshi API key it also listens to RFQs and matches them to new combo
-    trades, which identifies combo bettors by their RFQ code.
-    """
+@st.cache_resource(show_spinner=False)  # may be first called from a callback, where nothing should draw
+def bettor_feeds() -> SimpleNamespace:
+    """Where the Bettors page reads from: the recorder's files on the bettor-data branch (see
+    combo_tracker/recorder.py), opened with the app's Kalshi key, plus the starred bettors."""
     if DEMO:
         client = DemoClient()
-        tracker = BettorTracker(client, every=BETTOR_CYCLE, rfq=demo_rfq_book(client))
-        tracker.cycle()
-        return tracker
+        view = build_view(demo_store(client))
+        rows = pack_bettors(demo_tracker().snapshot.rows)
+        profiles = {"saved": view["saved"], "rows": rows, "live": [], "status": "idle"}
+        return SimpleNamespace(view=_Fixed(view), profiles=_Fixed(profiles), tags_feed=_Fixed({"tags": view["tags"]}),
+                               tags=None, problem=None)
+    auth, problem = _kalshi_auth()
+    secret = _secret("BETTOR_DATA_KEY")
+    if auth is None and not secret and not problem:
+        problem = "add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY (the key the recorder uses) to the app's secrets"
+    token = _secret("GH_TOKEN")
+    return SimpleNamespace(view=recorder.Feed(recorder.VIEW_URL, auth, secret),
+                           profiles=recorder.Feed(recorder.PROFILES_URL, auth, secret),
+                           tags_feed=recorder.Feed(recorder.TAGS_URL, plain=True, ttl=120),
+                           tags=recorder.GitHubTags(token) if token else None, problem=problem)
+
+
+def demo_tracker() -> BettorTracker:
+    client = DemoClient()
+    tracker = BettorTracker(client, every=BETTOR_CYCLE, rfq=demo_rfq_book(client))
+    tracker.cycle()
+    return tracker
+
+
+@st.cache_resource(show_spinner=False)  # may be first called from a callback, where nothing should draw
+def get_bettors() -> BettorTracker:
+    """A small tracker for the names you type on the Profiles tab: it loads only their histories
+    (the recorder follows the busiest public tennis names around the clock)."""
     for name in ("bettor-tracker", "rfq-stream", "rfq-matcher"):
         _stop_collectors(name)
-    # Its own client and rate limit, so it never slows the combo collector down.
-    tracker = BettorTracker(KalshiClient(rate_per_sec=5), every=BETTOR_CYCLE)
-    _sync_rfq(tracker, _kalshi_auth()[0])
-    return tracker.start()
+    if DEMO:
+        return demo_tracker()
+    return BettorTracker(KalshiClient(rate_per_sec=5), series=[], every=BETTOR_CYCLE).start()
+
+
+def _tags() -> set[str]:
+    """Starred bettors: the shared list on GitHub (when the app has a token) plus this session's."""
+    feeds = bettor_feeds()
+    shared = recorder.parse_tags(json.dumps(feeds.tags_feed.get() or {}))
+    return shared | set(st.session_state.get("local_tags", ()))
+
+
+def _tags_shared() -> bool:
+    """Whether this session's stars go to GitHub: the app has a token and the session unlocked with
+    TRADE_PIN (anyone with the link can open the app; only the PIN holder gets to write to the repo)."""
+    feeds = bettor_feeds()
+    pin = _secret("TRADE_PIN")
+    if feeds.tags is None or not pin:
+        return False
+    auth, _ = _kalshi_auth()
+    return quote_view._unlocked(pin, auth.key_id if auth is not None else "demo")
+
+
+def _set_tag(tag: str, on: bool | None) -> None:
+    """Star (on) or unstar a bettor; None flips it. The state asked for is what's kept, so a tap on a
+    stale page can't undo the last one."""
+    if not recorder.valid_tag(tag):
+        return
+    feeds = bettor_feeds()
+    local = st.session_state.setdefault("local_tags", set())
+    if on is None:
+        on = tag not in _tags()
+    if _tags_shared():
+        try:
+            tags = feeds.tags.set(tag, on)
+            with feeds.tags_feed.lock:  # the raw file on GitHub lags a few minutes; we know the answer
+                feeds.tags_feed.data, feeds.tags_feed.fetched_at, feeds.tags_feed.error = {"tags": sorted(tags)}, time.time(), None
+            local.discard(tag)
+            return
+        except Exception as exc:
+            st.session_state.tag_error = f"Couldn't save the star on GitHub: {type(exc).__name__}: {exc}"[:160]
+    if on:  # (a statement: a bare conditional expression here would be st.write'n by Streamlit's magic)
+        local.add(tag)
+    else:
+        local.discard(tag)
+
+
+def _rank_event(name: str):
+    def cb():
+        value = getattr(st.session_state.rk, name, None)
+        if value is None:
+            return
+        if name == "view":
+            st.session_state[f"rk_variant_{st.session_state.get('bt_tab') or 'Whales'}"] = value
+        elif name == "open":
+            st.session_state.rk_open = value
+        elif name == "tag":
+            _set_tag(value["id"], value.get("on"))
+        elif name == "quote":
+            st.session_state.quote_req = value
+        elif name == "refresh":
+            bettor_feeds().view.get(force=True)
+    return cb
+
+
+def _live_event(name: str):
+    def cb():
+        value = getattr(st.session_state.lv, name, None)
+        if value is None:
+            return
+        if name == "tag":
+            _set_tag(value["id"], value.get("on"))
+        elif name == "quote":
+            st.session_state.quote_req = value
+        elif name == "refresh":
+            feeds = bettor_feeds()
+            feeds.view.get(force=True)
+            feeds.profiles.get(force=True)
+    return cb
 
 
 def _track():
-    name = getattr(st.session_state.bt, "track", None)
+    value = getattr(st.session_state.bt, "track", None)
+    name, add = (value.get("name"), value.get("add")) if isinstance(value, dict) else (value, False)
     if name:
         get_bettors().add(name)
+        if add and _tags_shared() and name not in _tags():  # a name added here: the recorder follows it too
+            _set_tag(name, True)
+
+
+def _go_quote() -> None:
+    go = st.session_state.pop("quote_req", None)
+    if go:  # "Quote it" on a bet: check it on the Quote page (quote_view reads these params)
+        st.session_state.pop("q_ctx", None)
+        st.switch_page(QUOTE, query_params={"t": go["t"], "side": go["side"], "p": f"{go['p']:.4f}", "n": f"{go['n']:g}"})
+
+
+def _data_note(feeds, view) -> tuple[str | None, str | None]:
+    """(error, note) for the recorder's data."""
+    if feeds.problem:
+        return f"RFQ codes need the recorder's key: {feeds.problem}.", None
+    if view is None:
+        return feeds.view.error or "No data yet.", None
+    note = None
+    if feeds.view.error:
+        note = f"Showing the last copy: {feeds.view.error}"
+    elif view.get("saved") and time.time() * 1000 - view["saved"] > 30 * 60000:
+        note = "The recorder hasn't saved in a while; it may be between runs. Start it from Actions → Bettor recorder."
+    return None, note
 
 
 @st.fragment
 def bettors_view():
-    tracker = get_bettors()
-    auth, problem = (None, None) if DEMO else _kalshi_auth()
-    _sync_rfq(tracker, auth)  # picks up secrets added or fixed since the app started
-    snap = tracker.snapshot
-    notes = []
-    if snap and snap.feed_since:
-        notes.append(f"Tennis feed since {snap.feed_since:%H:%M} UTC: {snap.named_trades:,} of "
-                     f"{snap.feed_trades:,} trades show a public name.")
-    rfq = snap.rfq if snap else None
-    live = None if DEMO else tracker.rfq  # newer than the snapshot, which can be 15 minutes old
-    stream = live.ws_status if live else (rfq or {}).get("stream")
-    if stream == "reconnecting" and key_rejected(live.last_error if live else rfq.get("error")):
-        notes.append("RFQ matching can't connect: Kalshi turned down the API key, so check that "
-                     "KALSHI_KEY_ID and KALSHI_PRIVATE_KEY come from the same key.")
-    elif rfq is None and not DEMO:
-        notes.append(f"RFQ matching is starting: names show up as combo bets fill. Stream {stream}." if live else
-                     f"RFQ matching is off: {problem}.")
-    elif rfq:
-        matched = rfq.get("sure", 0) + rfq.get("likely", 0)
-        bets = rfq.get("executions", 0)
-        since = f" since {datetime.fromtimestamp(rfq['since'], timezone.utc):%H:%M} UTC" if rfq.get("since") else ""
-        heard = f" from {rfq['rfqs']:,} RFQs" if rfq.get("rfqs") else ""
-        notes.append(f"RFQ matching{since}: {matched:,} of {bets:,} combo bets named ({matched / max(bets, 1):.0%}, "
-                     f"{rfq.get('sure', 0):,} sure){heard}; {rfq.get('codes', 0):,} codes, "
-                     f"the top {rfq.get('shown', 0)} listed, {rfq.get('linked', 0)} linked to a name. "
-                     f"Stream {stream}.")
-    bettor_table(
-        key="bt",
-        data={
-            "rows": pack_bettors(snap.rows) if snap else [], "demo": DEMO,
-            "updated": int((snap.updated if snap else datetime.now(timezone.utc)).timestamp() * 1000),
-            "status": tracker.status, "note": " ".join(notes),
-            "error": ("Some Kalshi calls failed and will be retried: " + snap.errors[-1][:160]) if snap and snap.errors else None,
-        },
-        on_refresh_change=lambda: None,
-        on_track_change=_track,
-    )
+    _go_quote()
+    feeds = bettor_feeds()
+    tab = st.segmented_control("Tab", BETTOR_TABS, default="Whales", key="bt_tab", label_visibility="collapsed",
+                               width="stretch") or "Whales"
+    tags = _tags()
+    if tab in ("Whales", "Tennis"):
+        view = feeds.view.get()
+        error, note = _data_note(feeds, view)
+        variant = st.session_state.get(f"rk_variant_{tab}", DEFAULT_VARIANT[tab])
+        data = pack_view(view, variant, open_code=st.session_state.get("rk_open"), tags=tags)
+        rank_table(key="rk", data={**data, "tab": tab.lower(), "demo": DEMO, "error": error,
+                                   "note": " ".join(filter(None, [note, st.session_state.pop("tag_error", None)]))},
+                   on_view_change=_rank_event("view"), on_open_change=_rank_event("open"), on_tag_change=_rank_event("tag"),
+                   on_quote_change=_rank_event("quote"), on_refresh_change=_rank_event("refresh"))
+    elif tab == "Live":
+        view = feeds.view.get()
+        profiles = feeds.profiles.get() or {}
+        error, note = _data_note(feeds, view)
+        data = pack_live(view, tags=tags)
+        seen = {b["id"] for b in data["live"]}  # a named code who is also a tracked profile: the code's copy has the record
+        by_nick = {r["nick"]: r for r in profiles.get("rows") or []}  # the profiles' own 30-day records
+        data["live"] = sorted(data["live"] + [{**b, "c": None, "tg": b.get("name") in tags,
+                                               "s30": by_nick.get(b.get("name"), {}).get("all30"),
+                                               "t30": by_nick.get(b.get("name"), {}).get("tennis30")}
+                                              for b in profiles.get("live") or [] if b["id"] not in seen],
+                              key=lambda b: -b["t"])
+        live_table(key="lv", data={**data, "demo": DEMO, "error": error, "note": note},
+                   on_tag_change=_live_event("tag"), on_quote_change=_live_event("quote"), on_refresh_change=_live_event("refresh"))
+    else:
+        tracker = get_bettors()
+        profiles = feeds.profiles.get() or {}
+        rows = {r["nick"]: r for r in profiles.get("rows") or []}
+        snap = tracker.snapshot
+        if snap:  # names added here take precedence: they're fresher
+            rows.update((r["nick"], r) for r in pack_bettors(snap.rows))
+        notes = []
+        if profiles.get("feed_since"):
+            notes.append(f"Tennis feed since {datetime.fromtimestamp(profiles['feed_since'] / 1000, timezone.utc):%H:%M} UTC: "
+                         f"{profiles.get('named_trades', 0):,} of {profiles.get('feed_trades', 0):,} trades show a public name.")
+        if feeds.problem:
+            notes.append(f"Recorder data needs the key: {feeds.problem}.")
+        elif feeds.profiles.error and not rows:
+            notes.append(feeds.profiles.error)
+        bettor_table(
+            key="bt",
+            data={
+                "rows": list(rows.values()), "demo": DEMO,
+                "updated": int((profiles.get("saved") or (snap.updated.timestamp() * 1000 if snap else time.time() * 1000))),
+                "status": tracker.status if snap else "idle", "note": " ".join(notes),
+                "error": ("Some Kalshi calls failed and will be retried: " + snap.errors[-1][:160]) if snap and snap.errors else None,
+            },
+            on_refresh_change=lambda: feeds.profiles.get(force=True),
+            on_track_change=_track,
+        )
 
 
 def bettors_page() -> None:
@@ -658,36 +807,37 @@ def bettors_page() -> None:
     bettors_view()
     with st.expander("Where this data comes from and how to read it"):
         st.markdown(
-            "- **Who's listed**: the 40 busiest public names in the last day of Kalshi's tennis trades, any "
-            "nickname you add with the search box, and combo bettors identified by **RFQ code** (below).\n"
             "- **RFQ codes**: every combo bet starts as a request for quote, which Kalshi broadcasts to logged-in "
             "users with the requester's code (a hash that stays the same for that person). When the bet fills, Kalshi "
-            "closes the request in the same instant, so a combo trade is matched to the request on the same market, "
-            "with the same size (or a bit more: a quote can fill less than asked), that closed within a couple of "
-            "seconds of it. **Sure** means every request that fit and closed about as near the trade came from the "
-            "same person (the app re-asks every few seconds while a slip is open); otherwise the one that closed "
-            "nearest the trade wins. Thousands of people bet combos every hour, so only the 100 biggest "
-            "codes by dollars bet, plus the 50 biggest in tennis, with 3+ bets are listed and priced. When a matched "
-            "trade shows a public nickname in the social feed, the code is linked to that name. Codes only build up "
-            "while the app runs (Kalshi doesn't keep RFQ history), and need an API key in the app's secrets.\n"
-            "- Kalshi's main trade feed has no trader ID. Its **social API** (what kalshi.com profiles use, free "
-            "and keyless) returns the same trades with the maker's and taker's nicknames, but only for profiles "
-            "that show their trades. A profile that hides them shows **hidden**, with only Kalshi's own PnL and "
-            "markets-traded counts.\n"
-            "- **PnL** is Kalshi's number for the profile; **View** switches between all-time and the last 30 days, "
-            "with the other one underneath. For an RFQ code it's what its matched, settled bets made. **Trades** "
-            "counts the fills in our sample (the bettor's whole history, loaded over a few cycles), and **win %** "
-            "is the share of settled ones that won.\n"
-            "- **EV** prices every trade against the market's bid/ask mid in the minute it happened (one-minute "
-            "candles), after taker fees. A combo is priced from its legs' books. A market maker earns the spread, "
-            "so EV is positive; a taker who crosses the spread starts negative.\n"
-            "- **Beat** = settled PnL − EV on the same trades, and **z** = that ÷ its standard deviation. z tells "
-            "luck from skill: around 0 is what the book expected, 2+ over hundreds of trades is rare by chance. "
-            "That's the tennis-sharp signal: PnL far above what the book said their bets were worth.\n"
-            "- **Scope** switches the sample between tennis-only and all of the bettor's trades. Tap a row for "
-            "their latest trades. Maker fees (some markets charge them) aren't included.\n"
-            "- The tracker refreshes every 15 minutes in the background; the first pass after a restart takes "
-            "several minutes."
+            "closes the request in the same instant, so the trade is matched to the request on the same market, with "
+            "the same size, that closed with it. About 97% of combo bets get a code this way. A **recorder** runs "
+            "around the clock in GitHub Actions doing this, prices each kept bet against its legs' books seconds "
+            "after it fills, settles it when the combo resolves, and saves everything (encrypted) every few minutes. "
+            "When a bet's trade shows a public nickname in Kalshi's social feed, the code gets that name.\n"
+            "- **Whales**: anyone who has placed a combo bet of $5,000 or more; from then on their bets of $1,000+ "
+            "are kept too. The size chips filter by their biggest bet in the period. **95¢+ bets** are locks (risking "
+            "a lot to win a little, usually on a combo that's nearly decided); they're left out unless you turn them on, "
+            "because they swamp the totals.\n"
+            "- **Tennis**: every combo bet with a tennis leg of $25 or more is kept, for everyone, so tennis bettors "
+            "can be ranked with a real sample. Default view: last 30 days, 5+ bets, sorted by z.\n"
+            "- **Size** is dollars bet in the period, with the biggest single bet under it. **PnL** is what their settled "
+            "bets made after fees (ROI under it); *open* means nothing has settled yet. **vs EV** = settled PnL − what "
+            "the book said those bets were worth when placed (fair value from the legs' mids), and **z** = that ÷ its "
+            "standard deviation: around 0 is what the book expected, 2+ is hard to get by luck. **Bets** counts them, "
+            "with the share won under it.\n"
+            "- **Live**: the open bets from the last two days of whales, the top tennis bettors, anyone you starred, "
+            "and the public profiles below, newest first, each with the bettor's 30-day record. **Quote it** checks "
+            "the same combo on the Quote page.\n"
+            "- **★ Star** a bettor to keep every bet of theirs (whatever the size) and to filter to them. Stars are "
+            "kept on this phone; with a GitHub token (GH_TOKEN) in the app's secrets, and once you've unlocked with "
+            "the PIN on the Quote page, they're shared with the recorder, which can also send each starred bettor's "
+            "bets to Telegram.\n"
+            "- **Profiles**: public Kalshi profiles (the busiest names in the tennis feed plus any you add) with their "
+            "whole trade history, Kalshi's own PnL, EV against one-minute candles, and **Beat** = PnL − EV with its z. "
+            "A profile that hides its trades shows **hidden**.\n"
+            "- Combos with a crypto, commodity or other financial leg aren't recorded at all, as on the other pages.\n"
+            "- Bets older than a few days of ordinary bettors are folded into per-day totals; whales' and starred "
+            "bettors' bets are kept whole for a year. The recorder saves every 5 minutes, and the page re-reads every 5."
         )
 
 

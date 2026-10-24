@@ -286,3 +286,49 @@ def _get_rfq(self, rfq_id: str) -> dict:
 
 
 DemoClient.get_rfq = _get_rfq
+
+
+def demo_store(client: DemoClient, seed: int = 3, now: float | None = None):
+    """A recorder Store as if the recorder had run for a month: a few whales (some fond of 95¢+ locks),
+    tennis bettors with real samples, one tagged bettor, and open bets from the last day."""
+    import time
+
+    from .recorder import Store
+
+    rng = random.Random(seed)
+    now = now or time.time()
+    store = Store()
+    tickers = list(client.combo_markets)
+    people = [("whale", 0.0, 3), ("whale", 0.6, 2), ("tennis", 0.0, 6), ("tennis", 0.0, 4), ("tennis", 0.1, 3),
+              ("fish", 0.0, 1)]
+    codes = []
+    for i, (kind, lock_share, skill) in enumerate(people):
+        code = hashlib.sha256(f"demo-{i}".encode()).hexdigest()
+        codes.append(code)
+        n = rng.randint(40, 120) if kind == "tennis" else rng.randint(6, 25) if kind == "whale" else 8
+        for j in range(n):
+            ts = now - rng.uniform(0, 30 * 86400) if j > 2 else now - rng.uniform(0, 5 * 3600)  # a few open bets each
+            lock = rng.random() < lock_share
+            price = rng.uniform(0.955, 0.995) if lock else rng.uniform(0.05, 0.6)
+            size = (rng.uniform(5000, 40000) if lock or rng.random() < 0.4 else rng.uniform(1000, 5000)) if kind == "whale" \
+                else rng.uniform(25, 400) if kind == "tennis" else rng.uniform(10, 60)
+            ticker = rng.choice(tickers)
+            fair = min(0.999, max(0.001, price * (1 + rng.gauss(0.02 * skill, 0.08))))
+            bet = {"id": f"d{i}-{j}", "c": code, "t": round(ts, 3), "tk": ticker, "s": rng.choice(["yes", "yes", "no"]),
+                   "n": round(size / price, 2), "p": round(price, 4), "sure": rng.random() < 0.95,
+                   "ten": kind == "tennis" or rng.random() < 0.3, "fm": round(fair, 5), "fc": round(fair * 0.97, 5),
+                   "L": rng.choice([2, 2, 3, 4]), "lv": rng.random() < 0.3,
+                   "ti": " · ".join(("NO " if l["side"] == "no" else "") + client.leg_markets[l["market_ticker"]]["yes_sub_title"]
+                                    for l in client.combo_markets[ticker]["mve_selected_legs"][:3])}
+            if now - ts > 6 * 3600:  # settled: sharps win a little more often than the book expected
+                won = rng.random() < min(0.99, fair + 0.03 * skill)
+                bet["r"] = bet["s"] if won else ("no" if bet["s"] == "yes" else "yes")
+            store.bets[bet["id"]] = bet
+            info = store.codes.setdefault(code, {"big": 0.0, "first": ts, "name": None})
+            info["big"] = max(info["big"], size)
+            info["first"] = min(info["first"], ts)
+    store.codes[codes[2]]["name"] = "tennis.sharp"
+    store.codes[codes[2]].update(pa=18210.5, p30=4120.0)
+    store.tags.add(codes[5])
+    store.runs = [[now - 30 * 86400, now - 20 * 86400], [now - 19.5 * 86400, now]]
+    return store
