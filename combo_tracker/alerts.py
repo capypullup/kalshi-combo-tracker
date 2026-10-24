@@ -39,9 +39,10 @@ def ev_of(row: dict, basis: str = "mid") -> float | None:
 
 
 # Bet size floor : min EV %. Pregame edges are the ones worth betting, so small pregame bets
-# only need a big edge; live edges are mostly lines moving under a stale book, so live bars are higher.
+# only need a big edge; live edges are mostly lines moving under a stale book, so live alerts start at $1k
+# and need +100% (+50% from $5k).
 PREGAME_TIERS = "50:100,500:20,1000:10"
-LIVE_TIERS = "50:200,500:100,1000:50"
+LIVE_TIERS = "1000:100,5000:50"
 
 
 def parse_tiers(text: str) -> list[tuple[float, float]]:
@@ -111,9 +112,20 @@ def tier(ev: float) -> tuple[int, str, str]:
 
 
 def title(row: dict, basis: str = "mid") -> str:
-    """'PREGAME +812% EV · $1,250 YES 4-leg combo', the line a lock screen shows."""
-    return (f"{'LIVE' if is_live(row) else 'PREGAME'} {ev_of(row, basis) * 100:+.0f}% EV · ${row['stake']:,.0f} "
-            f"{row['side'].upper()} {row['legs']}-leg combo")
+    """'PREGAME +812% EV', the first line a lock screen shows."""
+    return f"{'LIVE' if is_live(row) else 'PREGAME'} {ev_of(row, basis) * 100:+.0f}% EV"
+
+
+def payout(row: dict) -> str:
+    """'$1,250 @ 13.0x (+1200) → $16,250': bet, multiplier, American odds and what it pays."""
+    price = row["price"]
+    mult = f"{1 / price:.1f}x" if price else "?"
+    return f"${row['stake']:,.0f} @ {mult} ({fmt_odds(price)}) → ${row['max_payout']:,.0f}"
+
+
+def bet_line(row: dict) -> str:
+    """'$1,250 @ 13.0x (+1200) → $16,250 4-leg combo', the line under the title ('NO 4-leg combo' for a NO bet)."""
+    return f"{payout(row)} {'NO ' if row['side'] == 'no' else ''}{row['legs']}-leg combo"
 
 
 def summary(row: dict) -> str:
@@ -126,9 +138,8 @@ def summary(row: dict) -> str:
             f"{part('CRX', row['ev_pct_crx'], row['fair_crx'], row['kelly_crx'])}")
 
 
-def body(row: dict) -> str:
-    price = row["price"]
-    mult = f"{1 / price:.1f}x" if price else "?"
+def details(row: dict) -> str:
+    """How long ago, warnings and the bet card: the lines under an alert's (or a tail message's) headline."""
     notes = [f"{row['minutes_ago']:.0f} min ago"]
     if row["same_game_legs"]:
         notes.append("same game")
@@ -136,13 +147,12 @@ def body(row: dict) -> str:
         notes.append("thin leg book")
     if (row["ev_pct_mid"] or 0) > 2:
         notes.append("check the book, +200% edges are often stale")
-    return "\n".join([
-        summary(row),
-        f"${row['stake']:,.0f} @ {mult} ({fmt_odds(price)}) → ${row['max_payout']:,.0f}",
-        " · ".join(notes),
-        "",
-        bet_card(row),
-    ])
+    return "\n".join([" · ".join(notes), "", bet_card(row)])
+
+
+def body(row: dict) -> str:
+    """Everything under the title: the bet line, the MID/CRX summary, then details()."""
+    return "\n".join([bet_line(row), summary(row), details(row)])
 
 
 def buttons(row: dict, app_url: str | None = None) -> list[tuple[str, str]]:
@@ -162,10 +172,10 @@ def message(row: dict, topic: str, basis: str = "mid", app_url: str | None = Non
 
 
 def telegram_message(row: dict, chat_id: str, basis: str = "mid", app_url: str | None = None) -> dict:
-    """sendMessage JSON: the title and summary lines in bold, the rest of the body, and link buttons under it."""
+    """sendMessage JSON: the title, bet and summary lines in bold, the rest of the body, and link buttons under it."""
     emoji = tier(ev_of(row, basis))[2]
-    head = f"{emoji} {title(row, basis)}\n{summary(row)}"
-    text = f"{emoji} {title(row, basis)}\n{body(row)}"  # body() opens with the summary line
+    head = f"{emoji} {title(row, basis)}\n{bet_line(row)}\n{summary(row)}"
+    text = f"{emoji} {title(row, basis)}\n{body(row)}"  # body() opens with the bet and summary lines
     return {"chat_id": chat_id, "text": text, "entities": [{"type": "bold", "offset": 0, "length": len(head.encode("utf-16-le")) // 2}],
             "link_preview_options": {"is_disabled": True},
             "reply_markup": {"inline_keyboard": [[{"text": label, "url": url} for label, url in buttons(row, app_url)]]}}

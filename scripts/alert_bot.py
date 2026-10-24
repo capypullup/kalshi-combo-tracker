@@ -5,7 +5,7 @@ pull the newest combo trades every minute, score the bets against the leg books,
 new one that clears its size tier to your
 Telegram bot (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) or ntfy topic (NTFY_TOPIC). Pregame and live
 bets have their own tiers (ALERT_TIERS_PREGAME, ALERT_TIERS_LIVE: "50:100,500:20" = $50+ bets need
-+100% EV, $500+ need +20%; "off" turns one kind off). Thin leg books are always left out, and so are same-game combos
++100% EV, $500+ need +20%; live defaults to $1k+ at +100%, $5k+ at +50%; "off" turns one kind off). Thin leg books are always left out, and so are same-game combos
 (ALERT_SKIP_SAME_GAME=0 keeps them), combos over 5 legs (ALERT_MAX_LEGS), over 3 legs once a game
 has started (ALERT_MAX_LEGS_LIVE) or across 3+ leagues (ALERT_MAX_LEAGUES=2), "off" for no cap, and
 combos with a crypto leg. With

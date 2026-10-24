@@ -26,7 +26,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 
-from .alerts import body, buttons
+from .alerts import buttons, details, payout as payout_line, summary
 from .bettors import to_fill
 from .client import COMBO_PREFIX
 from .engine import taker_fee
@@ -212,7 +212,7 @@ class Tail:
     def bet_message(self, row: dict, chat_id: str, app_url: str | None = None, lag: float | None = None) -> dict:
         """Telegram sendMessage JSON for one of the friend's bets: what, how big, EV now, and a Bet in Kalshi button."""
         head = self.head(row)
-        text = f"{head}\n{body(row)}"
+        text = f"{head}\n{summary(row)}\n{payout_line(row)}\n{details(row)}"
         if lag is not None:
             text += f"\n\n(sent {lag:.0f}s after the bet)"
         return {"chat_id": chat_id, "text": text,
