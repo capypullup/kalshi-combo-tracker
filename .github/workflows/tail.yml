@@ -1,12 +1,16 @@
 name: Tail bot
 # Sends a friend's combo bets to your Telegram seconds after they fill (scripts/tail_bot.py).
-# Start it from Actions → Tail bot → Run workflow; one run lasts up to ~5h50m.
+# Runs around the clock: each run lasts ~5h50m, and the hourly schedule keeps the next one queued
+# (concurrency below), so it starts as soon as the last one ends and picks up its codes and recent bets.
+# Actions → Tail bot → Run workflow starts one by hand.
 # Needs the secrets KALSHI_KEY_ID + KALSHI_PRIVATE_KEY (the RFQ stream) and TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
 # Settings → Secrets and variables → Actions → Variables:
 #   TAIL_NICKNAME (their Kalshi nickname), TAIL_LABEL (name in the alerts), TAIL_CODES (known codes),
 #   TAIL_PEEK (1 = also ping quietly when they ask for a quote), APP_URL (adds a Quote it button).
 # Or just send the bot one of their combo bets in Telegram and it finds their code.
 on:
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       minutes:
@@ -16,7 +20,7 @@ on:
         description: Print alerts instead of sending (1 = yes)
         default: "0"
 
-concurrency:
+concurrency:  # one run at a time; a newer queued run replaces an older queued one
   group: tail-bot
   cancel-in-progress: false
 
@@ -31,12 +35,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install requests cryptography websocket-client
-      - name: Codes from earlier runs
+      - name: Codes and recent bets from earlier runs
         uses: actions/cache/restore@v4
         with:
-          path: tail_state.json
-          key: tail-state-${{ github.run_id }}
-          restore-keys: tail-state-
+          path: |
+            tail_state.sealed
+            tail_history.sealed
+          key: tail-sealed-${{ github.run_id }}
+          restore-keys: tail-sealed-
       - run: python scripts/tail_bot.py
         env:
           KALSHI_KEY_ID: ${{ secrets.KALSHI_KEY_ID }}
@@ -50,9 +56,11 @@ jobs:
           APP_URL: ${{ vars.APP_URL }}
           TAIL_MINUTES: ${{ inputs.minutes || '350' }}
           DRY_RUN: ${{ inputs.dry_run || '0' }}
-      - name: Remember the codes
+      - name: Remember the codes and recent bets
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: tail_state.json
-          key: tail-state-${{ github.run_id }}
+          path: |
+            tail_state.sealed
+            tail_history.sealed
+          key: tail-sealed-${{ github.run_id }}

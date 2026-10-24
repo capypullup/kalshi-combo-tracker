@@ -22,6 +22,7 @@ scripts/tail_bot.py runs it; this module keeps the matches, the codes and the me
 from __future__ import annotations
 
 import re
+import sys
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
@@ -253,3 +254,24 @@ class Tail:
         self.codes.update(data.get("codes") or {})
         self.candidates = set(data["candidates"]) if data.get("candidates") else None
         self.sent.update(data.get("sent") or {})
+
+    def dump_history(self) -> dict:
+        """The bets remembered for finding a code, compact, so the next run can pick them up:
+        {"codes": [...], "bets": {ticker: [[time, code index, "y"/"n", stake, contracts], ...]}}."""
+        codes: dict[str, int] = {}
+        bets = {ticker: [[round(ts, 2), codes.setdefault(code, len(codes)), side[0], round(stake, 2), round(count, 2)]
+                         for ts, code, side, stake, _, count in seen]
+                for ticker, seen in self.history.items() if seen}
+        return {"codes": list(codes), "bets": bets}
+
+    def load_history(self, data: dict, now: float | None = None) -> int:
+        """Bets an earlier run remembered, still inside the window. Returns how many."""
+        cutoff = (time.time() if now is None else now) - self.keep
+        codes = [sys.intern(c) for c in data.get("codes") or []]
+        n = 0
+        for ticker, rows in (data.get("bets") or {}).items():
+            old = [(ts, codes[i], "yes" if s == "y" else "no", stake, (), count) for ts, i, s, stake, count in rows if ts >= cutoff]
+            if old:
+                self.history[ticker] = deque(sorted(old + list(self.history.get(ticker, ())), key=lambda b: b[0]))
+                n += len(old)
+        return n

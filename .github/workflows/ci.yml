@@ -57,7 +57,7 @@ jobs:
           set -o pipefail
           echo -e "\n===== Tail bot =====" >> /tmp/live_check.txt
           if [ -z "$KALSHI_KEY_ID" ]; then echo "No API key; skipping." | tee -a /tmp/live_check.txt; exit 0; fi
-          DRY_RUN=1 TAIL_SELFTEST=1 TAIL_MINUTES=3 TAIL_STATE_FILE=/tmp/tail_state.json \
+          DRY_RUN=1 TAIL_SELFTEST=1 TAIL_MINUTES=3 TAIL_STATE_FILE=/tmp/tail_state.sealed TAIL_HISTORY_FILE=/tmp/tail_history.sealed \
             python scripts/tail_bot.py 2>&1 | tee -a /tmp/live_check.txt
       - name: Live check of the bettor recorder (3 min dry run, needs the API key secrets)
         if: always()

@@ -14,9 +14,13 @@ if their profile shows their trades publicly.
 Other settings: TAIL_LABEL (name in the alerts, default the nickname or "Friend"),
 TAIL_PEEK=1 (also ping quietly when they ask for a quote, before they bet),
 TAIL_MINUTES (how long one run lasts), TAIL_KEEP_HOURS (how far back a bet you send can be,
-default 6), TAIL_STATE_FILE (codes kept between runs), APP_URL (adds a Quote it button),
+default 6), TAIL_STATE_FILE and TAIL_HISTORY_FILE (the codes, and the last hours of everyone's
+bets, handed to the next run; both locked with a key derived from the Kalshi private key), APP_URL (adds a Quote it button),
 DRY_RUN=1 (print instead of sending), TAIL_SELFTEST=1 (CI: once bets come in, find one by its
 payout as if you'd sent it and print its alert, so the whole path runs).
+
+The repo is public, and so is the Actions log: outside a dry run the log only shows counts and
+timings, never the friend's code, nickname or bets.
 
 python scripts/tail_bot.py
 """
@@ -25,7 +29,6 @@ import json
 import os
 import sys
 import time
-import traceback
 from collections import deque
 from pathlib import Path
 
@@ -33,6 +36,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from combo_tracker import recorder  # noqa: E402
 from combo_tracker.alerts import TELEGRAM_URL  # noqa: E402
 from combo_tracker.client import KalshiAuth, KalshiClient  # noqa: E402
 from combo_tracker.pipeline import Scorer  # noqa: E402
@@ -49,7 +53,8 @@ tail = Tail(setting("TAIL_LABEL", nickname or "Friend"), float(setting("TAIL_KEE
 peek = setting("TAIL_PEEK", "0") == "1"
 minutes = float(setting("TAIL_MINUTES", "350"))
 app_url = setting("APP_URL") or None
-state_file = Path(setting("TAIL_STATE_FILE", "tail_state.json"))
+state_file = Path(setting("TAIL_STATE_FILE", "tail_state.sealed"))
+history_file = Path(setting("TAIL_HISTORY_FILE", "tail_history.sealed"))
 dry = setting("DRY_RUN", "0") == "1"
 selftest = setting("TAIL_SELFTEST", "0") == "1"
 token, chat_id = setting("TELEGRAM_BOT_TOKEN"), setting("TELEGRAM_CHAT_ID")
@@ -61,22 +66,33 @@ if auth is None:
 
 offset = 0
 try:
-    saved = json.loads(state_file.read_text())
+    saved = recorder.unseal(state_file.read_bytes(), auth)
     tail.load(saved)
     offset = saved.get("telegram_offset") or 0
-except (OSError, ValueError):
+except (OSError, ValueError, KeyError, TypeError, recorder.Locked):  # none yet, or unreadable: start fresh
+    pass
+try:
+    print(f"{tail.load_history(recorder.unseal(history_file.read_bytes(), auth)):,} bets from the last run", flush=True)
+except (OSError, ValueError, KeyError, TypeError, recorder.Locked):  # none yet, or unreadable: start fresh
     pass
 for code in filter(None, (c.strip() for c in setting("TAIL_CODES").split(","))):
     tail.adopt(code, "TAIL_CODES")
 
 
 def save() -> None:
-    state_file.write_text(json.dumps({**tail.state(), "telegram_offset": offset}))
+    # The Actions cache can be read by other workflows in the repo, so the code is locked like the recorder's data.
+    state_file.write_bytes(recorder.seal({**tail.state(), "telegram_offset": offset}, auth))
+
+
+def save_history() -> None:
+    history_file.write_bytes(recorder.seal(tail.dump_history(), auth))
 
 
 def send(payload: dict) -> None:
     if tg is None:
-        print("\n>>>", payload.get("text"), flush=True)
+        # A dry run prints the message; a real run without Telegram secrets mustn't put it in the public log.
+        print("\n>>>", payload.get("text") if dry else f"(not sent: no Telegram secrets, {len(payload.get('text') or '')} chars)",
+              flush=True)
         return
     for _ in range(2):
         resp = requests.post(f"{tg}/sendMessage", json=payload, timeout=15)
@@ -121,10 +137,9 @@ if nickname:
     try:
         page = social_page()
         public = page.get("visibility_state") != "hidden" and page.get("trades") is not None
-        print(f"social feed for {nickname}: {page.get('visibility_state') or '?'}, "
-              f"{len(page.get('trades') or [])} trades", flush=True)
-    except Exception as exc:
-        print(f"social feed for {nickname}: {exc!r}", flush=True)
+        print(f"social feed for TAIL_NICKNAME: {'public' if public else 'not public'}", flush=True)
+    except Exception as exc:  # the URL names them: say only what kind
+        print(f"social feed for TAIL_NICKNAME: {type(exc).__name__}", flush=True)
 tail.link_trades = public  # trade ids are only needed to link their public trades; skipping them saves memory
 seen_social: set[str] = set()
 
@@ -206,17 +221,15 @@ def alert(m) -> None:
     try:
         rows = scorer.score(trades_of(m), max_bets=1).rows
     except Exception as exc:
-        print("score:", repr(exc), flush=True)
+        print("score:", type(exc).__name__, flush=True)
         rows = []
     payload = (tail.bet_message(rows[0], chat_id, app_url, time.time() - e.ts) if rows
                else tail.plain_bet_message(m, chat_id))
     send(payload)
-    print(f"{time.strftime('%H:%M:%S')} ALERT {short(m.creator)} {e.ticker} {e.side} ${e.count * e.price:,.0f} "
-          f"({time.time() - e.ts:.1f}s after the bet, sure={m.sure})", flush=True)
+    print(f"{time.strftime('%H:%M:%S')} alert sent {time.time() - e.ts:.1f}s after the bet", flush=True)
 
 
-print(f"Tail bot: following {', '.join(map(short, tail.codes)) or 'nobody yet'}"
-      f"{f' / nickname {nickname} ({'public' if public else 'trades not public'})' if nickname else ''}; "
+print(f"Tail bot: {len(tail.codes)} code(s) known; "
       f"peek={'on' if peek else 'off'}; {'Telegram' if tg else 'printing only'}; {minutes:.0f} min", flush=True)
 if not tail.codes and not selftest:
     say(f"Tail bot is on but doesn't know {tail.label}'s code yet. {HOW_TO}", quiet=True)
@@ -224,7 +237,7 @@ if not tail.codes and not selftest:
 scorer.starts.refresh()  # load the game schedule now so the first alert isn't slow
 book.start()
 deadline = time.time() + minutes * 60
-last = {"telegram": 0.0, "social": 0.0, "prune": time.time()}
+last = {"telegram": 0.0, "social": 0.0, "prune": time.time(), "history": time.time()}
 while time.time() < deadline:
     try:
         for m in book.take():
@@ -257,13 +270,16 @@ while time.time() < deadline:
             last["prune"] = now
             tail.prune()
             save()
+            if now - last["history"] >= 600:
+                last["history"] = now
+                save_history()
             s = book.stats
             print(f"{time.strftime('%H:%M:%S')} stream={book.ws_status} rfqs={s['rfqs']:,} named={s['sure'] + s['likely']:,} "
                   f"held={tail.held():,} codes={len(tail.codes)} err={book.last_error}", flush=True)
-    except Exception as exc:  # keep tailing through API hiccups
-        print(f"{time.strftime('%H:%M:%S')} error: {exc!r}", flush=True)
-        traceback.print_exc(limit=3, file=sys.stdout)
+    except Exception as exc:  # keep tailing through API hiccups; a message could hold a ticker or name
+        print(f"{time.strftime('%H:%M:%S')} error: {type(exc).__name__}", flush=True)
     time.sleep(0.5)
 
 book.stop()
 save()
+save_history()
